@@ -13,9 +13,9 @@ export const NS = 'liveTasks'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'trigger.running': '运行中',
-  'trigger.idle': '空闲',
-  'panel.aria': '会话任务状态',
+  'view.tab': '任务',
+  'view.title': '会话任务状态',
+  'view.empty': '本会话当前没有进行中的任务。',
   'panel.empty': '本次会话还没有事件。',
   'row.phase': '状态',
   'row.turn': '回合',
@@ -37,9 +37,9 @@ export const zh = {
 
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<LiveTaskKey, string> = {
-  'trigger.running': 'running',
-  'trigger.idle': 'idle',
-  'panel.aria': 'Session task state',
+  'view.tab': 'Tasks',
+  'view.title': 'Session task state',
+  'view.empty': 'This session has no task in progress.',
   'panel.empty': 'This session has no events yet.',
   'row.phase': 'State',
   'row.turn': 'Turn',

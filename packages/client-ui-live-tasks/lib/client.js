@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-let react = require("react");
+let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 //#region src/shared/live-task-state.ts
 /** One frozen array reused for every state without open tool calls. */
@@ -37,141 +37,44 @@ function hasLiveActivity(state) {
 	return state.updatedAt !== null;
 }
 //#endregion
-//#region src/shared/projection.ts
-/**
-* Projection key of the live-task unit.
-*
-* A profile-local handle inside the projection table, in the camelCase noun
-* shape the official units use (`sessionStats`, `todos`). Renaming it is a wire
-* change: the browser half reads the same constant, so both halves move
-* together and `tests/host/index.test.ts` pins the pair.
-*/
-const LIVE_TASK_PROJECTION_KEY = "liveTask";
-//#endregion
 //#region src/client/styles.ts
 /**
-* Styles for the session-header action.
+* Layout skeleton for the live-task view.
 *
-* Hand-written instead of a CSS-module import on purpose: a browser half is
-* bundled into the loader's lazy CommonJS factory, and pulling in a CSS build
-* pipeline (lightningcss + a virtual-module plugin) would add a second toolchain
-* to this repository for one 96-line stylesheet. Class names carry an `lt-`
-* prefix so they cannot collide with the page's own generic names, and the
-* stylesheet is injected once per document, tagged with the plugin id so it is
-* findable and removable.
+* Buttons, pills, tags and state dots come from the official primitives; what
+* is left here is only the layout they deliberately do not own — the row grid
+* and the view padding. Class names carry an `lt-` prefix so they cannot
+* collide with the page's own generic names, and the stylesheet is injected
+* once per document, tagged with the plugin id.
 *
-* The theme variables (`--dsw-*`) come from the host shell; this file only
-* consumes them, so the panel follows the active theme without duplicating any
-* palette.
+* The `--dsw-*` variables come from the host shell, so the view follows the
+* active theme without duplicating any palette.
 */
-const CSS = `.lt-root {
-  position: relative;
-}
-
-.lt-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 28px;
-  padding: 3px 6px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-  background: 0 0;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.lt-trigger:hover,
-.lt-trigger:focus-visible {
-  color: var(--dsw-alias-label-secondary);
-}
-
-.lt-dotIdle,
-.lt-dotTool {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.lt-dotIdle {
-  background: var(--dsw-alias-label-tertiary);
-}
-
-.lt-dotTool {
-  background: var(--dsw-alias-label-secondary);
-}
-
-.lt-label {
-  max-width: 18ch;
-  overflow: hidden;
-  font-family: var(--dsw-font-mono, monospace);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.lt-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  z-index: 100;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 336px;
-  max-width: min(400px, 100vw - 32px);
-  max-height: min(420px, 100vh - 140px);
-  margin: 0;
-  padding: 4px;
-  overflow: auto;
-  list-style: none;
-  background: var(--dsw-specific-menu);
-  border: 0;
-  border-radius: 20px;
-  box-shadow: var(--dsw-elevation-prominent);
-}
-
-.lt-row {
-  box-sizing: border-box;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  min-height: 28px;
-  padding: 5px 8px;
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 18px;
-  border-radius: 8px;
-}
-
-.lt-rowLabel {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.lt-rowValue {
-  min-width: 0;
-  overflow: hidden;
-  font-family: var(--dsw-font-mono, monospace);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
+const CSS = `
+.lt-view { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.lt-head { display: flex; align-items: center; gap: 8px; }
+.lt-title { font-size: 13.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-rows { display: flex; flex-direction: column; gap: 2px; }
+.lt-row { display: grid; grid-template-columns: 132px 1fr; align-items: baseline; gap: 12px;
+  padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 18px;
+  color: var(--dsw-alias-label-primary); }
+.lt-row:nth-child(odd) { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-rowLabel { color: var(--dsw-alias-label-tertiary); }
+.lt-rowValue { min-width: 0; overflow: hidden; font-family: var(--dsw-font-mono, monospace);
+  white-space: nowrap; text-overflow: ellipsis; }
+.lt-empty { display: flex; align-items: center; gap: 8px; padding: 24px 20px;
+  color: var(--dsw-alias-label-tertiary); font-size: 13px; }
 `;
-/** Class names the component applies, prefixed so they stay this plugin's own. */
+/** Class names this view applies. */
 const styles = {
-	root: "lt-root",
-	trigger: "lt-trigger",
-	dotIdle: "lt-dotIdle",
-	dotTool: "lt-dotTool",
-	label: "lt-label",
-	menu: "lt-menu",
+	view: "lt-view",
+	head: "lt-head",
+	title: "lt-title",
+	rows: "lt-rows",
 	row: "lt-row",
 	rowLabel: "lt-rowLabel",
-	rowValue: "lt-rowValue"
+	rowValue: "lt-rowValue",
+	empty: "lt-empty"
 };
 /** Plugin id the injected style tag is tagged with. */
 const STYLE_TAG_ID = "ui-live-tasks";
@@ -183,26 +86,21 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 	document.head.append(tag);
 }
 //#endregion
-//#region src/client/LiveTasksAction.tsx
+//#region src/client/LiveTasksView.tsx
 /**
-* Session-header entry point for the live-task panel.
+* The `conversation.view` entry: a live view of what this session's task is
+* doing, rendered from the host-folded `liveTask` projection.
 *
-* The component is a pure reader: the host folds the state and the projection
-* registry mirrors it, so there is no fetch, no subscription to a private
-* channel, and no derived state beyond whether the popover is open. The only
-* fact it computes locally is the trigger's own label.
+* Visuals come from the official primitives (`StateDot`, `Pill`, `Tag`) rather
+* than hand-rolled CSS, so the view sits in the same visual system as the
+* built-in views. The only local stylesheet is the layout skeleton that
+* primitives deliberately do not provide (row grid, spacing).
 *
-* It renders nothing at all until the session projection carries a state with
-* activity, so an ordinary conversation never grows a control for a capability
-* it is not using.
+* @module soia-dsh-client-ui-live-tasks/client/view
 */
-/**
-* One labeled row of the popover.
-* @param props - localized label and the value to show beside it.
-* @returns the row element.
-*/
+/** One labelled fact row. */
 function Row({ label, value }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.row,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 			className: styles.rowLabel,
@@ -214,108 +112,62 @@ function Row({ label, value }) {
 	});
 }
 /**
-* Short state word for the trigger and the phase row.
-* @param state - current projection value.
-* @param t - namespace translator.
-* @returns the localized phase label.
+* Map the folded state onto the primitive's semantic dot.
+* @param running - whether the session is mid-turn.
+* @param openTools - tool calls still in flight.
+* @param ended - whether the last turn ended.
+* @returns the dot state.
 */
-function phaseLabel(state, t) {
-	if (state.openTools.length > 0) return t("phase.tool");
-	if (state.running) return t("phase.running");
-	if (state.endedReason !== null) return t("phase.ended");
-	return t("phase.idle");
+function dotState(running, openTools, ended) {
+	if (openTools > 0 || running) return "ongoing";
+	return ended ? "done" : "idle";
 }
 /**
-* Session-header action and popover for this session's task state.
-* @param props - runtime slot currency plus the namespace translator.
-* @returns the trigger and its popover, or null when there is nothing to show.
+* Render the live task view for the current session.
+* @param props - projection hook and translator from the slot kit.
+* @returns the view body, or an explicit empty state.
 */
-function LiveTasksAction({ useProjection, t }) {
-	const state = useProjection(LIVE_TASK_PROJECTION_KEY);
-	const [open, setOpen] = (0, react.useState)(false);
-	const root = (0, react.useRef)(null);
-	const trigger = (0, react.useRef)(null);
-	(0, react.useEffect)(() => {
-		if (!open) return;
-		const onKeyDown = (event) => {
-			if (event.key !== "Escape") return;
-			setOpen(false);
-			trigger.current?.focus();
-		};
-		const onPointerDown = (event) => {
-			const target = event.target;
-			if (target instanceof Node && root.current?.contains(target) === true) return;
-			setOpen(false);
-		};
-		document.addEventListener("keydown", onKeyDown);
-		document.addEventListener("pointerdown", onPointerDown);
-		return () => {
-			document.removeEventListener("keydown", onKeyDown);
-			document.removeEventListener("pointerdown", onPointerDown);
-		};
-	}, [open]);
-	if (state === void 0 || !hasLiveActivity(state)) return null;
-	const openTool = state.openTools.at(-1);
-	const label = openTool !== void 0 ? openTool.name : state.running ? t("trigger.running") : t("trigger.idle");
-	const toolValue = state.lastTool === null ? t("value.none") : [
-		state.lastTool.name,
-		state.lastTool.open ? t("tool.open") : t("tool.done"),
-		...state.lastTool.failed === true ? [t("tool.failed")] : []
-	].join(" · ");
+function LiveTasksView({ useProjection, t }) {
+	const state = useProjection("liveTask");
+	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: styles.empty,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "idle" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("view.empty") })]
+	});
+	const phase = state.openTools.length > 0 ? t("phase.tool") : state.running ? t("phase.running") : state.endedReason !== null ? t("phase.ended") : t("phase.idle");
+	const settled = state.endedReason !== null && !state.running;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: styles.root,
-		ref: root,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-			type: "button",
-			ref: trigger,
-			className: styles.trigger,
-			"aria-haspopup": "dialog",
-			"aria-expanded": open,
-			"aria-label": t("panel.aria"),
-			onClick: () => {
-				setOpen((wasOpen) => !wasOpen);
-			},
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: openTool === void 0 ? styles.dotIdle : styles.dotTool,
-				"aria-hidden": "true"
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.label,
-				children: label
-			})]
-		}), open ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("ul", {
-			className: styles.menu,
-			"aria-label": t("panel.aria"),
+		className: styles.view,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
+			className: styles.head,
 			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.phase"),
-					value: phaseLabel(state, t)
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: dotState(state.running, state.openTools.length, settled) }),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
+					className: styles.title,
+					children: t("view.title")
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.turn"),
-					value: state.turn === null ? t("value.none") : String(state.turn)
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tag, {
+					tone: settled ? "success" : "info",
+					children: phase
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.step"),
-					value: state.step === null ? t("value.none") : String(state.step)
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.lastTool"),
-					value: toolValue
-				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Pill, { children: `#${state.turn} · ${t("row.step")} ${state.step}` })
+			]
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: styles.rows,
+			children: [
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
 					label: t("row.toolCalls"),
 					value: String(state.toolCallsInTurn)
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.lastEvent"),
-					value: state.lastEvent === null ? t("value.none") : state.lastEvent.detail === null ? state.lastEvent.type : `${state.lastEvent.type} · ${state.lastEvent.detail}`
+					label: t("row.lastTool"),
+					value: state.lastTool === null ? "—" : `${state.lastTool.name} · ${state.lastTool.open ? t("tool.open") : t("tool.done")}`
 				}),
-				state.endedReason === null ? null : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.endedReason"),
-					value: state.endedReason
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
+					label: t("row.lastEvent"),
+					value: state.lastEvent === null ? "—" : state.lastEvent.detail === null ? state.lastEvent.type : `${state.lastEvent.type} · ${state.lastEvent.detail}`
 				})
 			]
-		}) : null]
+		})]
 	});
 }
 //#endregion
@@ -333,9 +185,9 @@ function LiveTasksAction({ useProjection, t }) {
 const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 const zh = {
-	"trigger.running": "运行中",
-	"trigger.idle": "空闲",
-	"panel.aria": "会话任务状态",
+	"view.tab": "任务",
+	"view.title": "会话任务状态",
+	"view.empty": "本会话当前没有进行中的任务。",
 	"panel.empty": "本次会话还没有事件。",
 	"row.phase": "状态",
 	"row.turn": "回合",
@@ -356,9 +208,9 @@ const zh = {
 };
 /** English dictionary, key-identical to the Chinese source of truth. */
 const en = {
-	"trigger.running": "running",
-	"trigger.idle": "idle",
-	"panel.aria": "Session task state",
+	"view.tab": "Tasks",
+	"view.title": "Session task state",
+	"view.empty": "This session has no task in progress.",
 	"panel.empty": "This session has no events yet.",
 	"row.phase": "State",
 	"row.turn": "Turn",
@@ -400,16 +252,18 @@ const inject = [
 * @param ctx - client root context.
 */
 function apply(ctx) {
+	const t = ctx.locale.bind(NS);
 	ctx.effect(() => ctx.locale.register(NS, {
 		zh,
 		en
 	}), "ui-live-tasks: dictionaries");
-	ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
-		name: "conversation.session.header.actions",
+	ctx.slots.inject("conversation.view", () => ctx.slots.register({
+		name: "conversation.view",
 		id: "live-tasks",
-		order: 30,
+		order: 20,
+		label: () => t("view.tab"),
 		locale: NS
-	}, LiveTasksAction));
+	}, LiveTasksView));
 }
 //#endregion
 exports.apply = apply;
