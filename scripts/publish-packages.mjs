@@ -8,7 +8,8 @@
  *
  * Usage:
  *   node scripts/publish-packages.mjs --dry-run   # pack, inspect, upload nothing
- *   node scripts/publish-packages.mjs             # publish for real
+ *   node scripts/publish-packages.mjs             # publish every package for real
+ *   node scripts/publish-packages.mjs <name> …    # publish only the named packages
  *
  * It deliberately does not read or print any credential value: login state comes
  * from `npm whoami`, which prints the account name only.
@@ -20,6 +21,8 @@ import { fileURLToPath } from 'node:url'
 
 const REGISTRY = 'https://registry.npmjs.org'
 const dryRun = process.argv.includes('--dry-run')
+/** Optional package-name filter; with no names, every publishable package is a target. */
+const only = process.argv.slice(2).filter((arg) => !arg.startsWith('--'))
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Run a command, returning stdout; throws with stderr attached on failure. */
@@ -52,7 +55,14 @@ function publishedVersions(name) {
 const account = run('npm', ['whoami', '--registry', REGISTRY]).trim()
 console.log(`publish: registry=${REGISTRY} account=${account} mode=${dryRun ? 'dry-run' : 'PUBLISH'}`)
 
-const targets = packages()
+const all = packages()
+const targets = only.length === 0 ? all : all.filter((entry) => only.includes(entry.json.name))
+if (only.length > 0 && targets.length !== only.length) {
+  const known = all.map((entry) => entry.json.name)
+  const unknown = only.filter((name) => !known.includes(name))
+  console.error(`publish: unknown package name(s): ${unknown.join(', ')}`)
+  process.exit(1)
+}
 if (targets.length === 0) {
   console.error('publish: no publishable packages found')
   process.exit(1)

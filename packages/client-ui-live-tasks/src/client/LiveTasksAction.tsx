@@ -17,7 +17,7 @@ import { hasLiveActivity } from '../shared/live-task-state.ts'
 import { LIVE_TASK_PROJECTION_KEY } from '../shared/projection.ts'
 import type { LiveTaskView } from '../shared/types.ts'
 import type { NS } from './locales.ts'
-import styles from './LiveTasksAction.module.css'
+import { styles } from './styles.ts'
 
 /** Full props for the session-header live-task action. */
 export type LiveTasksActionProps =

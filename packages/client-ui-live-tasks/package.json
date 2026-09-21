@@ -27,6 +27,7 @@
     "node": ">=22.6"
   },
   "scripts": {
+    "build:client": "node ../../scripts/build-client.mjs",
     "build:types": "tsc -p tsconfig.json && tsc -p tsconfig.client.json"
   },
   "dsh": {
