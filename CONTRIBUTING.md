@@ -99,8 +99,29 @@ bash scripts/smoke-dump-config.sh
 - 新增或删除包时更新根 `README.md`、`README.en.md` 与 `pnpm-workspace.yaml`。
 - 不把发布、远端创建、npm 组织变更混入普通功能 PR。
 
-## 8. 发布
+### 分支保护（远端已启用，不是口头约定）
 
-本仓当前是本地骨架，没有远端，也没有发布流程可用。首次上线与首次发布各需当次明确授权：
-确认仓名、可见性、托管位置、registry 与包名归属后才执行。发布前确认包内不含 SNAPSHOT 版本，
-且 `files` 白名单实际覆盖运行所需产物。
+| 规则 | `main` | `dev` |
+| --- | --- | --- |
+| 禁止强推 / 禁止删除 | ✅ | ✅ |
+| 要求线性历史 | ✅ | ✅ |
+| 规则对管理员同样生效 | ✅ | ✅ |
+| CI 检查（`Typecheck, lint, build, test, DSH smoke`）必须通过 | ✅ | ✅ |
+| 必须走 PR | ❌ 刻意不要求 | ✅（批准数 0，允许自合并） |
+
+`main` 不要求 PR 是刻意的：按本仓规则，`main` 只接收已授权的正式发布快进推送，不接收功能 PR。
+`dev` 的批准数设为 0 同样是刻意的——单维护者仓库里要求批准会把合并锁死；"合并需审查通过"是人的流程门，
+不是 GitHub 门。
+
+## 8. 分发与发布
+
+**当前分发方式：git 源**（`lib/` 随仓提交，所以装完即可用）：
+
+```bash
+dsh plugin --profile <profile> add 'github:soia-team/soia-open-dsh-plugins#path:packages/<pkg>'
+```
+
+因此 `packages/*/lib` 必须在每次改源码时重新构建并提交，`pnpm run verify:lib`（CI 同款）会拦住忘记的情况。
+
+**发布到 npm 尚未执行**，需要当次明确授权：确认 registry（本机默认指向镜像，发布前须切官方）与包名归属后
+才执行。发布前确认包内不含 SNAPSHOT 版本，且 `files` 白名单实际覆盖运行所需产物。
