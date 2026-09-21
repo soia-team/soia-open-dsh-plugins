@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "noEmit": false,
+    "emitDeclarationOnly": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/client/**"]
+}

@@ -1,0 +1,75 @@
+{
+  "name": "soia-dsh-client-ui-live-tasks",
+  "version": "0.1.0",
+  "private": false,
+  "description": "DSH Web panel showing one session's current task state — last tool call, last event, and whether the agent is still running — folded on the host and mirrored without a client RPC.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build:types": "tsc -p tsconfig.json && tsc -p tsconfig.client.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session"
+      ],
+      "platform": "web"
+    },
+    "compatibility": {
+      "dsh": ">=0.1.0-rc.8 <0.2.0"
+    },
+    "tokenBudget": {
+      "resident": 0,
+      "note": "no tool, no prompt section, no message content; the whole package is human-facing UI plus a host-side projection"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.6-alpha.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-session": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-session-projection": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-session": "^0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.6-alpha.2",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
