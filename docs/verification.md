@@ -4,6 +4,44 @@
 
 ---
 
+## 2026-09-21 · 插件 1 真实模型调用验收（模型自己选中了这个工具）
+
+**为什么测**：包内测试只能证明工具函数对，证明不了"模型在真实会话里会选中它、参数传对、并且读的是渲染结果而不是 CSS 声明"这条链路。此前这条一直是未验证项。
+
+**测试案例**：`packages/check-ui-size/tests/fixtures/min-height-mismatch.html`（复制到仓外 `/tmp/dsh-cui-accept/`）。
+
+- `#btn` 声明 `min-height: 27px`，子元素 `.child` 是 `height: 34px`，flex 容器被撑到 **34px**；
+- 这正是"只读 CSS 的检查器会报 27 并通过"的形态，只有量渲染盒子才发现；
+- 任务只给 URL + 选择器 + 期望值 27px，不提示用哪个工具、不给做法。
+
+**方法**：一次性 profile `check-ui-size-eval`（由 shipped `headless` 模板生成，`dsh check-ui-size-eval --from-default-profile headless`），插件按已发布 git 源装入（`github:soia-team/soia-open-dsh-plugins#path:packages/check-ui-size`），工作目录在仓外。**在用的 `web` profile 未被触碰**；凭据一直留在 `$DSH_HOME`，没有复制或读取凭据文件。
+
+| # | 观察项 | 实测 |
+| --- | --- | --- |
+| 1 | 真的加载了 | 装配树含 `- id: tool-check-ui-size` / `name: soia-dsh-tool-check-ui-size`；profile 内 `lib/index.js` 存在、`playwright-core` 已装、`import()` 通过 ✓ |
+| 2 | 模型 / 会话 | `deepseek-flash`（`deepseek-official`）；`session-87b49cd9-4512-4825-85ff-e4b5bbebd15d`，cwd `/private/tmp/dsh-cui-accept` |
+| 3 | 工具选择 | 先 `read` 读 fixture，第二步**自己选中 `check_ui_size`**（callId `call_01_fV0jxqGSRsGfO4pJgsab9731`）✓ |
+| 4 | 传参 | `{"url":"file:///tmp/dsh-cui-accept/min-height-mismatch.html","selector":"#btn","expectedHeight":27}`：三个参数都对，期望值是模型自己从任务里提取的 ✓ |
+| 5 | 工具返回 | `rect` 10×34、`computed.height` 34、`computed.minHeight` 27、`diff.height` 7、`status` ok、`viewport` 1280×720、`measuredAt` 2026-09-21T08:29:55.178Z |
+| 6 | 模型结论 | 34px ≠ 27px、**高出 7px**；归因正确（子元素撑高、`box-sizing: border-box`、padding 为 0），并指出要改内容/尺寸约束而不是调 padding ✓ |
+| 7 | 额度 | wall 11.6s；turn 1 两步：input 7854+626、output 361+561、cacheRead 640+**8832**、total 8855+10019 = **18894 tokens**（第 2 步命中缓存，说明工具块与提示段进了可缓存前缀） |
+| 8 | 只读性 | 仓内 `git status --short` 为空；fixture sha256 前后一致（`469f1c6a…`）——模型没有改任何文件 ✓ |
+
+**这次验收确认与仍未测的**：
+
+- 确认：面对"实测渲染高度"，模型会主动调用 `check_ui_size`，参数无需人补，且拿到的是渲染值 34 而不是声明值 27。
+- **未测：常驻成本的差分实测**。「工具 214 + 提示段 40 = 254 tokens」仍是按字符估算；做差分要再跑一次不带插件的会话，本次只获授权一次调用。
+- 未测：`#ghost`（`display:none`）与其他视口未在真实会话里覆盖（包内测试覆盖）。
+- 残留物：一次性 profile `~/.dsh/profiles/check-ui-size-eval` 与验收会话记录未删（保留作证据）。
+
+**复现**（会再花一次模型额度）：
+
+```bash
+dsh check-ui-size-eval --from-default-profile headless --dump-config    # 建一次性 profile（免费）
+dsh plugin --profile check-ui-size-eval add 'github:soia-team/soia-open-dsh-plugins#path:packages/check-ui-size'
+dsh --profile check-ui-size-eval --json "<任务文本>"                     # 花额度
+```
+
 ## 2026-09-21 · 分支保护实测：`main` 与 `dev` 都必须走 PR
 
 **为什么测**：此前 `main` 没有 PR 要求，一次已授权发布用 `git push origin dev:main` 快进成功——说明当时"必须走 PR"只是文档约定，不是远端强制。本轮把两分支都改成强制并经实测确认。
@@ -52,8 +90,8 @@
 | 1–3 | 准备一次性 profile | workflow 用 `@deepseek-ai/dsh@^0.1.0-rc.8` 装 CLI，而 npm 的预发布规则让该范围只解析到 `0.1.0-rc.8`——那个版本的 CLI **不接受 `--from-default-profile`** | CLI 钉到实测过的 `0.1.6-alpha.2`，烟测放进隔离 `DSH_HOME` |
 | 4 | test | Ubuntu runner 有 Chrome，但容器里默认沙箱 + `/dev/shm` 限制让 `launch()` 卡住，两个浏览器用例 5s 超时 | 检测到 `CI` 时关沙箱并加 `--disable-dev-shm-usage`；vitest 超时 5s → 30s |
 
-**本次仍未验证的**：
+**当时仍未验证的（2026-09-21 追记：下面两条已过时，就地标注，不删历史判断）**：
 
-- **真实模型调用**：没有让模型真的调一次 `check_ui_size`（要花模型额度）。工具行为由包内测试覆盖，含 4 个真实浏览器用例（其中一个正是 `min-height: 27px` 声明、实测 34px、差值 7 的场景），但"模型在会话里成功调用"这条链路仍是独立证据、尚未取得。
-- **跨 DSH 版本**：只在 `0.1.6-alpha.2` 上验过；`dshReleases` 映射等有第二个版本证据后再补。
-- **CI 本身**：`.github/workflows/ci.yml` 尚未在 GitHub Actions 上真跑过（本地跑的是同样的六道门）。
+- ~~真实模型调用~~ → **已补测**：见本文件顶部「插件 1 真实模型调用验收」——模型自己调用了 `check_ui_size`，传参正确，拿到渲染值 34、差值 7。
+- **跨 DSH 版本**：仍未做，只在 `0.1.6-alpha.2` 上验过；有第二个版本的证据后再补。
+- ~~CI 本身尚未在 GitHub Actions 上真跑过~~ → **已过时**：本条记录的正是 Actions 上的绿色运行（run 35576119854）；后续 PR #1、#2 的 CI 也都在 Actions 上跑过。
