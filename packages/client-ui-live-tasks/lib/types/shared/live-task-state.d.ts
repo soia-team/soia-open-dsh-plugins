@@ -44,4 +44,4 @@ export declare function foldLiveTasks(observations: readonly LiveTaskObservation
  * @param state - current state.
  * @returns true once any observation, durable or transient, has been folded.
  */
-export declare function hasLiveActivity(state: LiveTaskState): boolean;
+export declare function hasLiveActivity(state: Pick<LiveTaskState, 'updatedAt'>): boolean;

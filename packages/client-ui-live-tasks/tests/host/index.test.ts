@@ -497,9 +497,13 @@ describe('name derivation', () => {
     const { manifest } = readManifestFacts()
 
     expect(manifest.dsh.client?.platform).toBe('web')
+    // The module table entries the browser half resolves at runtime: the
+    // conversation surface that owns the view slot, the projection-bearing
+    // session kit, the primitives it renders with, and the locale registry.
     expect(manifest.dsh.client?.inject).toEqual([
       '@deepseek-ai/dsh-client-locale',
       '@deepseek-ai/dsh-client-ui-conversation',
+      '@deepseek-ai/dsh-client-ui-primitives',
       '@deepseek-ai/dsh-client-ui-renderer',
       '@deepseek-ai/dsh-client-ui-session',
     ])

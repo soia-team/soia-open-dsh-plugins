@@ -11,9 +11,9 @@
 export declare const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
-    readonly 'trigger.running': '运行中';
-    readonly 'trigger.idle': '空闲';
-    readonly 'panel.aria': '会话任务状态';
+    readonly 'view.tab': '任务';
+    readonly 'view.title': '会话任务状态';
+    readonly 'view.empty': '本会话当前没有进行中的任务。';
     readonly 'panel.empty': '本次会话还没有事件。';
     readonly 'row.phase': '状态';
     readonly 'row.turn': '回合';

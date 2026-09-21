@@ -1,6 +1,7 @@
 /**
- * `ui-live-tasks` — browser half. Contributes one session-header action that
- * renders the host-computed `liveTask` projection value of the current session.
+ * `ui-live-tasks` — browser half. Contributes one conversation view (a peer of
+ * the built-in 对话 / 轨迹 tabs) that renders the host-computed `liveTask`
+ * projection value of the current session.
  *
  * This half deliberately owns no transport: the host folds the state, the
  * session-projection registry mirrors whole values into the page, and this

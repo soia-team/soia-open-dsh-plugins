@@ -1,6 +1,7 @@
 /**
- * `ui-live-tasks` — browser half. Contributes one session-header action that
- * renders the host-computed `liveTask` projection value of the current session.
+ * `ui-live-tasks` — browser half. Contributes one conversation view (a peer of
+ * the built-in 对话 / 轨迹 tabs) that renders the host-computed `liveTask`
+ * projection value of the current session.
  *
  * This half deliberately owns no transport: the host folds the state, the
  * session-projection registry mirrors whole values into the page, and this
@@ -29,7 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 import type { LiveTaskKey } from './locales.ts'
-import { LiveTasksAction } from './LiveTasksAction.tsx'
+import { LiveTasksView } from './LiveTasksView.tsx'
 import { en, NS, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -56,13 +57,19 @@ export const inject = ['slots', 'locale', 'sessions', 'uiConversation']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  // Namespace-bound translator: the registration's `label` is a function the
+  // shell calls when it builds the view switcher, so the tab text follows the
+  // active locale the same way the built-in views do.
+  const t = ctx.locale.bind(NS) as unknown as (key: LiveTaskKey) => string
+
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-live-tasks: dictionaries')
-  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
-    name: 'conversation.session.header.actions',
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view',
     id: 'live-tasks',
-    // After the background-job list (order 20): job state and task state are
-    // adjacent read-only session facts, and this one is the broader summary.
-    order: 30,
+    // After 对话 (0) and 轨迹 (10): the task view is a read-only companion to
+    // them, not a replacement for either.
+    order: 20,
+    label: () => t('view.tab'),
     locale: NS,
-  }, LiveTasksAction))
+  }, LiveTasksView))
 }

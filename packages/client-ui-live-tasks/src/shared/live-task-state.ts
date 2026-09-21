@@ -304,6 +304,6 @@ export function foldLiveTasks(
  * @param state - current state.
  * @returns true once any observation, durable or transient, has been folded.
  */
-export function hasLiveActivity(state: LiveTaskState): boolean {
+export function hasLiveActivity(state: Pick<LiveTaskState, 'updatedAt'>): boolean {
   return state.updatedAt !== null
 }

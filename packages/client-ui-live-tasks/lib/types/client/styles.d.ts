@@ -1,12 +1,11 @@
-/** Class names the component applies, prefixed so they stay this plugin's own. */
+/** Class names this view applies. */
 export declare const styles: {
-    readonly root: 'lt-root';
-    readonly trigger: 'lt-trigger';
-    readonly dotIdle: 'lt-dotIdle';
-    readonly dotTool: 'lt-dotTool';
-    readonly label: 'lt-label';
-    readonly menu: 'lt-menu';
+    readonly view: 'lt-view';
+    readonly head: 'lt-head';
+    readonly title: 'lt-title';
+    readonly rows: 'lt-rows';
     readonly row: 'lt-row';
     readonly rowLabel: 'lt-rowLabel';
     readonly rowValue: 'lt-rowValue';
+    readonly empty: 'lt-empty';
 };
