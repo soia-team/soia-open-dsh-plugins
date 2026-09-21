@@ -140,6 +140,10 @@ export async function measureElement(options: MeasureOptions): Promise<MeasureOu
     let measured: MeasuredElement
     try {
       measured = await page.evaluate((sel: string): MeasuredElement => {
+        // Everything below runs in the page, not in Node: the browser globals are
+        // the point. The repository-wide rule bans them in host code, and this
+        // callback is the one place where the boundary is crossed on purpose.
+        // eslint-disable-next-line no-restricted-globals -- page context
         const matches = document.querySelectorAll(sel)
         const element = matches[0]
         if (element === undefined) throw new Error('no element for selector')

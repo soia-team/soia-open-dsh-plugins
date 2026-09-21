@@ -1,6 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "import", "unicorn", "oxc"],
+  "plugins": [
+    "typescript",
+    "import",
+    "unicorn",
+    "oxc",
+    "react",
+    "jsx-a11y"
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -20,6 +27,35 @@
     "no-console": "off",
     "typescript/no-explicit-any": "error",
     "typescript/consistent-type-imports": "warn",
-    "unicorn/prefer-node-protocol": "error"
-  }
+    "unicorn/prefer-node-protocol": "error",
+    "no-restricted-globals": [
+      "error",
+      "window",
+      "document"
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/*/src/client/**"
+      ],
+      "env": {
+        "browser": true,
+        "es2024": true
+      },
+      "rules": {
+        "no-restricted-globals": "off",
+        "react/jsx-key": "error",
+        "react/jsx-no-duplicate-props": "error",
+        "react/jsx-no-target-blank": "error",
+        "react/no-children-prop": "error",
+        "react/no-danger": "error",
+        "jsx-a11y/alt-text": "error",
+        "jsx-a11y/anchor-is-valid": "warn",
+        "jsx-a11y/click-events-have-key-events": "warn",
+        "jsx-a11y/no-static-element-interactions": "warn",
+        "react/react-in-jsx-scope": "off"
+      }
+    }
+  ]
 }

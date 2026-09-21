@@ -16,6 +16,7 @@
     "smoke": "bash scripts/smoke-dump-config.sh",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
+    "typecheck:client": "node scripts/typecheck-client.mjs",
     "verify:lib": "pnpm run build && git diff --exit-code -- 'packages/*/lib'"
   },
   "devDependencies": {

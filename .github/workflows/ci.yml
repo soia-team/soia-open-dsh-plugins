@@ -37,6 +37,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # Browser halves carry their own type program (JSX + DOM), which the
+      # Node-side program deliberately excludes.
+      - name: Typecheck (browser halves)
+        run: pnpm run typecheck:client
+
       - name: Lint
         run: pnpm run lint
 

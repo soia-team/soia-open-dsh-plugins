@@ -27,7 +27,7 @@ function packageDirs() {
   return readdirSync(packagesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort()
+    .toSorted()
 }
 
 const hostEntries = packageDirs().filter((name) => existsSync(join(packagesDir, name, 'src/index.ts')))
@@ -47,15 +47,13 @@ const shared = {
 }
 
 export default defineConfig([
-  ...hostEntries.map((name) => ({
-    ...shared,
+  ...hostEntries.map((name) => Object.assign({}, shared, {
     entry: [`${packagesDir}/${name}/src/index.ts`],
     outDir: `${packagesDir}/${name}/lib`,
     platform: 'node' as const,
     dts: false,
   })),
-  ...clientEntries.map((name) => ({
-    ...shared,
+  ...clientEntries.map((name) => Object.assign({}, shared, {
     entry: [`${packagesDir}/${name}/src/client/index.tsx`],
     outDir: `${packagesDir}/${name}/lib`,
     platform: 'browser' as const,
