@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-09-21 · 插件 6 的浏览器半：构建、加载、并按官方插槽渲染
+
+**背景**：`dsh-client-modules` 要求声明了 `dsh.client` 的包必须提供 `lib/client.js`，否则**宿主拒绝启动**
+（实测报文：`plugin tree failed to load: … client-modules: client bundles not found … lib/client.js`）。
+官方那份共享 Client preset（harness 仓 `packages/client/tsdown.client.ts`）不发 npm，因此本仓自己复刻了插件需要的那部分。
+
+| 步 | 做法 | 结果 |
+| --- | --- | --- |
+| 产物形态 | `scripts/build-client.mjs`：tsdown 打 CJS（react / JSX runtime / `@deepseek-ai/*` external）→ 包进 `window.__ModuleLoader__.load({ id, factory })` | `lib/client.js` 10.3 KB，`require("react")` / `require("react/jsx-runtime")`，无残留 ESM |
+| 样式 | 不走 CSS module：`src/client/styles.ts` 自注入 `<style data-plugin-css="ui-live-tasks">`，类名 `lt-` 前缀 | 实测注入成功（DOM 里有该 style 标签） |
+| 激活 | 客户端 `inject` 补 `sessions` + `uiConversation`（少一个，插槽标准道具 `useProjection` 就装配不出来，表现为"bundle 加载了但什么都不渲染"） | 组件开始渲染 |
+| 位置 | 注册进 `conversation.view`（「对话 / 轨迹」同源插槽），`order: 20`、`label: () => t('view.tab')` | 界面页签行出现 **对话 ｜ 轨迹 ｜ 任务** |
+| 视觉 | 渲染改用官方原语 `StateDot` / `Tag` / `Pill`，本地样式只留布局骨架 | 与内置视图同一套 token 与主题 |
+
+**活会话证据**：切到「任务」页签，看到状态点 + Tag「等待工具结果」+ Pill「#1 · 步骤 1」+ 三行事实（本轮工具调用数 / 最后工具调用 / 最后事件），值来自宿主折叠的持久事件流；页面无错误。截图见夜战报告第 4 节。
+
+**仍未做**：页签目前只读，没有操作按钮（暂停/取消/跳转）；`pluginInventory/list` 的 `fiberPhase` 仍未取到（WebSocket mux）。
+
 ## 2026-09-21 · 本机安装验证（六个包，全部走本地 tarball，不碰 npm）
 
 **做法**：`npm pack` 六个包 → 装进一次性 `DSH_HOME` + 一次性 profile（由 shipped `web` 模板生成）→ 逐层验证。
