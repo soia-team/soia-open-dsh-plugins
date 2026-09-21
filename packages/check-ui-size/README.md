@@ -115,14 +115,16 @@ MIT。版权行见仓库根 [`LICENSE`](../../LICENSE)。
 ##### Verbatim tool description
 
 ```markdown
-Read one UI element's actual rendered size and box styles from a live page URL, to check whether declared CSS values match real geometry. Pass expectedHeight or expectedWidth to get signed differences. Returns status "error" with a code when the browser, the page, or the selector is unavailable.
+Read one UI element's rendered size and box styles from a page URL, to check declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences.
 ```
 
 面向模型的工具目录由宿主从注册的 schema 生成；本仓不产出生成的工具目录，因此这里没有可引用的目录锚点。
 
 #### Token effect
 
-固定。只要该工具可见，名称、描述与四个参数的 schema 就进入每一次组装。**实测：整块约 855 字符，按宿主 token-meter 的固定密度（≈4 字符 1 token）约 214 token。** 本包不追加保留式或动态上下文。把工具隐藏的作用域会整体移除这份贡献。
+固定。只要该工具可见，名称、描述与四个参数的 schema 就进入每一次组装。**实测：模型可见投影（`name` + `description` + `parameters` 的 JSON）574 字符，按宿主 token-meter 的固定密度（≈4 字符 1 token）约 144 token；由 `pnpm run check-token-budget` 从构建产物重算，并与 `package.json` 的 `dsh.tokenBudget.resident`（179 = 144 + 段 35）比较，超标即红。** 早前手工估算的 214 token 用的是更宽口径（把整个注册定义都算进去），已由脚本口径取代。本包不追加保留式或动态上下文；把工具隐藏的作用域会整体移除这份贡献。
+
+2026-09-21 瘦身记录：描述 257 → 173 字符（去掉错误码说明——失败时结果里自带 `status: "error"` 与 `code`，模型读得到），四个参数描述合计 182 → 94 字符；工具块 198 → 144、提示段 40 → 35，常驻 238 → 179。
 
 #### KV Cache effect
 
@@ -137,13 +139,13 @@ Read one UI element's actual rendered size and box styles from a live page URL, 
 ##### Verbatim section text
 
 ```markdown
-UI acceptance needs a check_ui_size measurement, not declared CSS alone.
-On disagreement the measurement wins; name the layer (layout, font, box model, scroll).
+UI acceptance needs a check_ui_size measurement, not CSS alone.
+Measurement wins on disagreement; name the layer (layout, font, box model).
 ```
 
 #### Token effect
 
-固定。**实测：160 字符、全 ASCII —— 按宿主固定密度约 40 token，真实分词成本与之一致（英文两者同值）。** 同内容的早期中文版是 93 字符，宿主估算只有 23 token，但按中文真实分词约 68 token：**宿主估算按字符数算，会低估中文、高估英文，选语言要看真实计费而不是界面数字。** 不插值、不设上限、不保留逐轮上下文。部署或预设注册同名段会将其遮蔽；空段不贡献任何内容。
+固定。**实测：139 字符、全 ASCII —— 按宿主固定密度约 35 token，真实分词成本与之一致（英文两者同值）。** 同内容的早期中文版是 93 字符，宿主估算只有 23 token，但按中文真实分词约 68 token：**宿主估算按字符数算，会低估中文、高估英文，选语言要看真实计费而不是界面数字。** 不插值、不设上限、不保留逐轮上下文。部署或预设注册同名段会将其遮蔽；空段不贡献任何内容。
 
 #### KV Cache effect
 
@@ -156,5 +158,5 @@ On disagreement the measurement wins; name the layer (layout, font, box model, s
 - **还没有溢出检查与命中测试。** 子元素是否越出容器、元素是否真的点得到，都还没有注册成能力；仓内既有的 `scripts/design_board_fit.cjs`、`scripts/design_controls_visible.cjs` 各自独立，本包不调用也不复制它们。
 - **不写证据文件。** 返回值是可引用的结构化 JSON，但本包不落盘到证据目录；需要留档时由调用方保存输出。
 - **没有截图与视觉比对。** 本包只读数值，不做像素比对，也不把图交给视觉模型——那是视觉类插件的能力范围。
-- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围**不匹配预发布版**（如 `0.1.5-rc.2`、`0.1.6-alpha.2`），预发布版本需要同 tuple 的比较器才能满足。peer 依赖因此逐个列举了已发布的预发布版本。本包**尚未在任何 DSH 版本上做过真实加载验证**；`dshReleases` 映射等拿到加载证据后再补。
-- **复核深度。** 仓库测试覆盖测量核心（含真实浏览器用例）。**加载已实测**：在独立 `DSH_HOME` 的一次性 profile 里用 git 源安装，`pluginInventory/list` 报 `fiberPhase: active`；**真实模型调用尚未验证**（没有花额度让模型实际调一次）。逐条证据见 [docs/verification.md](../../docs/verification.md)。
+- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围**不匹配预发布版**（如 `0.1.5-rc.2`、`0.1.6-alpha.2`），预发布版本需要同 tuple 的比较器才能满足。peer 依赖因此逐个列举了已发布的预发布版本。本包已在 **DSH `0.1.6-alpha.2`** 上验过加载（见下条）；`dshReleases` 映射等其他版本有证据后再补。
+- **复核深度。** 仓库测试覆盖测量核心（含真实浏览器用例）。**加载已实测**：独立 `DSH_HOME` 的一次性 profile 里用 git 源安装，`pluginInventory/list` 报 `fiberPhase: active`。**真实模型调用已实测（2026-09-21）**：模型自己选中 `check_ui_size`、传对三个参数，拿到实测 34px 与 `diff.height = 7`（当时用的是瘦身前的描述文本；瘦身后尚未复跑）。逐条证据见 [docs/verification.md](../../docs/verification.md)。

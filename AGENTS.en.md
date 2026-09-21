@@ -64,6 +64,7 @@ pnpm run typecheck
 pnpm run lint
 pnpm run build
 pnpm run test
+pnpm run check-token-budget
 bash scripts/smoke-dump-config.sh
 ```
 

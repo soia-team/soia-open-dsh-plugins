@@ -11,10 +11,11 @@
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "build": "tsdown && pnpm -r --if-present run build:types",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
+    "check-token-budget": "node scripts/token-budget.mjs",
     "lint": "oxlint .",
-    "test": "vitest run",
     "smoke": "bash scripts/smoke-dump-config.sh",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
     "verify:lib": "pnpm run build && git diff --exit-code -- 'packages/*/lib'"
   },
   "devDependencies": {
