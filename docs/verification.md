@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-09-21 · 分支保护实测：`main` 与 `dev` 都必须走 PR
+
+**为什么测**：此前 `main` 没有 PR 要求，一次已授权发布用 `git push origin dev:main` 快进成功——说明当时"必须走 PR"只是文档约定，不是远端强制。本轮把两分支都改成强制并经实测确认。
+
+**环境**：macOS；`gh` 以 `mianba` 登录（org owner + 仓 admin）；仓 `soia-team/soia-open-dsh-plugins`。
+
+| # | 验的是什么 | 命令 | 结果 |
+| --- | --- | --- | --- |
+| 1 | 配置写入（两分支同一份 payload） | `gh api -X PUT repos/soia-team/soia-open-dsh-plugins/branches/{main,dev}/protection --input protection.json` | 200；`required_pull_request_reviews`、`restrictions` 同时生效 ✓ |
+| 2 | 读回校验 | `GET .../branches/{main,dev}/protection` | 两分支一致：PR 必须（approvals=0、dismiss_stale=true）、`enforce_admins=true`、状态检查 `Typecheck, lint, build, test, DSH smoke`（strict）、线性历史、禁强推、禁删分支、会话未解决不得合并 ✓ |
+| 3 | 白名单读回 | `GET .../protection/restrictions/{users,teams,apps}` | users=`mianba`；teams/apps 为空 ✓ |
+| 4 | **本人直接 push `dev`**（真推，非 dry-run） | `git push origin tmp-protection-test:dev` | `remote: error: GH006: Protected branch update failed for refs/heads/dev.` / `- Changes must be made through a pull request.` / `! [remote rejected] (protected branch hook declined)` ✓ |
+| 5 | **本人直接 push `main`** | `git push origin tmp-protection-test:main` | 同上，`refs/heads/main`，同样被拒 ✓ |
+| 6 | 远端未被改动 | `GET .../git/ref/heads/{main,dev}` | 两分支都仍是 `69f09be45ca20db02643c9950214a321c58490cc`（测试提交 `fb9ecf1` 未落库）✓ |
+
+**顺带确认的负结果（重要）**：`git push --dry-run` **不触发服务端钩子**——同一条推送加 `--dry-run` 时输出 `69f09be..fb9ecf1 tmp-protection-test -> main`，看起来会成功。所以 dry-run 不能当分支保护证据，只有真推的被拒报文算。
+
+**当前仍未验证 / 已知缺口**：
+
+- **组织级 ruleset 未读到**：`GET orgs/soia-team/rulesets` 返回 404，token 缺 `admin:org` scope。仓级 rulesets 为空（`GET /repos/.../rulesets` → `[]`），但组织级是否存在、是否叠加限制，本项证据未独立核到。
+- **第二人复核未开启**：`required_approving_review_count = 0`，仓内只有 `mianba` 一个协作者，PR 发起人技术上可自合并。要第二人复核需再加一个有写权限的账号（并加入两分支 `restrictions`），再把 count 提到 1。
+- **组织默认仓库权限是 `write`**：新加入的 org member 会自动获得本仓写权限，实际闸门因此是分支 `restrictions` 名单，而不是组织成员身份。
+
 ## 2026-09-21 · 插件 1 首次加载验收（配置层 → 安装 → 加载）
 
 **环境**：macOS / Apple Silicon；DSH `0.1.6-alpha.2`；用**独立 `DSH_HOME=/tmp/dsh-smoke-home`**，全程未触碰在用的 `~/.dsh`（验收后确认 3080 实例与其 profile 目录均无变化）。
