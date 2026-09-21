@@ -31,20 +31,50 @@ function toolChars(tool) {
   return JSON.stringify(projection).length
 }
 
-/** Apply one built plugin against a stub host and measure what it would add. */
+/**
+ * A permissive stand-in for the host context.
+ *
+ * Two package shapes load here, and the stub has to survive both: a tool package
+ * touches `tools.register` / `systemPrompt.section`, while a hook or service
+ * package may use any other member cordis exposes (`ctx.on`, `ctx.reflect
+ * .provide`, `ctx.fiber.effect`, …). Unknown members therefore resolve to
+ * further callable stubs, so an unfamiliar API cannot make this gate fail for
+ * the wrong reason — but a package that registers a tool or a section still has
+ * to go through the two captured entry points below.
+ */
+function makeStub() {
+  const callable = function () {}
+  return new Proxy(callable, {
+    get(_target, property) {
+      // Never pretend to be a thenable: `await` on a stub must not hang.
+      if (property === 'then') return undefined
+      if (property === Symbol.toPrimitive || property === 'toString') return () => '[host stub]'
+      return makeStub()
+    },
+    apply: () => makeStub(),
+    construct: () => makeStub(),
+  })
+}
+
+/** Apply one built plugin against the stub host and measure what it would add. */
 async function measure(entryPath) {
   const module = await import(pathToFileURL(entryPath).href)
   const tools = []
   const sections = []
-  const ctx = {
-    tools: { register: (definition) => tools.push(definition) },
-    systemPrompt: {
-      section: (section) => {
-        sections.push(section)
-        return () => {}
-      },
+  const ctx = new Proxy(function () {}, {
+    get(_target, property) {
+      if (property === 'tools') {
+        return { register: (definition) => { tools.push(definition); return () => {} } }
+      }
+      if (property === 'systemPrompt') {
+        return { section: (section) => { sections.push(section); return () => {} } }
+      }
+      if (property === 'then') return undefined
+      if (property === Symbol.toPrimitive || property === 'toString') return () => '[host stub]'
+      return makeStub()
     },
-  }
+    apply: () => makeStub(),
+  })
   if (typeof module.apply === 'function') module.apply(ctx)
   const toolCharsTotal = tools.reduce((sum, tool) => sum + toolChars(tool), 0)
   const sectionChars = sections.reduce((sum, section) => sum + String(section.text ?? '').length, 0)

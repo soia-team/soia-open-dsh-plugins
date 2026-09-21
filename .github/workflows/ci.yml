@@ -37,6 +37,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # Browser halves carry their own type program (JSX + DOM), which the
+      # Node-side program deliberately excludes.
+      - name: Typecheck (browser halves)
+        run: pnpm run typecheck:client
+
       - name: Lint
         run: pnpm run lint
 
@@ -76,9 +81,11 @@ jobs:
           DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
         run: dsh --profile ci-smoke --from-default-profile web --dump-config >/dev/null
 
-      - name: DSH smoke check (patch row reaches the composed config tree)
+      # Every package is checked: the script defaults to `all`, walks the
+      # workspace, and reads each entry id out of its own `cordis.patch.yml`, so
+      # a new package is covered without touching this workflow.
+      - name: DSH smoke check (every patch row reaches the composed config tree)
         env:
           DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
           DSH_PROFILE: ci-smoke
-          PACKAGE: check-ui-size
         run: bash scripts/smoke-dump-config.sh

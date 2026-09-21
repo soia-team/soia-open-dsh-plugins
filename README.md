@@ -16,9 +16,16 @@ SOIA 公开 DSH 插件仓：面向 DeepSeek Harness（DSH）的宿主插件，�
 
 ## 包列表
 
-| 包 | entry id | 状态 | 说明 |
-|---|---|---|---|
-| [`soia-dsh-tool-check-ui-size`](packages/check-ui-size/README.md) | `tool-check-ui-size` | **已实现** | 用真实浏览器读出一个元素的实测尺寸与盒模型样式，可与期望值比对并给出差值；失败返回带错误码的结果，不编造测量值。 |
+| 包 | entry id | 形态 | 常驻 token | 说明 |
+|---|---|---|---|---|
+| [`soia-dsh-tool-check-ui-size`](packages/check-ui-size/README.md) | `tool-check-ui-size` | 工具 + 提示段 | 179 | 从真实页面读出一个元素的实测尺寸与盒模型样式，并可与声明的期望值比对。 |
+| [`soia-dsh-safe-tool-call-policy`](packages/safe-tool-call-policy/README.md) | `safe-tool-call-policy` | 纯钩子 | **0** | 在命令与文件写入真正执行前匹配危险模式，命中则要求确认或拒绝，并给出一句合规做法。 |
+| [`soia-dsh-tool-check-quality-gates`](packages/check-quality-gates/README.md) | `tool-check-quality-gates` | 工具 | 145 | 把「这次改了哪些文件」按调用方自己的门配置映射成必跑的门与每门要贴回的原始证据；只出清单，不阻止未跑门。 |
+| [`soia-dsh-tool-check-file-hash`](packages/check-file-hash/README.md) | `tool-check-file-hash` | 工具 | 125 | 对文件或目录算 sha256 内容哈希并留证，核对回执里写的产物与实际字节是否一致。 |
+| [`soia-dsh-tool-check-skills`](packages/check-skills/README.md) | `tool-check-skills` | 工具 | 130 | 核对一个会话日志里「该用的技能到底有没有被加载」，没被用上时判定是哪一种病。 |
+| [`soia-dsh-client-ui-live-tasks`](packages/client-ui-live-tasks/README.md) | `ui-live-tasks` | 客户端半 | **0** | Web 面板：实时显示当前会话的任务状态；宿主侧折叠，客户端只读投影，不发自己的 RPC。 |
+
+常驻 token 由 [`scripts/token-budget.mjs`](scripts/token-budget.mjs) 从构建产物重算，并与各包 `package.json` 的 `dsh.tokenBudget.resident` 比对（`pnpm run check-token-budget`），超标即红。六个包合计 **579 token**。
 
 包清单的唯一机器真源是 [`pnpm-workspace.yaml`](pnpm-workspace.yaml)；上表跟随它。
 

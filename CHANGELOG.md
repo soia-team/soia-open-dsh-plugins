@@ -7,6 +7,42 @@ SemVer。正式发版时由发版流程把 `Unreleased` 下的条目定稿到对
 
 ### Added
 
+- 五个新插件包（合计新增 310 个测试用例）：
+  - `packages/safe-tool-call-policy/`（`soia-dsh-safe-tool-call-policy`）：宿主策略钩子，按
+    `danger-patterns.json` 的六条规则在命令/写入执行前 `ask` 或 `deny`，并给一句合规做法；
+    调用方可用 `.dsh/policy.yml` 覆盖。**不注册工具、不加提示词段 → 常驻 0 token。**
+  - `packages/check-quality-gates/`（`soia-dsh-tool-check-quality-gates`）：按调用方
+    `.dsh/gates.yml` 把改动文件映射成必跑的门与每门要贴回的原始证据；只出清单，不阻止未跑门。
+  - `packages/check-file-hash/`（`soia-dsh-tool-check-file-hash`）：sha256 内容哈希清单，可选落盘
+    （原子写、0600、只留路径与哈希，不写内容）。
+  - `packages/check-skills/`（`soia-dsh-tool-check-skills`）：核对会话日志里"该用的技能有没有被加载"，
+    五态判定（`not_in_catalog` / `not_attempted` / `wrong_pick` / `loaded_not_effective` / `ok`）。
+  - `packages/client-ui-live-tasks/`（`soia-dsh-client-ui-live-tasks`）：Web 面板实时显示会话任务状态；
+    宿主侧投影 + 客户端只读视图，不注册工具（常驻 0 token）。
+- **常驻 token 预算门** `scripts/token-budget.mjs` + `pnpm run check-token-budget`：从构建产物重算模型可见
+  投影（`name`+`description`+`parameters` + 提示词段），与各包 `dsh.tokenBudget.resident` 比对，超标即红。
+  六个包当前合计 **579 token**。
+- `scripts/publish-packages.mjs`：向官方 registry 发布，先 dry-run 体检 tarball（是否含 `lib/index.js`、
+  `cordis.patch.yml`），且不读取/打印任何凭据值。
+- `scripts/verify-npm-install.sh`：在一次性 `DSH_HOME` + 一次性 profile 里安装已发布包并逐行核对 patch。
+
+### Changed
+
+- `scripts/smoke-dump-config.sh` 默认覆盖**全部**包（`PACKAGE=all`），entry id 仍从各自的
+  `cordis.patch.yml` 读取；CI 里写死的单包覆盖随之下线。
+- `tsdown.config.ts` 的入口从手写列表改为**按文件系统自动发现**（`src/index.ts` 主机半、
+  `src/client/index.tsx` 浏览器半）：漏加一个包不再静默不构建。
+- 根 `tsconfig.json` / `tsconfig.tests.json` 排除 `packages/*/src/client/**`，浏览器半改由各包
+  `tsconfig.client.json`（JSX + DOM）单独检查。
+- `check_ui_size` 的常驻文本瘦身：描述 257 → 173 字符、参数描述合计 182 → 94 字符、提示段 160 → 139 字符，
+  常驻 **238 → 179 token**（工具块 198 → 144）。
+
+### Fixed
+
+- `packages/check-ui-size/README.i18n.yaml` 的双语 blob 哈希重新登记（改文案时漏刷过）。
+- 预算脚本的桩宿主补成 Proxy：钩子型插件（`ctx.on`）与注册 cordis Service 的包（`ctx.reflect.provide`）
+  都能在门里加载，不再因未知宿主 API 让门误红。
+
 - 建立仓库骨架：workspace 根（`package.json`、`pnpm-workspace.yaml`、`tsconfig.json`、
   `tsconfig.tests.json`、`tsdown.config.ts`、`vitest.config.ts`、`.oxlintrc.json`）。
 - 建立仓级规则与文档：`AGENTS.md` / `AGENTS.en.md`、`README.md` / `README.en.md`、

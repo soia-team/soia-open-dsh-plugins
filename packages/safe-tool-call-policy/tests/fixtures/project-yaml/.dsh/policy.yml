@@ -1,0 +1,23 @@
+# Project policy override (YAML subset) — fixture for tests/host/policy-file.test.ts
+#
+# Exercises all three project operations at once:
+#   append   new id "no-prod-db"
+#   override "high-impact-action" (deny -> ask would be a loosening; here we
+#            restate it as ask with project wording)
+#   disable  "failure-as-evidence"
+rules:
+  - id: no-prod-db
+    tool: bash
+    pattern: "psql\\s+-h\\s+prod\\b"
+    action: deny
+    reason: This command connects to the production database.
+    remedy: Use the staging DSN from the environment instead.
+    source: project:.dsh/policy.yml
+  - id: high-impact-action
+    tool: bash
+    pattern: "\\b(?:npm|pnpm)\\s+publish\\b"
+    action: ask
+    reason: Publishing is a project-gated action here.
+    remedy: Run the release workflow instead of publishing by hand.
+disable:
+  - failure-as-evidence

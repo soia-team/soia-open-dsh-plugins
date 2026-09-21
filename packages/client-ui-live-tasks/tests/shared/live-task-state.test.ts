@@ -1,0 +1,453 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+  INITIAL_LIVE_TASK_STATE,
+  foldLiveTasks,
+  hasLiveActivity,
+  reduceLiveTask,
+} from '../../src/shared/live-task-state.ts'
+import type {
+  LiveEventLike,
+  LiveTaskObservation,
+  LiveTaskState,
+} from '../../src/shared/types.ts'
+
+/** One durable event observation with a synthetic but well-formed envelope. */
+function event(
+  type: string,
+  seq: number,
+  data: unknown,
+  time = seq * 1000,
+): LiveTaskObservation {
+  const envelope: LiveEventLike = { type, seq, time, data }
+  return { kind: 'event', event: envelope }
+}
+
+/** One transient text delta for an open step. */
+function delta(
+  text: string,
+  time: number,
+  turn = 1,
+  step = 1,
+): LiveTaskObservation {
+  return { kind: 'text-delta', turn, step, time, text }
+}
+
+/** A `tool/result` payload shaped the way the session log records one. */
+function toolResult(callId: string, isError = false): unknown {
+  return {
+    turn: 1,
+    step: 1,
+    message: { role: 'user', content: [{ type: 'tool-result', toolCallId: callId, isError }] },
+  }
+}
+
+/** Open turn 1 / step 1 with one tool call in flight. */
+function openStepWithTool(): LiveTaskObservation[] {
+  return [
+    event('turn/start', 1, { turn: 1 }),
+    event('step/start', 2, { turn: 1, step: 1 }),
+    event('tool/call', 3, { turn: 1, step: 1, callId: 'call-1', name: 'bash', arguments: '{}' }),
+  ]
+}
+
+describe('live-task derivation', () => {
+  describe('an empty event stream', () => {
+    it('folds to the shared initial state', () => {
+      expect(foldLiveTasks([])).toEqual(INITIAL_LIVE_TASK_STATE)
+    })
+
+    it('reports no activity and no running turn', () => {
+      const state = foldLiveTasks([])
+
+      expect(hasLiveActivity(state)).toBe(false)
+      expect(state.running).toBe(false)
+      expect(state.turn).toBeNull()
+      expect(state.lastTool).toBeNull()
+      expect(state.lastEvent).toBeNull()
+      expect(state.endedReason).toBeNull()
+    })
+
+    it('exposes the initial state as one frozen identity', () => {
+      expect(Object.isFrozen(INITIAL_LIVE_TASK_STATE)).toBe(true)
+      expect(INITIAL_LIVE_TASK_STATE.openTools).toHaveLength(0)
+    })
+  })
+
+  describe('a session that only produced assistant text', () => {
+    it('counts streamed characters for the open step without moving the last durable event', () => {
+      let state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+      ])
+      state = reduceLiveTask(state, delta('hello ', 3000))
+      state = reduceLiveTask(state, delta('world', 3010))
+
+      expect(state.streamedTextLength).toBe(11)
+      expect(state.streamedAt).toBe(3010)
+      expect(state.updatedAt).toBe(3010)
+      expect(state.running).toBe(true)
+      // Transient text is progress, not an event: the last event line still
+      // names the durable thing that happened.
+      expect(state.lastEvent?.type).toBe('step/start')
+    })
+
+    it('does not count deltas for a step that is not open', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        delta('ignored', 3000, 1, 2),
+      ])
+
+      expect(state.streamedTextLength).toBe(0)
+    })
+
+    it('does not count deltas once the turn has closed', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('turn/end', 4, { turn: 1, reason: { kind: 'completed' } }),
+        delta('late', 5000),
+      ])
+
+      expect(state.streamedTextLength).toBe(0)
+    })
+
+    it('ignores a delta older than the last one it folded', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        delta('newer', 3000),
+        delta('older', 2999),
+      ])
+
+      expect(state.streamedTextLength).toBe(5)
+      expect(state.streamedAt).toBe(3000)
+    })
+
+    it('counts two deltas that share a millisecond', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        delta('ab', 3000),
+        delta('cd', 3000),
+      ])
+
+      expect(state.streamedTextLength).toBe(4)
+    })
+
+    it('resets the counter when the durable message supersedes the stream', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        delta('streamed', 3000),
+        event('assistant/message', 3, { turn: 1, step: 1, message: {}, stream: [] }),
+      ])
+
+      expect(state.streamedTextLength).toBe(0)
+      expect(state.streamedAt).toBeNull()
+      expect(state.lastEvent?.type).toBe('assistant/message')
+    })
+  })
+
+  describe('a session that called a tool', () => {
+    it('tracks the call as in flight', () => {
+      const state = foldLiveTasks(openStepWithTool())
+
+      expect(state.lastTool).toEqual({
+        callId: 'call-1',
+        name: 'bash',
+        turn: 1,
+        step: 1,
+        open: true,
+      })
+      expect(state.openTools).toHaveLength(1)
+      expect(state.toolCallsInTurn).toBe(1)
+      expect(state.lastEvent).toEqual({
+        type: 'tool/call',
+        seq: 3,
+        time: 3000,
+        detail: 'bash',
+      })
+    })
+
+    it('settles the call when its result arrives', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, toolResult('call-1')),
+      ])
+
+      expect(state.openTools).toHaveLength(0)
+      expect(state.lastTool?.open).toBe(false)
+      expect(state.lastTool?.failed).toBeUndefined()
+      expect(state.toolCallsInTurn).toBe(1)
+      expect(state.lastEvent?.detail).toBe('bash')
+    })
+
+    it('marks a failing result and names the tool from the open call', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, toolResult('call-1', true)),
+      ])
+
+      expect(state.lastTool?.failed).toBe(true)
+      expect(state.lastEvent?.detail).toBe('bash')
+    })
+
+    it('keeps the previous state consistent for a result naming an unknown call', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, toolResult('call-other', true)),
+      ])
+
+      expect(state.openTools).toHaveLength(1)
+      expect(state.lastTool?.open).toBe(true)
+      expect(state.lastTool?.failed).toBeUndefined()
+      expect(state.lastEvent?.detail).toBeNull()
+      expect(state.seq).toBe(4)
+    })
+
+    it('counts two calls issued in one step and settles them independently', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        event('tool/call', 3, { turn: 1, step: 1, callId: 'a', name: 'read', arguments: '{}' }),
+        event('tool/call', 4, { turn: 1, step: 1, callId: 'b', name: 'write', arguments: '{}' }),
+        event('tool/result', 5, toolResult('a')),
+      ])
+
+      expect(state.toolCallsInTurn).toBe(2)
+      expect(state.openTools.map((call) => call.callId)).toEqual(['b'])
+      expect(state.lastTool?.callId).toBe('b')
+    })
+
+    it('ignores a malformed call payload but still advances the envelope', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { turn: 1, step: 1, name: 'bash' }),
+      ])
+
+      expect(state.lastTool).toBeNull()
+      expect(state.seq).toBe(2)
+      expect(state.lastEvent?.type).toBe('tool/call')
+      expect(state.lastEvent?.detail).toBeNull()
+    })
+
+    it('tolerates a result payload with no readable call id', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, { turn: 1, step: 1 }),
+      ])
+
+      expect(state.openTools).toHaveLength(1)
+      expect(state.lastTool?.open).toBe(true)
+      expect(state.seq).toBe(4)
+    })
+  })
+
+  describe('a long task still in progress', () => {
+    it('stays running with the tool in flight across many deltas', () => {
+      const deltas = Array.from({ length: 50 }, (_, index) =>
+        delta('x', 4000 + index))
+      const state = foldLiveTasks([...openStepWithTool(), ...deltas])
+
+      expect(state.running).toBe(true)
+      expect(state.turn).toBe(1)
+      expect(state.step).toBe(1)
+      expect(state.openTools).toHaveLength(1)
+      expect(state.streamedTextLength).toBe(50)
+      expect(state.updatedAt).toBe(4049)
+      expect(state.endedReason).toBeNull()
+    })
+
+    it('closes the step but keeps the turn running at step/end', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('step/end', 4, { turn: 1, step: 1 }),
+      ])
+
+      expect(state.running).toBe(true)
+      expect(state.step).toBeNull()
+      expect(state.turn).toBe(1)
+    })
+
+    it('ignores a step/end that names a different step', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('step/end', 4, { turn: 1, step: 9 }),
+      ])
+
+      expect(state.step).toBe(1)
+    })
+  })
+
+  describe('out-of-order and duplicated observations', () => {
+    it('returns the same state reference for a duplicated event', () => {
+      const before = foldLiveTasks(openStepWithTool())
+      const after = reduceLiveTask(
+        before,
+        event('tool/call', 3, { turn: 1, step: 1, callId: 'call-1', name: 'bash' }),
+      )
+
+      expect(after).toBe(before)
+    })
+
+    it('returns the same state reference for an older event after a newer one', () => {
+      const before = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, toolResult('call-1')),
+      ])
+      const after = reduceLiveTask(before, event('turn/start', 1, { turn: 1 }))
+
+      expect(after).toBe(before)
+      expect(after.running).toBe(true)
+      expect(after.toolCallsInTurn).toBe(1)
+    })
+
+    it('returns the same state reference for an event with an unusable seq', () => {
+      const before = foldLiveTasks(openStepWithTool())
+      const after = reduceLiveTask(before, {
+        kind: 'event',
+        event: { type: 'turn/end', seq: Number.NaN, time: 9000, data: {} },
+      })
+
+      expect(after).toBe(before)
+    })
+
+    it('reaches the same state whether duplicates are interleaved or not', () => {
+      const clean = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, toolResult('call-1')),
+      ])
+      const noisy = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/call', 3, { turn: 1, step: 1, callId: 'call-1', name: 'bash' }),
+        event('step/start', 2, { turn: 1, step: 1 }),
+        event('tool/result', 4, toolResult('call-1')),
+      ])
+
+      expect(noisy).toEqual(clean)
+    })
+
+    it('closes the turn on a turn/end that arrives after a duplicated tool call', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/call', 3, { turn: 1, step: 1, callId: 'call-1', name: 'bash' }),
+        event('turn/end', 4, { turn: 1, reason: { kind: 'completed' } }),
+      ])
+
+      expect(state.running).toBe(false)
+      expect(state.endedReason).toBe('completed')
+    })
+  })
+
+  describe('a session whose turn ended', () => {
+    it('reports not running, no open step, and no in-flight tools', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('turn/end', 4, { turn: 1, reason: { kind: 'completed' } }),
+      ])
+
+      expect(state.running).toBe(false)
+      expect(state.step).toBeNull()
+      expect(state.openTools).toHaveLength(0)
+      expect(state.endedReason).toBe('completed')
+      // The last tool stays readable after the turn closes: it is the most
+      // recent tool call at any age, not only the in-flight one.
+      expect(state.lastTool?.name).toBe('bash')
+      expect(state.lastTool?.open).toBe(false)
+    })
+
+    it('still records a result that lands after the turn closed', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('turn/end', 4, { turn: 1, reason: { kind: 'aborted' } }),
+        event('tool/result', 5, toolResult('call-1', true)),
+      ])
+
+      expect(state.running).toBe(false)
+      expect(state.lastTool?.failed).toBe(true)
+      expect(state.lastTool?.open).toBe(false)
+    })
+
+    it('carries the end reason verbatim for each known kind', () => {
+      for (const kind of ['completed', 'aborted', 'blocked', 'error', 'max-tokens']) {
+        const state = foldLiveTasks([
+          event('turn/start', 1, { turn: 1 }),
+          event('turn/end', 2, { turn: 1, reason: { kind } }),
+        ])
+        expect(state.endedReason).toBe(kind)
+      }
+    })
+
+    it('reports an unreadable reason as unknown rather than as no end', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('turn/end', 2, { turn: 1 }),
+      ])
+
+      expect(state.endedReason).toBe('unknown')
+    })
+
+    it('starts a fresh turn clean after a previous one ended', () => {
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('turn/end', 4, { turn: 1, reason: { kind: 'error' } }),
+        event('turn/start', 5, { turn: 2 }),
+      ])
+
+      expect(state.running).toBe(true)
+      expect(state.turn).toBe(2)
+      expect(state.endedReason).toBeNull()
+      expect(state.toolCallsInTurn).toBe(0)
+      expect(state.openTools).toHaveLength(0)
+    })
+  })
+
+  describe('event types this build does not know', () => {
+    it('advances the envelope without inventing domain state', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('some/future-event', 2, { anything: true }, 7000),
+      ])
+
+      expect(state.seq).toBe(2)
+      expect(state.updatedAt).toBe(7000)
+      expect(state.lastEvent?.type).toBe('some/future-event')
+      expect(state.lastEvent?.detail).toBeNull()
+      expect(state.running).toBe(true)
+    })
+
+    it('treats a non-object payload as an event with nothing to read', () => {
+      const state = foldLiveTasks([event('turn/start', 1, 'not-an-object')])
+
+      expect(state.seq).toBe(1)
+      expect(state.turn).toBeNull()
+      expect(state.running).toBe(true)
+    })
+  })
+
+  describe('identity stability of the folded state', () => {
+    it('never mutates the state it was given', () => {
+      const before = foldLiveTasks(openStepWithTool())
+      const snapshot: LiveTaskState = before
+      reduceLiveTask(before, event('tool/result', 4, toolResult('call-1')))
+
+      expect(snapshot).toBe(before)
+      expect(before.openTools).toHaveLength(1)
+      expect(before.seq).toBe(3)
+    })
+
+    it('folds a long interleaved stream without losing the newest seq', () => {
+      const observations: LiveTaskObservation[] = [event('turn/start', 1, { turn: 1 })]
+      for (let seq = 2; seq <= 40; seq += 1) {
+        observations.push(event('step/start', seq, { turn: 1, step: seq }))
+        observations.push(event('step/start', seq - 1, { turn: 1, step: seq - 1 }))
+      }
+
+      const state = foldLiveTasks(observations)
+
+      expect(state.seq).toBe(40)
+      expect(state.step).toBe(40)
+    })
+  })
+})

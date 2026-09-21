@@ -1,0 +1,25 @@
+# Gate config used by this package's tests. Every field is caller-supplied: the
+# plugin ships no gate, no command, no path pattern and no evidence wording.
+gates:
+  - id: typecheck
+    command: pnpm run typecheck
+    reason: TypeScript sources changed.
+    rawEvidenceRequired: Raw exit code plus the first failing diagnostic line.
+    when:
+      paths: ["packages/**/src/**", "src/**"]
+
+  - id: unit-tests
+    command: pnpm run test
+    reason: Test files or tested behaviour changed.
+    rawEvidenceRequired: Raw exit code plus the summary line of the run.
+    when:
+      paths:
+        - "tests/**"
+        - "src/**/*.test.ts"
+
+  - id: lint
+    command: pnpm run lint
+    reason: A source file changed.
+    rawEvidenceRequired: Raw exit code plus every reported rule violation.
+    when:
+      paths: ["**/*.ts"]

@@ -2,5 +2,5 @@
 # confirmed-consistent state. Both languages carry equal authority; after editing
 # either side, bring the other along and re-record with:
 #   git hash-object packages/check-ui-size/README.md packages/check-ui-size/README.en.md
-README.md: ee1e7558e41e60d978a413efc4cfa3e2eaf6cc14
-README.en.md: 8cbe478dedae3bd5b799440a916fa291e2c4bb89
+README.md: f7cb1ae0e9e537a0bd6ef1fa63d1fceb0bf6e455
+README.en.md: feed1ef1366bc9f1a70f27411bb3f7912534bba3

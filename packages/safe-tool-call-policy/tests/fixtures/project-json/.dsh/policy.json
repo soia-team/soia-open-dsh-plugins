@@ -1,0 +1,3 @@
+{
+  "disable": ["high-impact-action", "secret-in-argv"]
+}

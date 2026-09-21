@@ -61,6 +61,7 @@ committing:
 
 ```bash
 pnpm run typecheck
+pnpm run typecheck:client               # 浏览器半（JSX + DOM）单独检查
 pnpm run lint
 pnpm run build
 pnpm run test

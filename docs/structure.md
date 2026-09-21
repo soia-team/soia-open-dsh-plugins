@@ -64,10 +64,25 @@ packages/<pkg>/
 ## 加一个新包
 
 1. 新建 `packages/<pkg>/`，按上面的内部结构铺文件；`package.json` 的 `files` 白名单**必须包含 `cordis.patch.yml`**，否则发布出去的包里没有 patch，装上也生效不了。
-2. 在 `tsdown.config.ts` 的 `entry` 数组里加一条（官方清单不自动发现条目）。
-3. 在根 `README.md` 的包列表加一行；`pnpm-workspace.yaml` 用通配符，无需改动。
+2. `tsdown.config.ts` 会**自动发现**入口（`src/index.ts` 主机半、`src/client/index.tsx` 浏览器半），不需要手写条目；有浏览器半的包另放一个 `tsconfig.client.json`。
+3. 在根 `README.md` 的包列表加一行（形态 + 常驻 token）；`pnpm-workspace.yaml` 用通配符，无需改动。
 4. 名字按上面的派生链取，并在包内测试里断言。
-5. 跑五道门：`pnpm run typecheck && pnpm run lint && pnpm run build && pnpm run test && pnpm run smoke`。
+5. 在 `package.json` 声明 `dsh.tokenBudget.resident`，否则预算门判红。
+6. 跑八道门：`pnpm run typecheck && pnpm run typecheck:client && pnpm run lint && pnpm run build && pnpm run test && pnpm run verify:lib && pnpm run check-token-budget && pnpm run smoke`。
+
+## 依赖与锁文件放在哪
+
+**依赖声明属于各个包，锁文件属于工作区根。** 这是有意的分工，不是没收拾干净：
+
+| 东西 | 位置 | 为什么 |
+| --- | --- | --- |
+| `dependencies` / `peerDependencies` / `devDependencies` | 各包自己的 `package.json` | 发布出去的是包，npm 按**这个**文件给消费者装依赖；根 manifest 不进 tarball |
+| 解析结果（`pnpm-lock.yaml`） | 仓根**唯一一份** | pnpm workspace 的默认约定：一次 `pnpm install` 解全仓，CI 只缓存一份，跨包版本不会漂 |
+| 链接（`node_modules`） | 根 + 各包内（pnpm 生成，gitignore） | pnpm 已经给每个包建立了自己的依赖视图；手建的软链会被下一次 `pnpm install` 覆盖 |
+| 构建产物 `lib/` | 各包自己的 `lib/`，**随仓提交** | git 源安装不构建，产物必须在仓里（见 `docs/verification.md` 的空壳事故） |
+| 宿主提供的包（`@deepseek-ai/*`） | peer + dev 同范围 | 由宿主提供，不能内联进产物；`tsdown` 的 `neverBundle` 兜底 |
+
+不采用"每包一份 lockfile"（pnpm 的 `shared-workspace-lockfile=false`）：那会让依赖版本按包各自漂移、CI 要装 N 次、评审要读 N 份 diff，而收益只是"单包目录能独立安装"——这个需求由**发布到 npm** 满足：消费者拿到的是 `package.json` 声明的依赖，与我们的锁文件无关。
 
 ## 验证口径
 
@@ -75,8 +90,8 @@ packages/<pkg>/
 
 | 状态 | 证据 | 谁覆盖 |
 | --- | --- | --- |
-| 配置层有这一行 | `dsh --profile <p> --patch <pkg>/cordis.patch.yml --dump-config` 里能 grep 到 id | `pnpm run smoke` |
-| 插件被加载 | 一次性 profile 里 `pluginInventory/list` 该行 `fiberPhase: active` | 尚未自动化 |
+| 配置层有这一行 | `dsh --profile <p> --patch <pkg>/cordis.patch.yml --dump-config` 里能 grep 到 id | `pnpm run smoke`（默认覆盖全部包） |
+| 插件被加载 | 一次性 profile 里 `pluginInventory/list` 该行 `fiberPhase: active` | 尚未自动化（该接口走 WebSocket mux，无现成 CLI） |
 | 真的能用 | 真实调用一次工具，输出符合包 README 的契约 | 包内测试覆盖核心；活 profile 调用尚未做 |
 
 烟测有**已知写行为**：`--dump-config` 会把 profile 根 `cordis.yml` 按模板重写（内容逐字节不变、不含被测行），profile 自己的 `cordis.patch.yml` 与 lockfile 不动。不要拿在用的 profile 当试验田。

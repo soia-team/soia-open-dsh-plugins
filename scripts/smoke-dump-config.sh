@@ -18,7 +18,8 @@
 # Overridable environment:
 #   DSH_BIN      DSH executable             (default: dsh)
 #   DSH_PROFILE  profile used for the dump  (default: web)
-#   PACKAGE      package directory name     (default: check-ui-size)
+#   PACKAGE      package directory name, or `all` for every package
+#                                           (default: all)
 #   ENTRY_ID     entry id to look for       (default: read from cordis.patch.yml)
 #
 # Exit codes:
@@ -30,49 +31,66 @@ set -euo pipefail
 
 DSH_BIN="${DSH_BIN:-dsh}"
 DSH_PROFILE="${DSH_PROFILE:-web}"
-PACKAGE="${PACKAGE:-check-ui-size}"
+PACKAGE="${PACKAGE:-all}"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
-patch_file="${repo_root}/packages/${PACKAGE}/cordis.patch.yml"
 
+# `all` walks every package with a patch file; a package name checks just that one.
+if [[ "${PACKAGE}" == "all" ]]; then
+  packages=()
+  while IFS= read -r patch; do
+    packages+=("$(basename "$(dirname "${patch}")")")
+  done < <(find "${repo_root}/packages" -maxdepth 2 -name cordis.patch.yml | sort)
+else
+  packages=("${PACKAGE}")
+fi
 if ! command -v "${DSH_BIN}" >/dev/null 2>&1; then
   echo "smoke: DSH executable '${DSH_BIN}' not found on PATH" >&2
   echo "smoke: install the DSH CLI or point DSH_BIN at it" >&2
   exit 2
 fi
 
-if [[ ! -f "${patch_file}" ]]; then
-  echo "smoke: patch file not found: ${patch_file}" >&2
-  exit 2
-fi
-
-# Read the entry id from the patch instead of duplicating it in this script.
-entry_id="${ENTRY_ID:-$(sed -n 's/^[[:space:]]*-[[:space:]]*id:[[:space:]]*//p' "${patch_file}")}"
-entry_id="${entry_id%%$'\n'*}"
-if [[ -z "${entry_id}" ]]; then
-  echo "smoke: no 'id:' row found in ${patch_file}" >&2
-  exit 2
-fi
-
-echo "smoke: package=${PACKAGE} entry=${entry_id} profile=${DSH_PROFILE}"
-echo "smoke: dumping the composed config (read-only; no service is started)"
-
 dump_file="$(mktemp)"
 trap 'rm -f "${dump_file}"' EXIT
 
-if ! "${DSH_BIN}" --profile "${DSH_PROFILE}" --patch "${patch_file}" --dump-config >"${dump_file}" 2>&1; then
-  echo "smoke: '${DSH_BIN} --profile ${DSH_PROFILE} --dump-config' failed; first lines follow" >&2
-  sed -n '1,40p' "${dump_file}" >&2
-  echo "smoke: profile '${DSH_PROFILE}' must already exist; this check never creates one" >&2
-  exit 2
-fi
+status=0
+for package in "${packages[@]}"; do
+  patch_file="${repo_root}/packages/${package}/cordis.patch.yml"
+  if [[ ! -f "${patch_file}" ]]; then
+    echo "smoke: patch file not found: ${patch_file}" >&2
+    exit 2
+  fi
 
-if ! grep -q -A2 "id: ${entry_id}$" "${dump_file}"; then
-  echo "smoke: FAIL — entry '${entry_id}' is absent from the composed config tree" >&2
-  exit 1
-fi
+  # Read the entry id from the patch instead of duplicating it in this script.
+  entry_id="${ENTRY_ID:-$(sed -n 's/^[[:space:]]*-[[:space:]]*id:[[:space:]]*//p' "${patch_file}")}"
+  entry_id="${entry_id%%$'\n'*}"
+  if [[ -z "${entry_id}" ]]; then
+    echo "smoke: no 'id:' row found in ${patch_file}" >&2
+    exit 2
+  fi
 
-grep -A2 "id: ${entry_id}$" "${dump_file}"
-echo "smoke: OK — the patch row reached the composed config tree"
-echo "smoke: note — configuration layer only; loading and a real tool call are separate evidence"
+  echo "smoke: package=${package} entry=${entry_id} profile=${DSH_PROFILE}"
+  if ! "${DSH_BIN}" --profile "${DSH_PROFILE}" --patch "${patch_file}" --dump-config >"${dump_file}" 2>&1; then
+    echo "smoke: '${DSH_BIN} --profile ${DSH_PROFILE} --dump-config' failed; first lines follow" >&2
+    sed -n '1,40p' "${dump_file}" >&2
+    echo "smoke: profile '${DSH_PROFILE}' must already exist; this check never creates one" >&2
+    exit 2
+  fi
+
+  if grep -q -A2 "id: ${entry_id}$" "${dump_file}"; then
+    grep -A2 "id: ${entry_id}$" "${dump_file}"
+    echo "smoke: ✓ ${package}"
+  else
+    echo "smoke: FAIL — entry '${entry_id}' is absent from the composed config tree" >&2
+    status=1
+  fi
+done
+
+if [[ ${status} -eq 0 ]]; then
+  echo "smoke: OK — every patch row reached the composed config tree"
+  echo "smoke: note — configuration layer only; loading and a real tool call are separate evidence"
+else
+  echo "smoke: FAILED" >&2
+fi
+exit "${status}"

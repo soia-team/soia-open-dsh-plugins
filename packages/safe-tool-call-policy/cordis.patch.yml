@@ -1,0 +1,17 @@
+# dsh bundle patch: inserts the safe-tool-call-policy hooks into a profile's layer stack.
+#
+# `name` is the npm package name — not a source path — so Node module resolution
+# finds the installed code. A profile's own cordis.patch.yml can override this row.
+#
+# `id` is the profile-local handle, derived the official way: the package name
+# minus the vendor prefix `soia-dsh-`. This package is a `<capability>-policy`
+# plugin in the shape of the official `dsh-spill-policy` / `dsh-tool-call-timeout-policy`
+# packages: it registers no tool and no prompt section, so the derivation chain
+# stops at the id and the plugin name, and tests/host/index.test.ts pins both:
+#
+#   package   soia-dsh-safe-tool-call-policy   vendor prefix + official dsh- marker
+#   id        safe-tool-call-policy            package name minus that prefix
+#   plugin    safe-tool-call-policy            what the loader row declares
+- insert:
+    - id: safe-tool-call-policy
+      name: soia-dsh-safe-tool-call-policy
