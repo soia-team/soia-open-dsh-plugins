@@ -1,0 +1,6 @@
+Fixture for the "project policy file is unreadable" path.
+
+`policy.json` here is a DIRECTORY, not a file, so `readFileSync` fails with
+EISDIR — a deterministic I/O failure that needs no permission bits (which behave
+differently under CI users, containers, and root). This marker file exists only
+so the directory itself is storable in git.

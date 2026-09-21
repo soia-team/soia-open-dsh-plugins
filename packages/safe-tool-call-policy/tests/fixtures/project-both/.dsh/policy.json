@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "id": "from-json",
+      "tool": "bash",
+      "pattern": "\\bmake\\s+deploy\\b",
+      "action": "deny",
+      "reason": "Deployment is gated.",
+      "remedy": "Use the release workflow."
+    }
+  ]
+}
