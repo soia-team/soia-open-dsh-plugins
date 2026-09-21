@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@12.3.4",
   "scripts": {
-    "build": "tsdown && pnpm -r --if-present run build:types",
+    "build": "tsdown && pnpm -r --if-present run build:types && pnpm -r --if-present run build:client",
     "check-token-budget": "node scripts/token-budget.mjs",
     "lint": "oxlint .",
     "smoke": "bash scripts/smoke-dump-config.sh",

@@ -19,8 +19,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
 }
 /**
- * Client services this half touches: the slot registry it contributes the
- * header action to, and the locale registry that owns its dictionaries.
+ * Client services this half needs ready before it activates.
+ *
+ * `slots` and `locale` are the two it calls directly. `sessions` and
+ * `uiConversation` are what the standard slot kit is assembled from: the kit
+ * hands the component `useProjection`, which reads the session-projection
+ * mirror, and the header slot itself belongs to the conversation surface. The
+ * official client halves that read a projection declare the same two (see
+ * `dsh-client-ui-goal`), and without them the kit cannot supply the hook.
  */
 export declare const inject: string[];
 /**
