@@ -1,0 +1,19 @@
+# dsh bundle patch: inserts the check_skills tool into a profile's layer stack.
+#
+# `name` is the npm package name — not a source path — so Node module resolution
+# finds the installed code. A profile's own cordis.patch.yml can override this row.
+#
+# `id` is the profile-local handle, derived the official way: the package name
+# minus the vendor prefix `soia-dsh-`. The other names derive from that id, and
+# tests/host/index.test.ts pins every step so a rename cannot desynchronize them:
+#
+#   package   soia-dsh-tool-check-skills   vendor prefix + official dsh- marker
+#   id        tool-check-skills            package name minus the prefix
+#   tool      check_skills                 id minus the `tool-` kind prefix
+#
+# The kind prefix stays with the package: the official `dsh-tool-bash` registers
+# the tool `bash`. This package registers no prompt section, so there is no
+# `tool:` segment to derive.
+- insert:
+    - id: tool-check-skills
+      name: soia-dsh-tool-check-skills
