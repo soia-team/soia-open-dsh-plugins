@@ -1,0 +1,37 @@
+# Build output — never commit compiled artifacts.
+lib/
+dist/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Test and coverage output
+coverage/
+.nyc_output/
+*.lcov
+vitest-report/
+
+# Local scratch and evidence dumps
+*.local.yml
+scripts/out/
+tmp/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local environment and credentials — never commit these.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

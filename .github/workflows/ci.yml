@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, lint, build, test, DSH smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # A committed pnpm-lock.yaml does not exist yet. Switch this to
+      # `pnpm install --frozen-lockfile` in the change that commits the lockfile,
+      # so CI installs an auditable dependency set.
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm run test
+
+      # The smoke check shells out to the real CLI. The range mirrors each
+      # package's `dsh.compatibility.dsh` range; do not widen it here alone.
+      - name: Install the DSH CLI used by the smoke check
+        run: npm install --global '@deepseek-ai/dsh@^0.1.0-rc.8'
+
+      # The smoke check performs a read-only `--dump-config`; it never creates a
+      # profile. On a fresh runner we therefore create a throwaway one first,
+      # from the shipped `web` template, and point the smoke check at it.
+      - name: Prepare a throwaway DSH profile
+        run: dsh --profile ci-smoke --from-default-profile web --dump-config >/dev/null
+
+      - name: DSH smoke check (patch row reaches the composed config tree)
+        env:
+          DSH_PROFILE: ci-smoke
+          PACKAGE: check-ui-size
+        run: bash scripts/smoke-dump-config.sh
