@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-09-21 · 本机安装验证（六个包，全部走本地 tarball，不碰 npm）
+
+**做法**：`npm pack` 六个包 → 装进一次性 `DSH_HOME` + 一次性 profile（由 shipped `web` 模板生成）→ 逐层验证。
+脚本：`scripts/verify-local-install.sh`（可复跑，不读凭据、不连 registry、不碰在用 profile）。
+
+| 层 | 手段 | 结果 |
+| --- | --- | --- |
+| 装得上 | 6 个 tarball 装进 profile | ✓ 6/6 |
+| 行到位 | `--dump-config` 逐个 grep entry id | ✓ `tool-check-ui-size`、`safe-tool-call-policy`、`tool-check-quality-gates`、`tool-check-file-hash`、`tool-check-skills`、`ui-live-tasks` |
+| **能加载** | 启动 profile（`--port 0 --no-open`） | ✓ 启动成功，打印 `dsh web: http://…` |
+
+**为什么"启动成功"算加载证据**：宿主在插件树上任何一环 apply 失败时会拒绝启动——实测见过两种：
+`plugin tree failed to load: … client-modules: client bundles not found … lib/client.js`（插件 6 的浏览器半产物缺失时），
+以及 loader entry 应用失败。所以一个能启动的 profile 说明这六个包都通过了 apply。
+
+**界面证据（同一批包，另一个装好凭据的 profile）**：见 `~/.dsh/storages/dsh-plugins-night-report-20260921.html` 第 4 节——
+四个工具在活会话里可见、`check_file_hash` 真跑、门禁拦住 `rm -rf ~/.myapp/cache`、`check_quality_gates` / `check_skills` 真跑、
+插件 6 的面板在会话头部显示并可展开。
+
+**仍未做**：`pluginInventory/list` 的 `fiberPhase: active`（该接口走 WebSocket mux，没有现成 CLI 入口；本脚本用"能否启动"替代）。
+
 ## 2026-09-21 · 活会话界面验收（插件 2/3/4/5 在同一会话里真跑）
 
 **做法**：把五个包 `npm pack` 出的 tarball 装进一次性 profile `plugins-demo`（沿用真实 `$DSH_HOME` 以复用登录态，未复制凭据），
