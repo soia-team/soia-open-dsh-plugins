@@ -30,6 +30,7 @@ pnpm run lint
 pnpm run build
 pnpm run test
 pnpm run verify:lib                        # 提交的 lib/ 与源码一致
+pnpm run check-token-budget                # 常驻 token 不超各包声明的预算
 bash scripts/smoke-dump-config.sh
 ```
 

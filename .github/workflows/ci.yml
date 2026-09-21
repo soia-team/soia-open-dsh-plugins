@@ -52,6 +52,12 @@ jobs:
       - name: Test
         run: pnpm run test
 
+      # Resident cost is paid on every model request, so it must not drift
+      # silently: each package declares `dsh.tokenBudget.resident` and this step
+      # recomputes the model-visible projection from the built artifact.
+      - name: Resident token budget
+        run: pnpm run check-token-budget
+
       # The smoke check shells out to the real CLI, and it is pinned to an exact
       # version on purpose: npm's semver rules do not let a range like
       # `^0.1.0-rc.8` resolve to any *later* prerelease, so a range silently

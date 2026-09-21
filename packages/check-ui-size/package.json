@@ -30,6 +30,10 @@
     },
     "compatibility": {
       "dsh": ">=0.1.0-rc.8 <0.2.0"
+    },
+    "tokenBudget": {
+      "resident": 179,
+      "note": "tool block 144 + English prompt section 35; measured by scripts/token-budget.mjs (4 chars ≈ 1 token)"
     }
   },
   "peerDependencies": {
