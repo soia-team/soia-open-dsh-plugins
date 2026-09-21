@@ -113,7 +113,16 @@ export async function measureElement(options: MeasureOptions): Promise<MeasureOu
     )
   }
 
-  const browser = await chromium.launch({ executablePath, headless: true })
+  // Container hosts (GitHub's Linux runners among them) need the sandbox off and
+  // a disk-backed /dev/shm, or the launch stalls until it times out. Detected via
+  // the conventional `CI` variable instead of guessing from the platform, so a
+  // developer machine keeps the sandbox on.
+  const inCi = (process.env['CI'] ?? '') !== ''
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+    ...(inCi ? { chromiumSandbox: false, args: ['--disable-dev-shm-usage'] } : {}),
+  })
   try {
     const page = await browser.newPage()
     try {

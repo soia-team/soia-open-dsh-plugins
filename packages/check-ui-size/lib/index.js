@@ -88,9 +88,14 @@ async function measureElement(options) {
 	const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const executablePath = resolveBrowserExecutable(options.executablePath);
 	if (executablePath === void 0) return failure("browser_missing", "no browser executable found; set SOIA_CHROME_EXECUTABLE to a Chrome/Chromium binary", options);
+	const inCi = (process.env["CI"] ?? "") !== "";
 	const browser = await chromium.launch({
 		executablePath,
-		headless: true
+		headless: true,
+		...inCi ? {
+			chromiumSandbox: false,
+			args: ["--disable-dev-shm-usage"]
+		} : {}
 	});
 	try {
 		const page = await browser.newPage();

@@ -11,5 +11,10 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     restoreMocks: true,
+    // The browser-backed cases launch a real Chrome: a few hundred ms locally,
+    // but several seconds on a cold container. The default 5s budget is a
+    // launcher-speed assertion, not a correctness one.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 })
