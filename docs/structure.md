@@ -13,7 +13,9 @@
 | **自动化** | `.github/workflows/ci.yml`、`scripts/` | CI 与本地烟测脚本 |
 | **包** | `packages/<pkg>/` | 每个插件一个目录；清单真源是 `pnpm-workspace.yaml` |
 
-`.gitignore` 忽略 `node_modules/` 与 `lib/`：**构建产物不进仓**，发布时才由 CI 产出。
+`.gitignore` 忽略 `node_modules/` 与 `dist/`。
+
+**例外：`packages/*/lib/` 进仓**。原因是分发路径决定的——pnpm 默认拦截依赖的构建脚本，`git:` 安装不会构建，所以包里必须有已构建的入口，否则 `main: lib/index.js` 指向一个不存在的文件，装上也加载不了。`pnpm run verify:lib`（CI 同样步骤）会重新构建并断言提交的产物与源码一致，源码改了而产物没跟着提交会直接红。走 npm 发布后这条约束仍然保留，不影响发布产物。
 
 ## 一个包的内部
 

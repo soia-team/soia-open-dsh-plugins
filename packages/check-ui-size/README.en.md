@@ -19,10 +19,14 @@ It never guesses: a missing browser, an unreachable page, or a selector that mat
 
 ## Install
 
+Not yet on npm; install from the git source (`lib/` is committed, so the installed package works without a local build):
+
 ```bash
-dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size
+dsh plugin --profile <profile-name> add 'github:soia-team/soia-open-dsh-plugins#path:packages/check-ui-size'
 dsh --profile <profile-name> --dump-config   # configuration layer only; no service is started
 ```
+
+Once published to npm, the same slot takes the package name: `dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size`.
 
 `cordis.patch.yml` contributes exactly one `insert` row: `id: tool-check-ui-size`, `name: soia-dsh-tool-check-ui-size`.
 

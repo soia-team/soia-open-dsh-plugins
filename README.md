@@ -24,12 +24,17 @@ SOIA 公开 DSH 插件仓：面向 DeepSeek Harness（DSH）的宿主插件，�
 
 ## 安装
 
-本仓尚未发布到任何 registry，当前也不提供安装步骤。包发布后，安装经由 DSH CLI 进入指定 profile：
+尚未发布到 npm registry；当前用 **git 源**安装（`lib/` 已随仓提交，所以装完即可用，不需要在本地构建）：
 
 ```bash
-dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size
-dsh --profile <profile-name> --dump-config   # 先只验证配置层，不启动
+# 单包（monorepo 子目录用 #path: 指定）
+dsh plugin --profile <profile-name> add 'github:soia-team/soia-open-dsh-plugins#path:packages/check-ui-size'
+
+# 验证：先看配置层，再看加载
+dsh --profile <profile-name> --dump-config | grep -A2 'id: tool-check-ui-size'
 ```
+
+发布到 npm 之后，同一安装位换成包名即可：`dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size`。
 
 安装须先明确目标 profile 与范围；不要拿在用 profile 试装。可安装性以包发布后的实际产物为准。
 
@@ -37,7 +42,7 @@ dsh --profile <profile-name> --dump-config   # 先只验证配置层，不启动
 
 ```bash
 pnpm install          # 首次准备 workspace
-pnpm run build        # tsdown 构建各包到 lib/
+pnpm run build        # tsdown 构建各包到 lib/（产物进仓，见 docs/structure.md）
 pnpm run typecheck    # tsc 检查源码与测试
 pnpm run lint         # oxlint
 pnpm run test         # vitest

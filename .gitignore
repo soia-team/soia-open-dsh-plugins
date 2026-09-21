@@ -1,5 +1,7 @@
-# Build output — never commit compiled artifacts.
-lib/
+# Build output: `lib/` IS committed on purpose, so a `git:` install carries a
+# usable entry point without running a build (pnpm blocks dependency build
+# scripts). CI rebuilds and fails when the committed output is stale — see
+# docs/structure.md. `dist/` stays ignored: nothing distributes it.
 dist/
 *.tsbuildinfo
 

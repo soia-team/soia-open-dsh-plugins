@@ -19,10 +19,14 @@ DSH 宿主工具包：用真实浏览器量出一个界面元素的**实测尺�
 
 ## 安装
 
+尚未发布到 npm；用 git 源安装（`lib/` 随仓提交，装完即可用）：
+
 ```bash
-dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size
+dsh plugin --profile <profile-name> add 'github:soia-team/soia-open-dsh-plugins#path:packages/check-ui-size'
 dsh --profile <profile-name> --dump-config   # 先只验证配置层，不启动服务
 ```
+
+发布到 npm 后用包名：`dsh plugin --profile <profile-name> add soia-dsh-tool-check-ui-size`。
 
 `cordis.patch.yml` 只贡献一行 `insert`：`id: tool-check-ui-size`，`name: soia-dsh-tool-check-ui-size`。
 

@@ -28,6 +28,7 @@ pnpm run typecheck
 pnpm run lint
 pnpm run build
 pnpm run test
+pnpm run verify:lib                        # 提交的 lib/ 与源码一致
 bash scripts/smoke-dump-config.sh
 ```
 
@@ -37,7 +38,7 @@ bash scripts/smoke-dump-config.sh
 
 ## Git 与发布
 
-- 本仓当前是**本地骨架，没有远端**。首次上线需当次明确授权：确认仓名、可见性与托管位置后才建远端，本仓规则不代为决定。
+- 远端：`soia-team/soia-open-dsh-plugins`（public），本地 `origin` 走 SSH（HTTPS 推送在本机不稳）。首次上线已获当次授权并完成；此后推送到 `main`/`dev` 仍守下面的分支与发布规则。
 - 新分支默认从正式 `main` 开，PR 显式指向 `dev`；合并需审查通过与本次许可。
 - 普通开发不直接 push `main`/`dev`。`dev` 带 `-SNAPSHOT`，`main` 保持正式版。
 - 正式发布须当次明确授权：定稿 PR → `dev`/CI，核对 `main` 是 `dev` 祖先及实际合并冲突，再仅快进 `main`、tag/Release、重开 SNAPSHOT。

@@ -43,6 +43,12 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # `lib/` is committed so git installs work without a build step. This step
+      # is what keeps that promise honest: a source change without a rebuilt,
+      # recommitted `lib/` fails here instead of shipping stale output.
+      - name: Committed build output matches the sources
+        run: git diff --exit-code -- 'packages/*/lib'
+
       - name: Test
         run: pnpm run test
 
