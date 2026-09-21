@@ -40,9 +40,16 @@ SemVer。正式发版时由发版流程把 `Unreleased` 下的条目定稿到对
 - 修正 `scripts/smoke-dump-config.sh` 对写行为的描述：`--dump-config` 会重写 profile 根
   `cordis.yml`（内容不变），原文"不改 profile"不成立。
 
+### Verified
+
+- 首次加载验收通过：独立 `DSH_HOME` 的一次性 profile + git 源安装，
+  `pluginInventory/list` 报 `fiberPhase: active`（证据见 `docs/verification.md`）。
+- 确认 git 安装必须随仓提交 `lib/`：未提交时同一条安装会装出没有入口文件的空壳。
+
 ### Known gaps
 
-- 尚未在真实 profile 中做加载验收与真实调用验收，`--dump-config` 只覆盖配置层。
+- **真实模型调用**尚未验证；`--dump-config` 只覆盖配置层，加载与实际调用各需独立证据。
+- CI 尚未在 GitHub Actions 上真跑过（本地跑了同样的六道门）。
 - `check_ui_size` 每次调用启动一个浏览器，且只测量选择器命中的第一个元素；溢出检查、命中测试、
   证据落盘、截图比对都还没有。
 - 尚未发布到任何 registry；`CONTRIBUTING.md` 的发布章节目前不可执行。

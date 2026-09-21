@@ -157,4 +157,4 @@ On disagreement the measurement wins; name the layer (layout, font, box model, s
 - **不写证据文件。** 返回值是可引用的结构化 JSON，但本包不落盘到证据目录；需要留档时由调用方保存输出。
 - **没有截图与视觉比对。** 本包只读数值，不做像素比对，也不把图交给视觉模型——那是视觉类插件的能力范围。
 - **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围**不匹配预发布版**（如 `0.1.5-rc.2`、`0.1.6-alpha.2`），预发布版本需要同 tuple 的比较器才能满足。peer 依赖因此逐个列举了已发布的预发布版本。本包**尚未在任何 DSH 版本上做过真实加载验证**；`dshReleases` 映射等拿到加载证据后再补。
-- **复核深度。** 仓库测试覆盖测量核心（含真实浏览器用例），烟测只证明组合包的那一行进了配置树；插件在活 profile 里被加载、以及被模型真实调用，仍是独立证据、尚未取得。
+- **复核深度。** 仓库测试覆盖测量核心（含真实浏览器用例）。**加载已实测**：在独立 `DSH_HOME` 的一次性 profile 里用 git 源安装，`pluginInventory/list` 报 `fiberPhase: active`；**真实模型调用尚未验证**（没有花额度让模型实际调一次）。逐条证据见 [docs/verification.md](../../docs/verification.md)。

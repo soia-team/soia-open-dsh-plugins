@@ -13,7 +13,7 @@
 
 ## 按需入口
 
-- 新增包时读 [docs/structure.md](docs/structure.md)（结构、命名派生、新增清单）、官方「添加 workspace 包」清单与 `packages/check-ui-size/`（本仓参考实现）；不批量复制模板。
+- 验收证据登记在 [docs/verification.md](docs/verification.md)；新增包时读 [docs/structure.md](docs/structure.md)（结构、命名派生、新增清单）、官方「添加 workspace 包」清单与 `packages/check-ui-size/`（本仓参考实现）；不批量复制模板。
 - 改工具 schema、执行约定、输出渲染或策略钩子时读官方「工具编写参考」；只改文案不加载。
 - 每个包 README 必须按官方约定收尾：`Model Experience`（这个包往模型上下文里加了什么、token 与 KV cache 影响）与 `Known Limitations and Deferred Work`。两节缺一即视为包未完成。
 - `package.json` 的不变式（`type: module`、`main`/`types` 指向 `lib/`、`exports["."]`、`files` 白名单、`dsh.bundle.patch`、`dsh.compatibility`、peer 与 dev 同范围）以官方清单为准；`pnpm-workspace.yaml` 是包清单的唯一机器真源，根 README 的包列表跟随它。

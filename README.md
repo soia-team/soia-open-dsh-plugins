@@ -69,7 +69,7 @@ pnpm run smoke        # 只读验证：patch 行真的进了配置树
 
 ## 仓库结构
 
-**完整结构、命名派生规则与"加一个新包"的清单见 [docs/structure.md](docs/structure.md)**（一页）。下面是速览：
+**完整结构、命名派生规则与"加一个新包"的清单见 [docs/structure.md](docs/structure.md)、[docs/verification.md](docs/verification.md)**（一页）。下面是速览：
 
 ```
 AGENTS.md / AGENTS.en.md        仓级规则（中文 / English）
