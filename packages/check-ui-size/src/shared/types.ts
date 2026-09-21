@@ -75,7 +75,7 @@ export interface MeasureOptions {
   url: string
   selector: string
   expected?: ExpectedSize
-  /** Overrides browser discovery; defaults to `SOIADECK_CHROME_EXECUTABLE`. */
+  /** Overrides browser discovery; defaults to `SOIA_CHROME_EXECUTABLE`. */
   executablePath?: string
   /** Navigation and selector wait budget, in milliseconds. */
   timeoutMs?: number

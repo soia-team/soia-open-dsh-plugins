@@ -52,19 +52,27 @@ jobs:
       - name: Test
         run: pnpm run test
 
-      # The smoke check shells out to the real CLI. The range mirrors each
-      # package's `dsh.compatibility.dsh` range; do not widen it here alone.
+      # The smoke check shells out to the real CLI, and it is pinned to an exact
+      # version on purpose: npm's semver rules do not let a range like
+      # `^0.1.0-rc.8` resolve to any *later* prerelease, so a range silently
+      # installs 0.1.0-rc.8 — a build whose CLI does not accept
+      # `--from-default-profile`, which is what this job needs. Bump this pin in
+      # the change that verifies the plugin against a newer CLI.
       - name: Install the DSH CLI used by the smoke check
-        run: npm install --global '@deepseek-ai/dsh@^0.1.0-rc.8'
+        run: npm install --global '@deepseek-ai/dsh@0.1.6-alpha.2'
 
       # The smoke check performs a read-only `--dump-config`; it never creates a
       # profile. On a fresh runner we therefore create a throwaway one first,
-      # from the shipped `web` template, and point the smoke check at it.
+      # from the shipped `web` template, and point the smoke check at it. The
+      # isolated DSH_HOME keeps the runner's default home untouched.
       - name: Prepare a throwaway DSH profile
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
         run: dsh --profile ci-smoke --from-default-profile web --dump-config >/dev/null
 
       - name: DSH smoke check (patch row reaches the composed config tree)
         env:
+          DSH_HOME: ${{ runner.temp }}/dsh-smoke-home
           DSH_PROFILE: ci-smoke
           PACKAGE: check-ui-size
         run: bash scripts/smoke-dump-config.sh

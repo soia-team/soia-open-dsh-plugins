@@ -30,7 +30,7 @@ dsh --profile <profile-name> --dump-config   # 先只验证配置层，不启动
 
 `cordis.patch.yml` 只贡献一行 `insert`：`id: tool-check-ui-size`，`name: soia-dsh-tool-check-ui-size`。
 
-浏览器解析顺序：调用参数 → 环境变量 `SOIADECK_CHROME_EXECUTABLE` → 常见安装位置（macOS 的 Chrome / Chromium / Edge，Linux 的 `google-chrome` / `chromium`）。包依赖 `playwright-core`，**不下载浏览器**；找不到可执行文件时返回 `browser_missing`，不会静默改用别的浏览器。
+浏览器解析顺序：调用参数 → 环境变量 `SOIA_CHROME_EXECUTABLE` → 常见安装位置（macOS 的 Chrome / Chromium / Edge，Linux 的 `google-chrome` / `chromium`）。包依赖 `playwright-core`，**不下载浏览器**；找不到可执行文件时返回 `browser_missing`，不会静默改用别的浏览器。
 
 ## 工具契约
 
@@ -76,7 +76,7 @@ dsh --profile <profile-name> --dump-config   # 先只验证配置层，不启动
 
 | `code` | 含义 |
 |---|---|
-| `browser_missing` | 找不到可执行的 Chrome/Chromium；设 `SOIADECK_CHROME_EXECUTABLE` 可解决 |
+| `browser_missing` | 找不到可执行的 Chrome/Chromium；设 `SOIA_CHROME_EXECUTABLE` 可解决 |
 | `navigation_failed` | 页面加载失败（地址不通、超时） |
 | `element_not_found` | 选择器没有命中任何元素 |
 | `evaluate_failed` | 页面已打开但读取几何失败 |

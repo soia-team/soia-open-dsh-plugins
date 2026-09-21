@@ -2,8 +2,7 @@ import type { MeasureOptions, MeasureOutcome } from '../shared/types.ts';
 /**
  * Resolve the browser executable.
  *
- * Order: the explicit option, then `SOIADECK_CHROME_EXECUTABLE` (the same
- * variable SoiaDeck's own browser fixtures already honour), then the usual
+ * Order: the explicit option, then `SOIA_CHROME_EXECUTABLE`, then the usual
  * install locations. Returns undefined when nothing is executable, which the
  * caller reports as `browser_missing` instead of launching a downloaded browser.
  * @param explicit - Caller-provided path, highest priority.

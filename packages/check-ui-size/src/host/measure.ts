@@ -48,15 +48,14 @@ function round(value: number): number {
 /**
  * Resolve the browser executable.
  *
- * Order: the explicit option, then `SOIADECK_CHROME_EXECUTABLE` (the same
- * variable SoiaDeck's own browser fixtures already honour), then the usual
+ * Order: the explicit option, then `SOIA_CHROME_EXECUTABLE`, then the usual
  * install locations. Returns undefined when nothing is executable, which the
  * caller reports as `browser_missing` instead of launching a downloaded browser.
  * @param explicit - Caller-provided path, highest priority.
  * @returns An executable path, or undefined when none is found.
  */
 export function resolveBrowserExecutable(explicit?: string): string | undefined {
-  const fromEnv = process.env['SOIADECK_CHROME_EXECUTABLE']
+  const fromEnv = process.env['SOIA_CHROME_EXECUTABLE']
   const candidates = [explicit, fromEnv, ...DEFAULT_BROWSER_CANDIDATES]
   for (const candidate of candidates) {
     if (candidate === undefined || candidate === '') continue
@@ -109,7 +108,7 @@ export async function measureElement(options: MeasureOptions): Promise<MeasureOu
   if (executablePath === undefined) {
     return failure(
       'browser_missing',
-      'no browser executable found; set SOIADECK_CHROME_EXECUTABLE to a Chrome/Chromium binary',
+      'no browser executable found; set SOIA_CHROME_EXECUTABLE to a Chrome/Chromium binary',
       options,
     )
   }

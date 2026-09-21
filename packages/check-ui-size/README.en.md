@@ -30,7 +30,7 @@ Once published to npm, the same slot takes the package name: `dsh plugin --profi
 
 `cordis.patch.yml` contributes exactly one `insert` row: `id: tool-check-ui-size`, `name: soia-dsh-tool-check-ui-size`.
 
-Browser resolution order: the call argument → `SOIADECK_CHROME_EXECUTABLE` → the usual install locations (Chrome / Chromium / Edge on macOS, `google-chrome` / `chromium` on Linux). The package depends on `playwright-core` and **downloads no browser**; when no executable is found it returns `browser_missing` rather than silently using a different one.
+Browser resolution order: the call argument → `SOIA_CHROME_EXECUTABLE` → the usual install locations (Chrome / Chromium / Edge on macOS, `google-chrome` / `chromium` on Linux). The package depends on `playwright-core` and **downloads no browser**; when no executable is found it returns `browser_missing` rather than silently using a different one.
 
 ## Tool contract
 
@@ -76,7 +76,7 @@ Failure (`status: "error"`) returns `code` and `message`:
 
 | `code` | Meaning |
 |---|---|
-| `browser_missing` | No executable Chrome/Chromium found; set `SOIADECK_CHROME_EXECUTABLE` to fix |
+| `browser_missing` | No executable Chrome/Chromium found; set `SOIA_CHROME_EXECUTABLE` to fix |
 | `navigation_failed` | The page could not be loaded (unreachable, timed out) |
 | `element_not_found` | The selector matched no element |
 | `evaluate_failed` | The page opened but reading geometry failed |

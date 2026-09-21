@@ -26,6 +26,14 @@ SemVer。正式发版时由发版流程把 `Unreleased` 下的条目定稿到对
 - 包内三段式目录：`src/{index.ts,host/,shared/}` 与 `tests/{host/,fixtures/}`，`src/client/`
   预留给浏览器半（与优秀插件 dsh-context 的 host/client/shared 分段一致）。
 
+### Fixed
+
+- **CI 三次失败的原因**：workflow 用 `@deepseek-ai/dsh@^0.1.0-rc.8` 装 CLI，而 npm 的预发布规则让该范围只解析到
+  `0.1.0-rc.8`——那个版本的 CLI 不接受 `--from-default-profile`。已把 CLI 钉到实测过的 `0.1.6-alpha.2`，
+  并把烟测放在隔离的 `DSH_HOME` 下跑。
+- 环境变量 `SOIADECK_CHROME_EXECUTABLE` 改名为 **`SOIA_CHROME_EXECUTABLE`**：本仓插件是通用开发工具，
+  不带客户产品名。仓规则同步新增"插件不绑定具体项目"的边界。
+
 ### Changed
 
 - 提示词段名从 `tool:check-ui-size` 改为 **`tool:check_ui_size`**：官方形态是 `tool:` + 工具名
