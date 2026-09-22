@@ -43,6 +43,14 @@ export declare const styles: {
     readonly detailBlock: 'lt-detailBlock';
     readonly detailLabel: 'lt-detailLabel';
     readonly detailPre: 'lt-detailPre';
+    readonly chartScroll: 'lt-chartScroll';
+    readonly chart: 'lt-chart';
+    readonly chartLabels: 'lt-chartLabels';
+    readonly chartTrack: 'lt-chartTrack';
+    readonly chartLanes: 'lt-chartLanes';
+    readonly chartBoundaries: 'lt-chartBoundaries';
+    readonly chartBoundary: 'lt-chartBoundary';
+    readonly span: 'lt-span';
     readonly axis: 'lt-axis';
     readonly axisSegment: 'lt-axisSegment';
     readonly axisSegmentActive: 'lt-axisSegmentActive';
