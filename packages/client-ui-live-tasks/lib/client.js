@@ -211,6 +211,11 @@ const CSS = `
   .lt-tlEntryId { display: none; }
 }
 .lt-eventCell { position: relative; overflow: visible; padding-left: 12px !important; padding-right: 4px !important; }
+/* The trajectory view puts a dot at the left of every row, on the same vertical
+   line the turn rail runs down; without it the gutter reads as empty space. */
+.lt-eventCell::after { content: ''; position: absolute; left: 15px; top: 50%; width: 4px; height: 4px;
+  border-radius: 50%; transform: translateY(-50%); background: var(--dsw-alias-label-caption); pointer-events: none; }
+.lt-turnRow .lt-eventCell::after { display: none; }
 .lt-contentColumn { width: auto; }
 .lt-contentCell { min-width: 0; color: var(--dsw-alias-label-primary); padding-left: 4px !important; }
 .lt-rowButton { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0;
@@ -232,6 +237,11 @@ const CSS = `
 .lt-panes { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
 .lt-paneMain { display: flex; flex-direction: column; gap: 18px; flex: 1; min-width: 0; }
 .lt-details { display: flex; flex-direction: column; flex: none; width: 380px; max-height: 78vh;
+  /* The shell scrolls the whole view; without this the tab strip rides up out of
+     the viewport (measured at y=-94 on a live session) and the drawer cannot be
+     used without scrolling back to the top. The trajectory view keeps its pane
+     pinned the same way. */
+  position: sticky; top: 8px; align-self: flex-start; z-index: 1;
   border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1, #fff); overflow: hidden; }
 .lt-detailsHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -853,7 +863,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
 						className: styles.tlTitle,
 						children: entry.kind === "tool" ? entry.title : ""
 					}),
-					entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					(entry.entryId ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlEntryId,
 						children: entry.entryId
 					}),
@@ -1011,7 +1021,7 @@ function DetailDrawer({ entry, now, onClose, t }) {
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.name") }),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
-					entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+					(entry.entryId ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
 						className: styles.detailMono,
 						children: entry.entryId
 					})] }),
@@ -1229,7 +1239,7 @@ function LiveTasksView({ useProjection, t }) {
 							input: compact(state.usage.input),
 							output: compact(state.usage.output),
 							cache: compact(state.usage.cacheRead),
-							pct: state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / state.usage.input * 100)
+							pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
 						})
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
