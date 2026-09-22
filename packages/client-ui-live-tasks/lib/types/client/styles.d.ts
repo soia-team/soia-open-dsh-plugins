@@ -64,12 +64,16 @@ export declare const styles: {
     readonly turnSection: 'lt-turnSection';
     readonly turnSectionActive: 'lt-turnSectionActive';
     readonly turnHead: 'lt-turnHead';
-    readonly turnTitle: 'lt-turnTitle';
     readonly turnMeta: 'lt-turnMeta';
     readonly toolList: 'lt-toolList';
     readonly toolItem: 'lt-toolItem';
     readonly toolButton: 'lt-toolButton';
     readonly toolHint: 'lt-toolHint';
+    readonly kindSlot: 'lt-kindSlot';
+    readonly kindTag: 'lt-kindTag';
+    readonly turnRail: 'lt-turnRail';
+    readonly turnLabel: 'lt-turnLabel';
+    readonly turnLabelActive: 'lt-turnLabelActive';
     readonly toolDetail: 'lt-toolDetail';
     readonly summaryLine: 'lt-summaryLine';
     readonly timeline: 'lt-timeline';

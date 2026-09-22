@@ -138,16 +138,44 @@ const CSS = `
 
 /* 轮次明细：每轮一段，行可点开看参数与结果 */
 .lt-turnList { display: flex; flex-direction: column; gap: 10px; }
-.lt-turnSection { border-left: 2px solid var(--dsw-alias-separator, rgb(0 0 0 / 8%)); padding: 2px 0 2px 10px; }
-.lt-turnSectionActive { border-left: 2px solid rgb(64 120 255 / 55%); padding: 2px 0 2px 10px; }
+/* 轮次导轨：与轨迹同规格（2px、accent 色、贯穿该轮所有行） */
+.lt-turnSection, .lt-turnSectionActive { position: relative; padding: 2px 0 2px 12px; }
+.lt-turnSection { border-left: 2px solid transparent; }
+.lt-turnSectionActive { border-left: 2px solid transparent; }
+.lt-turnSectionActive { border-left-color: var(--soia-turn-accent, color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 45%, transparent)); }
+.lt-turnRail { position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, transparent)); }
 .lt-turnHead { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.lt-turnTitle { color: var(--dsw-alias-label-primary); }
+/* 轮次标签：与轨迹的 turnLabel 同规格（胶囊、字距、accent 背景） */
+.lt-turnLabel, .lt-turnLabelActive { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 650;
+  letter-spacing: .035em; }
+.lt-turnLabel { color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-turnLabelActive { color: var(--dsw-alias-label-primary);
+  background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff)); }
 .lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
 .lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
-.lt-toolButton { display: grid; grid-template-columns: 62px 12px minmax(90px, max-content) 1fr auto auto; align-items: baseline;
-  gap: 8px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
+.lt-toolButton { display: grid; grid-template-columns: 68px 46px minmax(0, 1fr) auto 12px; align-items: center;
+  gap: 6px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
   text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+
+/* 类型徽标：照抄轨迹 kindSlot / kindTag 的规格（中文槽宽 44px、标签高 19px、圆角 4px、10px/650、字距 .035em） */
+.lt-kindSlot { display: flex; justify-content: flex-end; align-items: center; width: 44px; flex: none; }
+.lt-kindTag { box-sizing: border-box; display: inline-flex; align-items: center; height: 19px; padding: 0 5px;
+  border: 1px solid transparent; border-radius: 4px; font-size: 10px; font-weight: 650; line-height: 16px;
+  letter-spacing: .035em; user-select: none; white-space: nowrap;
+  color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 6%)); }
+.lt-kindTag[data-kind='user'] { color: var(--dsw-alias-state-business-primary, #2b5cd9);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 14%, transparent); }
+.lt-kindTag[data-kind='context'] { color: var(--dsw-alias-state-success-primary, #18794e);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 14%, transparent); }
+.lt-kindTag[data-kind='assistant'] { color: var(--dsw-alias-brand-primary-new-colorprimary-new-color, #6b4bd6);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color, #7c5cff) 14%, transparent); }
+.lt-kindTag[data-kind='tool'] { color: var(--dsw-alias-state-warn-label, #96540a);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label, #d97706) 16%, transparent); }
+/* Failure wins over the kind tint: the row's outcome is what a reader scans for. */
+.lt-kindTag[data-kind][data-failed='true'] { color: var(--dsw-alias-state-error-primary, #b42318);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #b42318) 16%, transparent); }
 .lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
 .lt-toolDetail { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px 88px;
@@ -331,12 +359,16 @@ const styles = {
 	turnSection: "lt-turnSection",
 	turnSectionActive: "lt-turnSectionActive",
 	turnHead: "lt-turnHead",
-	turnTitle: "lt-turnTitle",
 	turnMeta: "lt-turnMeta",
 	toolList: "lt-toolList",
 	toolItem: "lt-toolItem",
 	toolButton: "lt-toolButton",
 	toolHint: "lt-toolHint",
+	kindSlot: "lt-kindSlot",
+	kindTag: "lt-kindTag",
+	turnRail: "lt-turnRail",
+	turnLabel: "lt-turnLabel",
+	turnLabelActive: "lt-turnLabelActive",
 	toolDetail: "lt-toolDetail",
 	summaryLine: "lt-summaryLine",
 	timeline: "lt-timeline",
@@ -580,7 +612,7 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
 function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 	const running = entry.status === "running";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
-	const kindBadge = entry.kind === "user" ? t("timeline.user") : entry.kind === "assistant" ? t("timeline.assistant") : null;
+	const kind = entry.kind === "tool" ? t("timeline.tool") : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant");
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 		className: styles.toolItem,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
@@ -593,21 +625,37 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 					className: styles.tlTime,
 					children: showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
-					state: running ? "ongoing" : entry.status === "failed" ? "error" : "done",
-					size: 8
-				}),
-				kindBadge === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.tlTitle,
-					children: entry.title
-				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.tlBadge,
-					children: kindBadge
-				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.tlDetail,
-					title: entry.detail ?? "",
-					children: entry.detail ?? ""
+					className: styles.kindSlot,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.kindTag,
+						"data-kind": entry.kind,
+						"data-failed": entry.status === "failed",
+						children: kind
+					})
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: styles.tlBody,
+					children: [
+						entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.tlTitle,
+							children: entry.title
+						}),
+						entry.detail !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.tlDetail,
+							title: entry.detail ?? "",
+							children: entry.detail
+						}),
+						entry.result !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.tlArrow,
+							"aria-hidden": "true",
+							children: "→"
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.tlResult,
+							title: entry.result,
+							children: entry.result
+						})] })
+					]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: entry.status === "failed" ? styles.tlTookFailed : styles.tlTook,
@@ -615,7 +663,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.toolHint,
-					children: expanded ? "▾" : t("turn.expand")
+					children: expanded ? "▾" : ""
 				})
 			]
 		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -630,7 +678,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 						className: styles.detailGrid,
 						children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timeline.tool") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.duration") }),
@@ -672,8 +720,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 * Group a turn's rows by step, the way the trajectory view does.
 *
 * Rows keep their order inside a step; a row without a step number (a message
-* between steps) is emitted before the first group that follows it, so nothing
-* is dropped or reordered.
+* between steps) forms its own group, so nothing is dropped or reordered.
 * @param entries - the turn's rows in order.
 * @returns groups of rows, each labelled with its step or null.
 */
@@ -695,55 +742,58 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 		className: selected ? styles.turnSectionActive : styles.turnSection,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
-			className: styles.turnHead,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
-					state: turn.endedAt === null ? "ongoing" : turn.failures > 0 ? "warning" : "done",
-					size: 9
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
-					className: styles.turnTitle,
-					children: t("timeline.turnN", { n: turn.turn })
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.turnMeta,
-					children: started
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.turnMeta,
-					children: t("time.seconds", { s: took })
-				}),
-				turn.toolCalls > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.turnMeta,
-					children: t("turn.tools", { n: turn.toolCalls })
-				}),
-				turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.tlTookFailed,
-					children: t("turn.failed", { n: turn.failures })
-				})
-			]
-		}), !open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-			className: styles.none,
-			children: t("turn.empty")
-		}) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: styles.stepGroup,
-			children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: styles.stepLabel,
-				children: t("turn.stepN", { n: group.step })
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-				className: styles.toolList,
-				children: group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
-					entry,
-					now,
-					showClock,
-					turnStart: turn.startedAt,
-					expanded: expandedId === "__all__" || expandedId === entry.id,
-					onToggle: () => onToggle(entry.id),
-					t
-				}, entry.id))
-			})]
-		}, `${group.step ?? "none"}-${index}`))]
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: styles.turnRail,
+				"aria-hidden": "true"
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
+				className: styles.turnHead,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
+						className: selected ? styles.turnLabelActive : styles.turnLabel,
+						children: t("timeline.turnN", { n: turn.turn })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.turnMeta,
+						children: started
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.turnMeta,
+						children: t("time.seconds", { s: took })
+					}),
+					turn.toolCalls > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.turnMeta,
+						children: t("turn.tools", { n: turn.toolCalls })
+					}),
+					turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlTookFailed,
+						children: t("turn.failed", { n: turn.failures })
+					})
+				]
+			}),
+			!open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: styles.none,
+				children: t("turn.empty")
+			}) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.stepGroup,
+				children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: styles.stepLabel,
+					children: t("turn.stepN", { n: group.step })
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+					className: styles.toolList,
+					children: group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
+						entry,
+						now,
+						showClock,
+						turnStart: turn.startedAt,
+						expanded: expandedId === "__all__" || expandedId === entry.id,
+						onToggle: () => onToggle(entry.id),
+						t
+					}, entry.id))
+				})]
+			}, `${group.step ?? "none"}-${index}`))
+		]
 	});
 }
 /**
