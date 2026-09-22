@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-09-22 · 逐插件活会话验收（含负例），并因此修掉两条规则误伤
+
+**方法**：一次性 profile（六包都在）启动 DSH Web，用无头浏览器驱动**真实模型会话**，每条断言都从会话记录里取原文核对，不靠模型自述。
+
+| 包 | 验的负例/正例 | 会话记录里的原文 | 结论 |
+| --- | --- | --- | --- |
+| 插件 1 | 瘦身描述后模型是否仍自选该工具；第二个页面两个选择器 | `check_ui_size` → `#card` rect 320×180 diff 0；`#pill` rect **108** vs 声明 88 → **diff +20**（`box-sizing: content-box`） | ✓ 仍被自选，且判定分层正确 |
+| 插件 2 | 凭据进 argv | `curl -H "Authorization: Bearer sk-…"` → 返回 R2 原文（凭据会进 shell history / 进程表 / 会话日志）| ✓ 拦下 |
+| 插件 2 | **误伤 1**：`git rev-parse …; git status --short; git stash list` | 被 ask，理由原文是 git-danger | ✗ 规则已修（`git stash` 未看子命令）|
+| 插件 2 | **误伤 2**：`lsof … 2>/dev/null \|\| echo …; curl … \| head -1` | 被 ask，理由是 failure-as-evidence | ✗ 规则已修（把 `\|\|` 兜底当成丢弃错误）|
+| 插件 2 | 修复后复跑两条探针 | 探针放行并返回真实输出；`grep -rn TODO src 2>/dev/null \| head` 仍被拦 | ✓ 一放一拦都对 |
+| 插件 3 | 坏配置（YAML 未闭合） | `error: "Invalid gate config at /tmp/…/broken-gates.yml: …"`，`requiredGates: []`、文件进 `unmatched` | ✓ 可读报错，不崩 |
+| 插件 4 | 落盘证据文件 | 返回 `evidencePath`；文件 `hash-2026-09-22T01-29-30.865Z.json` **权限 0600**、内容与返回值同构 | ✓ |
+| 插件 5 | 带期望清单 | `verdict: not_attempted`、`missing: [soia-dev-implement-task, soia-dev-review-code]`、`catalog.count: 15`、`calls: []` | ✓ 真数据上分清了"目录里有但没加载" |
+| 插件 6 | 空状态 | 全新会话里 **「任务」页签根本不渲染** → `view.empty` 分支在真实会话中不可达，仅单测覆盖 | ⚠️ 记录在案 |
+
+**这次验收的价值**：两条误伤都是"按自己的心智模型写单测"永远发现不了的——第一条把只读查询当写操作，第二条把 `||` 兜底当丢弃错误；它们都在真实命令上才暴露。修复后两条真命令已固化为回归用例（包内 85 用例）。
+
 ## 2026-09-21 · 插件 6 的浏览器半：构建、加载、并按官方插槽渲染
 
 **背景**：`dsh-client-modules` 要求声明了 `dsh.client` 的包必须提供 `lib/client.js`，否则**宿主拒绝启动**
