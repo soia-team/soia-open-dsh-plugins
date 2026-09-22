@@ -13,7 +13,7 @@
 | 判据质量 | 规则误报、漏报各多少 | 46 条真实命令的语料，正反两侧都钉住 | ✓ 命中 20 / 放行 26 |
 | 结论正确性 | 输出与**独立来源**是否一致 | 哈希 vs `shasum`；几何 vs 期望值；门清单 vs 手算期望 | ✓ 五项活会话验收 |
 | 失败可见性 | 坏了会不会伪装成成功 | 结果是否带机器可读 `status`/`code`；失败路径用例占比 | ✓ 见记分卡 |
-| 自检 | 运行时能否自证"我还准不准" | 面板「运行状况」计数 | ⚠️ 仅插件 6 有 |
+| 自检 | 运行时能否自证"我还准不准" | 每包发布健康服务（可被诊断面/测试读取）；插件 6 另有面板计数 | ✓ 六包都有 |
 | 边界诚实 | 声明的限制是否与实际一致 | README `Known Limitations`（双语条目数一致由测试强制） | ⚠️ 靠人工核对 |
 
 ## 二、一条命令复算
@@ -38,8 +38,8 @@ SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs   # 结论正确性（�
 
 | 缺口 | 影响 | 下一步 |
 | --- | --- | --- |
-| 插件 1–5 **没有运行时自检** | 它们坏了只能从外部发现（验收脚本或使用者察觉） | 统一"工具结果带 status/code"已是事实；下一步可给每包加一个可查询的健康面，或统一由宿主侧采集 |
-| 准确率**没有长期曲线** | 只有"这次对"，没有"最近 30 次对不对" | 把每次 `acceptance-live` 的结果落盘成历史，记录通过/失败与耗时 |
+| ~~插件 1–5 没有运行时自检~~ **已完成** | — | 六包各自发布健康服务（`calls` / `failures` / `lastCallAt` / `lastFailureAt` + 包内专有计数），快照冻结、随插件生命周期注销 |
+| ~~准确率没有长期曲线~~ **已完成** | — | 每次 `acceptance-live` 追加一行历史（逐项通过/失败、耗时、token），记分卡读出最近 10 次通过率与逐项稳定性 |
 | ~~误报率只在语料上测~~ **已测（见下）** | — | 下一步：按回放结果收窄规则（见第八节的两类误报） |
 | 插件 6 的流式帧通道未接通 | 「运行状况」里的帧数恒为 0 | 见 README Known Limitations；面板已把它显示出来 |
 
@@ -82,7 +82,23 @@ SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs   # 结论正确性（�
 
 > 判读提示：本节的数字是**量的下界**——规则只跑 bash，写类工具（`write`/`edit`）未回放；且命中不等于误报，必须人工看样本。
 
-## 七、`Known Limitations` 为什么也算健康指标
+## 七、自检与历史：两个已补上的缺口
+
+**运行时自检（每包一个健康服务）**：`packages/*/src/host/health.ts` 定义 `<Pkg>HealthSnapshot` 与一个 cordis `Service`，被 `apply` 创建、随插件卸载注销。统一字段是 `calls` / `failures` / `lastCallAt` / `lastFailureAt`，另有包内专有计数：
+
+| 包 | 服务名 | 专有计数 |
+| --- | --- | --- |
+| `check-file-hash` | `checkFileHashHealth` | `evidenceWrites` |
+| `check-quality-gates` | `checkQualityGatesHealth` | `configErrors` |
+| `check-ui-size` | `checkUiSizeHealth` | `measured` |
+| `check-skills` | `checkSkillsHealth` | `sessionsRead` / `decodeFailures` |
+| `safe-tool-call-policy` | `safeToolCallPolicyHealth` | `matches`（按规则 id） |
+
+快照是**冻结**的：读到的数字不会随后续调用变化。为什么不加一个"健康"工具？那会让模型为一次自检付常驻 token；而这些计数本来就是给宿主与诊断面看的。
+
+**准确率历史**：`SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs` 每轮追加一行到 `$DSH_HOME/acceptance-history.jsonl`（可用 `SOIA_ACCEPTANCE_HISTORY` 覆盖），记录逐项通过/失败、耗时与 token。记分卡读最近 10 次给出**整轮通过率**与**逐项通过率**——只跑单项的轮次单独统计，不会被算成整轮通过。
+
+## 八、`Known Limitations` 为什么也算健康指标
 
 一个插件的"坏"常常不是算错，而是**它以为自己在做一件它做不到的事**。限制清单是这种错的第一道闸：
 

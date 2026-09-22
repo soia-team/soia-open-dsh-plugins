@@ -30,6 +30,7 @@ import { loadPolicy } from './host/policy-file.ts'
 import { evaluateCall } from './shared/evaluate.ts'
 import { renderPolicyReason } from './shared/reason.ts'
 import type { PolicyDecision } from './shared/types.ts'
+import { PolicyHealth } from './host/health.ts'
 
 /** Cordis plugin name used by loader diagnostics; equals the entry id derived from the package name. */
 export const name = 'safe-tool-call-policy'
@@ -84,17 +85,25 @@ function createDecide(ctx: Context): Decide {
  * @param ctx - the plugin context; both hooks unregister when it unloads.
  */
 export function apply(ctx: Context): void {
+  const health = new PolicyHealth(ctx)
+  // One place records every decision, so both hooks report the same counters.
+  const decideAndCount = (exec: Parameters<typeof decide>[0]) => {
+    const decision = decide(exec)
+    health.record(decision.action === 'deny')
+    if (decision.ruleId !== undefined) health.recordMatch(decision.ruleId)
+    return decision
+  }
   const decide = createDecide(ctx)
 
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
-    const decision = decide(exec)
+    const decision = decideAndCount(exec)
 
     return decision.action === 'ask' ? { kind: 'ask', reason: renderPolicyReason(decision) } : next()
   })
 
   ctx.effect(
     () => ctx.tools.guard((exec) => {
-      const decision = decide(exec)
+      const decision = decideAndCount(exec)
 
       return decision.action === 'deny' ? renderPolicyReason(decision) : undefined
     }),

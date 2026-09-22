@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { measureElement } from './host/measure.ts'
+import { UiSizeHealth } from './host/health.ts'
 
 export const name = 'tool-check-ui-size'
 
@@ -61,6 +62,7 @@ const TOOL_DESCRIPTION = 'Read one UI element\'s rendered size and box styles fr
   + 'declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences.'
 
 export function apply(ctx: Context): void {
+  const health = new UiSizeHealth(ctx)
   ctx.tools.register(
     defineTool({
       name: 'check_ui_size',
@@ -164,11 +166,14 @@ export function apply(ctx: Context): void {
               ...(args.expectedWidth === undefined ? {} : { width: args.expectedWidth }),
               ...(args.expectedHeight === undefined ? {} : { height: args.expectedHeight }),
             }
-        return await measureElement({
+        const result = await measureElement({
           url: args.url,
           selector: args.selector,
           ...(expected === undefined ? {} : { expected }),
         })
+        health.record(result.status !== 'ok')
+        if (result.status === 'ok') health.recordMeasured()
+        return result
       },
     }),
   )

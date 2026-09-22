@@ -24,6 +24,14 @@ function createFakeContext() {
   const tools: ToolDefinition[] = []
 
   const ctx = {
+    // The health service extends cordis' `Service`, which publishes itself through
+    // `ctx.reflect.provide`; the real host always has it, so the stub mirrors that
+    // contract instead of letting the plugin take a different path under test.
+    reflect: {
+      provide: (name: string, value: unknown) => {
+        (ctx as unknown as Record<string, unknown>)[name] = value
+      },
+    },
     tools: {
       register: vi.fn((definition: ToolDefinition) => {
         tools.push(definition)

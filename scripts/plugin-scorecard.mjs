@@ -20,6 +20,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -143,7 +144,20 @@ function failureVisibility(pkg) {
   }
 }
 
-/** Whether both language sides state their limits, and how many limits each names. */
+/**
+ * Whether the package exposes a runtime self-check service.
+ *
+ * A source-level check for the contract — a `health.ts` that publishes a
+ * `Service` — because the value of a self-check is that something can *read* it.
+ * The counters themselves are pinned by each package's own tests.
+ */
+function selfCheck(pkg) {
+  const path = join(pkg.dir, 'src/host/health.ts')
+  if (!existsSync(path)) return { has: false, counters: 0 }
+  const text = readFileSync(path, 'utf8')
+  const counters = (text.match(/^\s{2}readonly \w+:/gm) ?? []).length
+  return { has: text.includes('extends Service'), counters }
+}
 function limitations(pkg) {
   const count = (file) => {
     const path = join(pkg.dir, file)
@@ -159,10 +173,30 @@ function limitations(pkg) {
   return { zh: count('README.md'), en: count('README.en.md') }
 }
 
-/** Load evidence, if a local install verification has been run into this path. */
-function installEvidence() {
-  const script = join(root, 'scripts/verify-local-install.sh')
-  return { script: existsSync(script) }
+/**
+ * Read the live-acceptance history, if there is one.
+ *
+ * The trend is the point: one green run says "it works today", a pass rate over
+ * many runs says whether it keeps working. Each check is reported separately,
+ * because a suite that passes 9 of 10 times is not 90% healthy — it has one
+ * flaky check, and which one matters.
+ * @returns per-run summaries, oldest first.
+ */
+function acceptanceHistory() {
+  const path = process.env['SOIA_ACCEPTANCE_HISTORY']
+    ?? join(process.env['DSH_HOME'] ?? join(homedir(), '.dsh'), 'acceptance-history.jsonl')
+  if (!existsSync(path)) return { path, runs: [] }
+  const runs = readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)]
+      } catch {
+        return []
+      }
+    })
+  return { path, runs }
 }
 
 const rows = []
@@ -198,12 +232,16 @@ for (const pkg of packages()) {
     // Dimensions no script can settle, listed so their absence is not mistaken
     // for a pass.
     liveAccuracy: 'opt-in: scripts/acceptance-live.mjs',
-    runtimeSelfCheck: pkg.id === 'client-ui-live-tasks' ? 'health counters in the view' : 'none',
+    runtimeSelfCheck: pkg.id === 'client-ui-live-tasks'
+      ? 'health counters in the view'
+      : selfCheck(pkg),
   })
 }
 
+const history = acceptanceHistory()
+
 if (asJson) {
-  console.log(JSON.stringify({ rows, installVerification: installEvidence() }, null, 2))
+  console.log(JSON.stringify({ rows, acceptance: history }, null, 2))
 } else {
   console.log('插件记分卡 —— 每个数字都说明它能证明什么、不能证明什么\n')
   const header = ['插件', '常驻', '预算', '用例', '失败路径用例', 'typed 失败', '限制条目(中/英)', '自检']
@@ -219,10 +257,38 @@ if (asJson) {
       // which would read as a defect rather than as a different kind of plugin.
       row.tools === 0 ? '不适用（无工具）' : row.failureShape,
       `${row.limitationsZh}/${row.limitationsEn}`,
-      row.runtimeSelfCheck === 'none' ? '无' : '有',
+      row.runtimeSelfCheck === 'health counters in the view'
+        ? '面板内'
+        : row.runtimeSelfCheck.has ? `服务（${row.runtimeSelfCheck.counters} 项）` : '无',
     ].join('\t'))
   }
   console.log('\n规则语料:', JSON.stringify(rows.find((row) => row.ruleCorpus !== undefined)?.ruleCorpus ?? {}))
+  const runs = history.runs
+  const recent = runs.slice(-10)
+  console.log(`\n验收历史（${history.path}）`)
+  if (runs.length === 0) {
+    console.log('  还没有记录。跑一次：SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs')
+  } else {
+    const fullRuns = recent.filter((run) => run.only === null || run.only === undefined)
+    const passed = fullRuns.reduce((sum, run) => sum + (run.passed ?? 0), 0)
+    const checks = fullRuns.reduce((sum, run) => sum + (run.checks ?? 0), 0)
+    const tokens = recent.reduce((sum, run) => sum + (run.tokens ?? 0), 0)
+    const duration = recent.reduce((sum, run) => sum + (run.durationMs ?? 0), 0)
+    console.log(`  最近 ${recent.length} 次（其中整轮 ${fullRuns.length} 次）：整轮通过 ${passed}/${checks} 项 · 平均 ${Math.round(duration / recent.length / 1000)} 秒/次 · 平均 ${Math.round(tokens / recent.length / 1000)}k token/次`)
+    const perCheck = new Map()
+    for (const run of fullRuns) {
+      for (const entry of run.detail ?? []) {
+        const bucket = perCheck.get(entry.id) ?? { pass: 0, fail: 0 }
+        bucket[entry.status === 'pass' ? 'pass' : 'fail'] += 1
+        perCheck.set(entry.id, bucket)
+      }
+    }
+    for (const [id, bucket] of perCheck) {
+      const rate = bucket.pass + bucket.fail === 0 ? 0 : Math.round((bucket.pass / (bucket.pass + bucket.fail)) * 100)
+      console.log(`    ${id}: ${bucket.pass} 通过 / ${bucket.fail} 失败（${rate}%）`)
+    }
+  }
+
   console.log('\n这些数字**不能**证明的事：')
   console.log('  · 常驻 token 便宜 ≠ 判据有用；要另外看语料的误报/漏报。')
   console.log('  · 用例多 ≠ 覆盖到失败路径；所以旁边给了失败路径用例占比。')

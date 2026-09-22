@@ -20,6 +20,7 @@ import {
   writeEvidenceReport,
 } from './host/skills.ts'
 import type { CheckSkillsFailure, CheckSkillsOutcome } from './shared/types.ts'
+import { SkillsHealth } from './host/health.ts'
 
 export const name = 'tool-check-skills'
 
@@ -127,6 +128,7 @@ export function runCheckSkills(options: {
 }
 
 export function apply(ctx: Context): void {
+  const health = new SkillsHealth(ctx)
   ctx.tools.register(
     defineTool({
       name: 'check_skills',
@@ -204,11 +206,14 @@ export function apply(ctx: Context): void {
       // `async` is required by the tool contract even though every step here is
       // synchronous: file reads and zstd decoding are both blocking.
       async execute(args) {
-        return runCheckSkills({
+        const report = await runCheckSkills({
           ...(args.sessionPath === undefined ? {} : { sessionPath: args.sessionPath }),
           ...(args.applicableSkills === undefined ? {} : { applicableSkills: args.applicableSkills }),
           ...(args.evidenceDir === undefined ? {} : { evidenceDir: args.evidenceDir }),
         })
+        health.record(report.status !== 'ok')
+        health.recordSessionRead(report.status === 'ok')
+        return report
       },
     }),
   )

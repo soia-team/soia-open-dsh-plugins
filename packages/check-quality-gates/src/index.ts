@@ -16,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { resolveGateReport } from './host/config-file.ts'
+import { QualityGatesHealth } from './host/health.ts'
 
 export const name = 'tool-check-quality-gates'
 
@@ -36,6 +37,7 @@ const TOOL_DESCRIPTION = 'Map the files changed in a task to the quality gates t
   + 'so an unrun gate is never blocked.'
 
 export function apply(ctx: Context): void {
+  const health = new QualityGatesHealth(ctx)
   ctx.tools.register(
     defineTool({
       name: 'check_quality_gates',
@@ -95,11 +97,15 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(args) {
-        return resolveGateReport({
+        // Counted on the way out so every path through the tool is visible.
+        const report = await resolveGateReport({
           changedFiles: args.changedFiles,
           configPath: args.configPath,
           cwd: args.cwd,
         })
+        health.record(report.error !== null)
+        if (report.error !== null) health.recordConfigError()
+        return report
       },
     }),
   )

@@ -14,6 +14,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { attachEvidence } from './host/evidence.ts'
 import { checkFileHash } from './host/hash.ts'
+import { FileHashHealth } from './host/health.ts'
 
 export const name = 'tool-check-file-hash'
 
@@ -35,6 +36,7 @@ const TOOL_DESCRIPTION = 'Hash files or directories with sha256 and report paths
   + 'Pass evidenceDir to record the report as a JSON file.'
 
 export function apply(ctx: Context): void {
+  const health = new FileHashHealth(ctx)
   ctx.tools.register(
     defineTool({
       name: 'check_file_hash',
@@ -94,8 +96,11 @@ export function apply(ctx: Context): void {
       },
       async execute(args, exec) {
         const result = await checkFileHash(args.paths, { signal: exec.signal })
+        health.record(result.status !== 'ok')
         if (result.status !== 'ok' || args.evidenceDir === undefined) return result
-        return await attachEvidence(result, args.evidenceDir)
+        const withEvidence = await attachEvidence(result, args.evidenceDir)
+        if (withEvidence.status === 'ok') health.recordEvidenceWrite()
+        return withEvidence
       },
     }),
   )

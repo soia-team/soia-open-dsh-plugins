@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
+import { Service } from "@deepseek-ai/cordis";
 /** The one code this module reports. */
 const WRITE_FAILED = "evidence_write_failed";
 /** Build the typed write failure. */
@@ -316,6 +317,70 @@ async function checkFileHash(paths, options = {}) {
 	};
 }
 //#endregion
+//#region packages/check-file-hash/src/host/health.ts
+/**
+* Runtime self-check for this package.
+*
+* A tool that only reports per-call results cannot say whether it has been
+* working: the host sees successes and failures one call at a time, and nothing
+* carries the package's own view of its behaviour. These counters do, and they
+* are exposed as a host service so a diagnostic surface (or a test) can read
+* them without the model paying for a tool schema.
+*
+* The snapshot is frozen: a caller cannot mutate the package's counters by
+* holding on to what it read.
+*/
+/**
+* Counter store behind the service.
+*
+* A `Service` rather than a plain object because that is how this host attaches
+* a lifetime: the counters disappear with the plugin instead of leaking into a
+* later composition.
+*/
+var FileHashHealth = class extends Service {
+	calls = 0;
+	failures = 0;
+	lastCallAt = null;
+	lastFailureAt = null;
+	evidenceWrites = 0;
+	/**
+	* @param ctx - host context owning this service's lifetime.
+	*/
+	constructor(ctx) {
+		super(ctx, "checkFileHashHealth");
+	}
+	/**
+	* Record one completed call.
+	* @param failed - whether the call ended in a failure report.
+	* @param at - epoch milliseconds of completion.
+	*/
+	record(failed, at = Date.now()) {
+		this.calls += 1;
+		this.lastCallAt = at;
+		if (failed) {
+			this.failures += 1;
+			this.lastFailureAt = at;
+		}
+	}
+	/** Record one evidence file written. */
+	recordEvidenceWrite() {
+		this.evidenceWrites += 1;
+	}
+	/**
+	* Read the counters.
+	* @returns a frozen snapshot.
+	*/
+	snapshot() {
+		return Object.freeze({
+			calls: this.calls,
+			failures: this.failures,
+			lastCallAt: this.lastCallAt,
+			lastFailureAt: this.lastFailureAt,
+			evidenceWrites: this.evidenceWrites
+		});
+	}
+};
+//#endregion
 //#region packages/check-file-hash/src/index.ts
 const name = "tool-check-file-hash";
 /**
@@ -332,6 +397,7 @@ const inject = ["tools"];
 */
 const TOOL_DESCRIPTION = "Hash files or directories with sha256 and report paths, digests and sizes, to check a receipt's claimed artifact against the actual bytes. Pass evidenceDir to record the report as a JSON file.";
 function apply(ctx) {
+	const health = new FileHashHealth(ctx);
 	ctx.tools.register(defineTool({
 		name: "check_file_hash",
 		description: TOOL_DESCRIPTION,
@@ -410,8 +476,11 @@ function apply(ctx) {
 		},
 		async execute(args, exec) {
 			const result = await checkFileHash(args.paths, { signal: exec.signal });
+			health.record(result.status !== "ok");
 			if (result.status !== "ok" || args.evidenceDir === void 0) return result;
-			return await attachEvidence(result, args.evidenceDir);
+			const withEvidence = await attachEvidence(result, args.evidenceDir);
+			if (withEvidence.status === "ok") health.recordEvidenceWrite();
+			return withEvidence;
 		}
 	}));
 }
