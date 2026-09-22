@@ -11,7 +11,10 @@
  * active theme without duplicating any palette.
  */
 const CSS = `
-.lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px; }
+/* One place for the row grid: the rows, their header and the detail indentation
+   all read these, so a column change cannot leave them out of line. */
+.lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px;
+  --lt-col-time: 68px; --lt-col-kind: 46px; --lt-col-took: 64px; --lt-gap: 6px; }
 .lt-head { display: flex; align-items: center; gap: 8px; }
 .lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
@@ -90,8 +93,10 @@ const CSS = `
 .lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
 .lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
-.lt-toolButton { display: grid; grid-template-columns: 68px 46px minmax(0, 1fr) auto 12px; align-items: center;
-  gap: 6px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
+.lt-toolButton { display: grid;
+  grid-template-columns: var(--lt-col-time) var(--lt-col-kind) minmax(0, 1fr) var(--lt-col-took) 12px;
+  align-items: center; gap: var(--lt-gap);
+  width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
   text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
 
 /* 类型徽标：照抄轨迹 kindSlot / kindTag 的规格（中文槽宽 44px、标签高 19px、圆角 4px、10px/650、字距 .035em） */
@@ -113,14 +118,20 @@ const CSS = `
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #b42318) 16%, transparent); }
 .lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
-.lt-toolDetail { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px 88px;
-  padding: 8px 10px; border-radius: 8px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
-.lt-detailBlock { display: flex; flex-direction: column; gap: 3px; }
+.lt-toolDetail { display: flex; flex-direction: column; gap: 10px;
+  /* Indented to the payload column, computed from the same grid constants. */
+  margin: 4px 0 10px calc(var(--lt-col-time) + var(--lt-col-kind) + var(--lt-gap) * 2 + 6px);
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 8%));
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-detailBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .lt-detailLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
-.lt-detailPre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+.lt-detailPre { margin: 0; max-height: 168px; overflow: auto; padding: 6px 8px; border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, #fff); white-space: pre-wrap; word-break: break-word;
   font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
 .lt-summaryLine { margin: -6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
+.lt-usageLine { margin: -2px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px;
+  font-variant-numeric: tabular-nums; }
 
 /* 时间线：一条导轨 + 每行一个事件，视觉语言与内置「轨迹」一致 */
 .lt-timeline { margin: 0; padding: 0; list-style: none; }
@@ -144,12 +155,16 @@ const CSS = `
 .lt-tlBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .lt-tlTitle { flex: none; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
   color: var(--dsw-alias-label-primary); }
+.lt-tlEntryId { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+  font-family: var(--dsw-font-mono, monospace); }
+.lt-detailMono { font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail, .lt-tlResult { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail { color: var(--dsw-alias-label-secondary); max-width: 42%; }
 .lt-tlArrow { flex: none; color: var(--dsw-alias-label-tertiary); }
 .lt-tlResult { color: var(--dsw-alias-label-primary); }
-.lt-tlTook, .lt-tlTookFailed { white-space: nowrap; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.lt-tlTook, .lt-tlTookFailed { white-space: nowrap; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  min-width: 64px; text-align: right; }
 .lt-tlTook { color: var(--dsw-alias-label-tertiary); }
 .lt-tlTookFailed { color: var(--dsw-alias-label-error, #b42318); }
 
@@ -187,7 +202,7 @@ const CSS = `
   letter-spacing: .02em; }
 
 /* 详情：概览网格 + 参数/结果 */
-.lt-detailGrid { display: grid; grid-template-columns: 64px 1fr; gap: 2px 10px; margin: 0; }
+.lt-detailGrid { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 3px 12px; margin: 0; }
 .lt-detailGrid dt { color: var(--dsw-alias-label-tertiary); }
 .lt-detailGrid dd { margin: 0; color: var(--dsw-alias-label-primary); }
 
@@ -307,6 +322,7 @@ export const styles = {
   turnLabelActive: 'lt-turnLabelActive',
   toolDetail: 'lt-toolDetail',
   summaryLine: 'lt-summaryLine',
+  usageLine: 'lt-usageLine',
   timeline: 'lt-timeline',
   tlRow: 'lt-tlRow',
   tlTurn: 'lt-tlTurn',
@@ -318,6 +334,8 @@ export const styles = {
   tlBadgeTool: 'lt-tlBadgeTool',
   tlBody: 'lt-tlBody',
   tlTitle: 'lt-tlTitle',
+  tlEntryId: 'lt-tlEntryId',
+  detailMono: 'lt-detailMono',
   tlDetail: 'lt-tlDetail',
   tlArrow: 'lt-tlArrow',
   tlResult: 'lt-tlResult',

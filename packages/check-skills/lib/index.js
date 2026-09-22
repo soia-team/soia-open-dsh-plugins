@@ -912,12 +912,14 @@ const TOOL_DESCRIPTION = "Audit a session log for whether the expected skills we
 function toFailure(error, sessionPath) {
 	if (error instanceof SessionReadError) return {
 		status: "error",
+		plugin: "soia-dsh-tool-check-skills",
 		code: error.code,
 		message: error.message,
 		...error.sessionPath === void 0 ? {} : { sessionPath: error.sessionPath }
 	};
 	return {
 		status: "error",
+		plugin: "soia-dsh-tool-check-skills",
 		code: "session_unreadable",
 		message: error instanceof Error ? error.message : String(error),
 		...sessionPath === void 0 ? {} : { sessionPath }

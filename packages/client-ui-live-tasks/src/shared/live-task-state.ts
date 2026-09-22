@@ -58,6 +58,7 @@ function addCallToTurn(
       toolCalls: 1,
       failures: 0,
       tools: [name],
+      tokens: 0,
     }].slice(-TURN_LIMIT)
   }
   return turns.map((summary) => (summary.turn === turn
@@ -118,6 +119,21 @@ function firstLineOfMessage(data: Record<string, unknown> | undefined): string |
   return null
 }
 
+/** Usage before any message reported it. */
+const INITIAL_USAGE = Object.freeze({ reported: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 })
+
+/**
+ * Read a token count out of a usage record.
+ * @param usage - the message's usage payload.
+ * @param key - field name.
+ * @returns the number, or 0 when the provider did not report it.
+ */
+function usageField(usage: Record<string, unknown> | undefined, key: string): number {
+  if (usage === undefined) return 0
+  const value = usage[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
 /** Counters start at zero; nothing has been folded yet. */
 const INITIAL_HEALTH = Object.freeze({ folded: 0, ignored: 0, unknown: 0, frames: 0, deltasAccepted: 0, deltasDropped: 0, agents: 0, registry: 0 })
 
@@ -171,11 +187,13 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   toolsAvailable: null,
   streamedTextLength: 0,
   streamedAt: null,
+  usage: INITIAL_USAGE,
   health: INITIAL_HEALTH,
   lastEvent: null,
   recent: NO_EVENTS,
   timeline: NO_TIMELINE,
   turns: NO_TURNS,
+  turnsTotal: 0,
   actions: NO_ACTIONS,
   endedReason: null,
 })
@@ -200,6 +218,22 @@ function stringOf(value: unknown): string | undefined {
 /** Display summary of one durable event. */
 /** How many recent observations the view keeps for its trail. */
 export const RECENT_EVENT_LIMIT = 6
+
+/**
+ * The entry id a tool name belongs to, by the ecosystem's naming law.
+ *
+ * `check_ui_size` is registered by the bundle whose entry id is
+ * `tool-check-ui-size` (ids keep dashes, tool names use underscores), and the
+ * official tools follow the same law (`bash` → `tool-bash`). Showing it tells a
+ * reader which plugin a row came from instead of the generic word "tool".
+ * @param toolName - the registered tool name.
+ * @returns the entry id, or null when the name carries nothing to derive from.
+ */
+export function entryIdOfTool(toolName: string): string | null {
+  const trimmed = toolName.trim()
+  if (trimmed === '') return null
+  return `tool-${trimmed.replaceAll('_', '-')}`
+}
 
 /** How many timeline rows the view keeps. */
 export const TIMELINE_LIMIT = 20
@@ -543,9 +577,12 @@ function foldEvent(
         step: null,
         running: true,
         openTools: NO_TOOLS,
+        turnsTotal: turn === null || state.turns.some((summary) => summary.turn === turn)
+          ? state.turnsTotal
+          : state.turnsTotal + 1,
         turns: turn === null || state.turns.some((summary) => summary.turn === turn)
           ? state.turns
-          : [...state.turns, { turn, startedAt: time, endedAt: null, toolCalls: 0, failures: 0, tools: [] }].slice(-TURN_LIMIT),
+          : [...state.turns, { turn, startedAt: time, endedAt: null, toolCalls: 0, failures: 0, tools: [], tokens: 0 }].slice(-TURN_LIMIT),
         timeline: turn === null
           ? state.timeline
           : pushTimeline(state.timeline, {
@@ -556,6 +593,7 @@ function foldEvent(
               startedAt: time,
               endedAt: null,
               title: '',
+              entryId: null,
               detail: null,
               argsFull: null,
               resultFull: null,
@@ -647,6 +685,7 @@ function foldEvent(
           startedAt: time,
           endedAt: null,
           title: name,
+          entryId: entryIdOfTool(name),
           detail: call.detail,
           result: null,
           argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null),
@@ -715,6 +754,7 @@ function foldEvent(
           startedAt: time,
           endedAt: time,
           title: '',
+          entryId: null,
           detail,
           result: null,
           argsFull: null,
@@ -726,6 +766,10 @@ function foldEvent(
     }
     case 'assistant/message':
     case 'assistant/attempt': {
+      const usage = recordOf(data?.['usage'])
+      const reported = usage !== undefined && typeof usage['totalTokens'] === 'number'
+      const spent = reported ? usageField(usage, 'totalTokens') : 0
+      const turn = numberOf(data?.['turn']) ?? state.turn
       // The durable message supersedes every transient delta of its attempt, so
       // the streamed counter of that step starts clean for the next one.
       return {
@@ -733,6 +777,21 @@ function foldEvent(
         ...envelope,
         streamedTextLength: 0,
         streamedAt: null,
+        usage: reported
+          ? {
+              reported: state.usage.reported + 1,
+              input: state.usage.input + usageField(usage, 'inputTokens'),
+              output: state.usage.output + usageField(usage, 'outputTokens'),
+              cacheRead: state.usage.cacheRead + usageField(usage, 'cacheReadTokens'),
+              reasoning: state.usage.reasoning + usageField(usage, 'reasoningTokens'),
+              total: state.usage.total + spent,
+            }
+          : state.usage,
+        turns: reported && turn !== null
+          ? state.turns.map((summary) => (summary.turn === turn
+              ? { ...summary, tokens: summary.tokens + spent }
+              : summary))
+          : state.turns,
         timeline: event.type === 'assistant/message'
           ? pushTimeline(state.timeline, {
               id: `assistant-${seq}`,
@@ -742,6 +801,7 @@ function foldEvent(
               startedAt: time,
               endedAt: time,
               title: '',
+              entryId: null,
               detail: firstLineOfMessage(data),
               result: null,
               argsFull: null,

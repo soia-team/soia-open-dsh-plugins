@@ -145,6 +145,14 @@ export interface LiveTimelineEntry {
     readonly endedAt: number | null;
     /** Headline: the tool name, or a human word for the other kinds. */
     readonly title: string;
+    /**
+     * Entry id of the plugin that registered this row's tool, or null for rows the
+     * session itself produced (`user/message` and the like).
+     *
+     * Naming a row "工具" told a reader nothing about where it came from; the entry
+     * id is what the host lists in its own plugin inventory.
+     */
+    readonly entryId: string | null;
     /** What it was given: the command, path, URL, or the first line of a message. */
     readonly detail: string | null;
     /** What came back, first line only. Null while open or when nothing came back. */
@@ -181,6 +189,29 @@ export interface LiveTurnSummary {
     readonly failures: number;
     /** Distinct tool names used in this turn, in first-use order. */
     readonly tools: readonly string[];
+    /** Tokens this turn spent, summed from its assistant messages. */
+    readonly tokens: number;
+}
+/**
+ * Token usage folded from the session's own assistant messages.
+ *
+ * The host already records usage per message; nothing carried it to a surface a
+ * person watches, so "what has this session cost" had no answer outside the
+ * transcript. Absent usage on a message is reported as absence, never as zero.
+ */
+export interface LiveTaskUsage {
+    /** Assistant messages that carried a usage report. */
+    readonly reported: number;
+    /** Prompt tokens billed, summed over those messages. */
+    readonly input: number;
+    /** Completion tokens billed. */
+    readonly output: number;
+    /** Tokens served from cache, which are cheaper and the point of the ratio. */
+    readonly cacheRead: number;
+    /** Reasoning tokens, when the provider separates them. */
+    readonly reasoning: number;
+    /** Total tokens the provider reported. */
+    readonly total: number;
 }
 /** One finished (or running) tool call as a human-readable line. */
 export interface LiveTaskAction {
@@ -246,6 +277,15 @@ export interface LiveTaskView {
     readonly timeline: readonly LiveTimelineEntry[];
     /** Newest-last turn summaries, for the timeline's horizontal axis. */
     readonly turns: readonly LiveTurnSummary[];
+    /**
+     * Turns this session has opened, never trimmed.
+     *
+     * The axis keeps the last twenty; reporting that window's length as the session
+     * total told a 64-turn session it had 20 — a number a reader would act on.
+     */
+    readonly turnsTotal: number;
+    /** Token usage for the whole session, folded from assistant messages. */
+    readonly usage: LiveTaskUsage;
     /** Fold counters, so the panel can report its own freshness. */
     readonly health: LiveTaskHealth;
     /**

@@ -26,7 +26,14 @@ export declare const zh: {
     readonly 'bar.failedOnly': '只看失败';
     readonly 'bar.scrollHint': '横向可滚动';
     readonly 'detail.none': '（没有可显示的内容）';
+    readonly 'detail.content': '内容';
+    readonly 'detail.name': '名称';
+    readonly 'detail.entryId': '插件 ID';
+    readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';
+    readonly 'usage.unknown': '本会话还没有用量报告';
+    readonly 'usage.turn': '{t} tok';
     readonly 'axis.title': '轮次横轴（时间向右）';
+    readonly 'axis.titleWindow': '轮次横轴（最近 {shown} 轮，共 {total} 轮）';
     readonly 'axis.turn': '第 {n} 轮';
     readonly 'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）';
     readonly 'turn.stepN': '第 {n} 步';

@@ -396,7 +396,9 @@ describe('liveTask projection unit', () => {
       'toolsAvailable',
       'turn',
       'turns',
+      'turnsTotal',
       'updatedAt',
+      'usage',
     ])
     expect(liveTaskProjectionDefinition.wire.viewSchema.safeParse(view).success).toBe(true)
   })

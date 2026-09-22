@@ -64,6 +64,13 @@ export interface HashFailure {
    */
   code: HashFailureCode
   message: string
+  /**
+   * The plugin that produced this failure.
+   *
+   * Model-visible text has to name its source: given only a message, a reader
+   * cannot tell which plugin to inspect, or whether a plugin was involved at all.
+   */
+  plugin: 'soia-dsh-tool-check-file-hash'
   /** The path the failure is about, when a single path is to blame. */
   path?: string
 }

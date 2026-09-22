@@ -15,6 +15,15 @@ const NO_EVENTS = Object.freeze([]);
 const NO_ACTIONS = Object.freeze([]);
 const NO_TIMELINE = Object.freeze([]);
 const NO_TURNS = Object.freeze([]);
+/** Usage before any message reported it. */
+const INITIAL_USAGE = Object.freeze({
+	reported: 0,
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	reasoning: 0,
+	total: 0
+});
 /** Counters start at zero; nothing has been folded yet. */
 const INITIAL_HEALTH = Object.freeze({
 	folded: 0,
@@ -42,11 +51,13 @@ Object.freeze({
 	toolsAvailable: null,
 	streamedTextLength: 0,
 	streamedAt: null,
+	usage: INITIAL_USAGE,
 	health: INITIAL_HEALTH,
 	lastEvent: null,
 	recent: NO_EVENTS,
 	timeline: NO_TIMELINE,
 	turns: NO_TURNS,
+	turnsTotal: 0,
 	actions: NO_ACTIONS,
 	endedReason: null
 });
@@ -76,7 +87,10 @@ function hasLiveActivity(state) {
 * active theme without duplicating any palette.
 */
 const CSS = `
-.lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px; }
+/* One place for the row grid: the rows, their header and the detail indentation
+   all read these, so a column change cannot leave them out of line. */
+.lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px;
+  --lt-col-time: 68px; --lt-col-kind: 46px; --lt-col-took: 64px; --lt-gap: 6px; }
 .lt-head { display: flex; align-items: center; gap: 8px; }
 .lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
@@ -155,8 +169,10 @@ const CSS = `
 .lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
 .lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
-.lt-toolButton { display: grid; grid-template-columns: 68px 46px minmax(0, 1fr) auto 12px; align-items: center;
-  gap: 6px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
+.lt-toolButton { display: grid;
+  grid-template-columns: var(--lt-col-time) var(--lt-col-kind) minmax(0, 1fr) var(--lt-col-took) 12px;
+  align-items: center; gap: var(--lt-gap);
+  width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
   text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
 
 /* 类型徽标：照抄轨迹 kindSlot / kindTag 的规格（中文槽宽 44px、标签高 19px、圆角 4px、10px/650、字距 .035em） */
@@ -178,14 +194,20 @@ const CSS = `
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #b42318) 16%, transparent); }
 .lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
-.lt-toolDetail { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px 88px;
-  padding: 8px 10px; border-radius: 8px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
-.lt-detailBlock { display: flex; flex-direction: column; gap: 3px; }
+.lt-toolDetail { display: flex; flex-direction: column; gap: 10px;
+  /* Indented to the payload column, computed from the same grid constants. */
+  margin: 4px 0 10px calc(var(--lt-col-time) + var(--lt-col-kind) + var(--lt-gap) * 2 + 6px);
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 8%));
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-detailBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .lt-detailLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
-.lt-detailPre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+.lt-detailPre { margin: 0; max-height: 168px; overflow: auto; padding: 6px 8px; border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, #fff); white-space: pre-wrap; word-break: break-word;
   font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
 .lt-summaryLine { margin: -6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
+.lt-usageLine { margin: -2px 0 0; color: var(--dsw-alias-label-tertiary); font-size: 12px;
+  font-variant-numeric: tabular-nums; }
 
 /* 时间线：一条导轨 + 每行一个事件，视觉语言与内置「轨迹」一致 */
 .lt-timeline { margin: 0; padding: 0; list-style: none; }
@@ -209,12 +231,16 @@ const CSS = `
 .lt-tlBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .lt-tlTitle { flex: none; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
   color: var(--dsw-alias-label-primary); }
+.lt-tlEntryId { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+  font-family: var(--dsw-font-mono, monospace); }
+.lt-detailMono { font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail, .lt-tlResult { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail { color: var(--dsw-alias-label-secondary); max-width: 42%; }
 .lt-tlArrow { flex: none; color: var(--dsw-alias-label-tertiary); }
 .lt-tlResult { color: var(--dsw-alias-label-primary); }
-.lt-tlTook, .lt-tlTookFailed { white-space: nowrap; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.lt-tlTook, .lt-tlTookFailed { white-space: nowrap; font-size: 11.5px; font-variant-numeric: tabular-nums;
+  min-width: 64px; text-align: right; }
 .lt-tlTook { color: var(--dsw-alias-label-tertiary); }
 .lt-tlTookFailed { color: var(--dsw-alias-label-error, #b42318); }
 
@@ -252,7 +278,7 @@ const CSS = `
   letter-spacing: .02em; }
 
 /* 详情：概览网格 + 参数/结果 */
-.lt-detailGrid { display: grid; grid-template-columns: 64px 1fr; gap: 2px 10px; margin: 0; }
+.lt-detailGrid { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 3px 12px; margin: 0; }
 .lt-detailGrid dt { color: var(--dsw-alias-label-tertiary); }
 .lt-detailGrid dd { margin: 0; color: var(--dsw-alias-label-primary); }
 
@@ -371,6 +397,7 @@ const styles = {
 	turnLabelActive: "lt-turnLabelActive",
 	toolDetail: "lt-toolDetail",
 	summaryLine: "lt-summaryLine",
+	usageLine: "lt-usageLine",
 	timeline: "lt-timeline",
 	tlRow: "lt-tlRow",
 	tlTurn: "lt-tlTurn",
@@ -382,6 +409,8 @@ const styles = {
 	tlBadgeTool: "lt-tlBadgeTool",
 	tlBody: "lt-tlBody",
 	tlTitle: "lt-tlTitle",
+	tlEntryId: "lt-tlEntryId",
+	detailMono: "lt-detailMono",
 	tlDetail: "lt-tlDetail",
 	tlArrow: "lt-tlArrow",
 	tlResult: "lt-tlResult",
@@ -483,6 +512,19 @@ function useNow() {
 		return () => clearInterval(timer);
 	}, []);
 	return now;
+}
+/**
+* Render a token count compactly: `1234567` → `1.23M`.
+*
+* Six-digit numbers repeated down a column are hard to compare at a glance;
+* the exact value stays available in the tooltip.
+* @param value - token count.
+* @returns the compact form.
+*/
+function compact(value) {
+	if (value < 1e3) return String(value);
+	if (value < 1e6) return `${(value / 1e3).toFixed(1)}k`;
+	return `${(value / 1e6).toFixed(2)}M`;
 }
 /** Wall-clock `HH:MM:SS` in the reader's own timezone. */
 function clockOf(at) {
@@ -641,6 +683,10 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 							className: styles.tlTitle,
 							children: entry.title
 						}),
+						entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.tlEntryId,
+							children: entry.entryId
+						}),
 						entry.detail !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: styles.tlDetail,
 							title: entry.detail ?? "",
@@ -668,51 +714,62 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 			]
 		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.toolDetail,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: styles.detailBlock,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.detailLabel,
-						children: t("detail.overview")
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-						className: styles.detailGrid,
-						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timeline.tool") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("detail.overview")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+					className: styles.detailGrid,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.name") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
+						entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+							className: styles.detailMono,
+							children: entry.entryId
+						})] }),
+						entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.duration") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("time.seconds", { s: took }) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.started") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: clockOf(entry.startedAt) }),
-							entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
-								turn: entry.turn,
-								step: entry.step
-							}) })] })
-						]
-					})]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: styles.detailBlock,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.detailLabel,
-						children: t("turn.args")
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-						className: styles.detailPre,
-						children: entry.argsFull ?? entry.detail ?? t("detail.none")
-					})]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: styles.detailBlock,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.detailLabel,
-						children: t("turn.result")
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-						className: styles.detailPre,
-						children: entry.resultFull ?? entry.result ?? t("detail.none")
-					})]
-				})
-			]
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("time.seconds", { s: took }) })
+						] }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.started") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: clockOf(entry.startedAt) }),
+						entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
+							turn: entry.turn,
+							step: entry.step
+						}) })] })
+					]
+				})]
+			}), entry.kind === "tool" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("turn.args")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+					className: styles.detailPre,
+					children: entry.argsFull ?? entry.detail ?? t("detail.none")
+				})]
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("turn.result")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+					className: styles.detailPre,
+					children: entry.resultFull ?? entry.result ?? t("detail.none")
+				})]
+			})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("detail.content")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+					className: styles.detailPre,
+					children: entry.detail ?? t("detail.none")
+				})]
+			})]
 		})]
 	});
 }
@@ -765,6 +822,10 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
 					turn.toolCalls > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.turnMeta,
 						children: t("turn.tools", { n: turn.toolCalls })
+					}),
+					turn.tokens > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.turnMeta,
+						children: t("usage.turn", { t: compact(turn.tokens) })
 					}),
 					turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlTookFailed,
@@ -856,11 +917,21 @@ function LiveTasksView({ useProjection, t }) {
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 				className: styles.summaryLine,
 				children: t("axis.summary", {
-					turns: state.turns.length,
+					turns: state.turnsTotal,
 					calls: state.toolCallsTotal,
 					failures: state.failuresTotal,
 					tools: state.toolsAvailable ?? "—",
 					used: distinctTools
+				})
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: styles.usageLine,
+				children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
+					total: compact(state.usage.total),
+					input: compact(state.usage.input),
+					output: compact(state.usage.output),
+					cache: compact(state.usage.cacheRead),
+					pct: state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / state.usage.input * 100)
 				})
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -882,7 +953,10 @@ function LiveTasksView({ useProjection, t }) {
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: styles.barButton,
-						onClick: () => setExpandAll(!expandAll),
+						onClick: () => {
+							setExpanded(null);
+							setExpandAll(!expandAll);
+						},
 						children: expandAll ? t("bar.collapseAll") : t("bar.expandAll")
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
@@ -909,7 +983,10 @@ function LiveTasksView({ useProjection, t }) {
 				className: styles.section,
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
 					className: styles.sectionTitle,
-					children: t("axis.title")
+					children: state.turnsTotal > state.turns.length ? t("axis.titleWindow", {
+						total: state.turnsTotal,
+						shown: state.turns.length
+					}) : t("axis.title")
 				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LaneChart, {
 					entries: state.timeline,
 					turns: state.turns,
@@ -936,7 +1013,10 @@ function LiveTasksView({ useProjection, t }) {
 						showClock,
 						open: turnsOpen,
 						expandedId: expandAll ? "__all__" : expanded,
-						onToggle: (id) => setExpanded(expanded === id ? null : id),
+						onToggle: (id) => {
+							setExpandAll(false);
+							setExpanded(expanded === id ? null : id);
+						},
 						t
 					}, turn.turn))
 				})]
@@ -1004,7 +1084,14 @@ const zh = {
 	"bar.failedOnly": "只看失败",
 	"bar.scrollHint": "横向可滚动",
 	"detail.none": "（没有可显示的内容）",
+	"detail.content": "内容",
+	"detail.name": "名称",
+	"detail.entryId": "插件 ID",
+	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
+	"usage.unknown": "本会话还没有用量报告",
+	"usage.turn": "{t} tok",
 	"axis.title": "轮次横轴（时间向右）",
+	"axis.titleWindow": "轮次横轴（最近 {shown} 轮，共 {total} 轮）",
 	"axis.turn": "第 {n} 轮",
 	"axis.summary": "本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）",
 	"turn.stepN": "第 {n} 步",
@@ -1101,7 +1188,14 @@ const en = {
 	"bar.failedOnly": "Failures only",
 	"bar.scrollHint": "scrolls sideways",
 	"detail.none": "(nothing to show)",
+	"detail.content": "Content",
+	"detail.name": "Name",
+	"detail.entryId": "Plugin id",
+	"usage.line": "{total} tok this session · in {input} · out {output} · cache read {cache} ({pct}%)",
+	"usage.unknown": "No usage reported yet",
+	"usage.turn": "{t} tok",
 	"axis.title": "Turns as time (left to right)",
+	"axis.titleWindow": "Turns as time (last {shown} of {total})",
 	"axis.turn": "turn {n}",
 	"axis.summary": "{turns} turns · {calls} calls · {failures} failed · {tools} tools offered ({used} used)",
 	"turn.stepN": "step {n}",

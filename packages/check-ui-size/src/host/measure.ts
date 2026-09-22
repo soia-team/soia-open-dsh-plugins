@@ -92,7 +92,7 @@ function failure(
   message: string,
   options: { url: string; selector: string },
 ): MeasureFailure {
-  return { status: 'error', code, message, url: options.url, selector: options.selector }
+  return { status: 'error', plugin: 'soia-dsh-tool-check-ui-size', code, message, url: options.url, selector: options.selector }
 }
 
 /**
