@@ -30,6 +30,7 @@ const liveToolCallSchema = z.object({
   step: z.number().int().nullable(),
   open: z.boolean(),
   failed: z.boolean().optional(),
+  detail: z.string().nullable(),
 }).strict()
 
 /** The "last event" line as it crosses the wire. */
@@ -58,6 +59,7 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   openTools: z.array(liveToolCallSchema),
   toolCallsInTurn: z.number().int().nonnegative(),
   lastEvent: liveEventSummarySchema.nullable(),
+  recent: z.array(liveEventSummarySchema),
   endedReason: z.string().nullable(),
   streamedTextLength: z.number().int().nonnegative(),
   streamedAt: z.number().nullable(),
@@ -80,6 +82,7 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   openTools: z.array(liveToolCallSchema),
   toolCallsInTurn: z.number().int().nonnegative(),
   lastEvent: liveEventSummarySchema.nullable(),
+  recent: z.array(liveEventSummarySchema),
   endedReason: z.string().nullable(),
 }).strict()
 
@@ -112,6 +115,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     openTools: state.openTools,
     toolCallsInTurn: state.toolCallsInTurn,
     lastEvent: state.lastEvent,
+    recent: state.recent,
     endedReason: state.endedReason,
   }
   VIEWS.set(state, view)

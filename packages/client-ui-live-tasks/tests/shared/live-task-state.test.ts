@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  RECENT_EVENT_LIMIT,
   INITIAL_LIVE_TASK_STATE,
   foldLiveTasks,
   hasLiveActivity,
@@ -159,6 +160,8 @@ describe('live-task derivation', () => {
         turn: 1,
         step: 1,
         open: true,
+        // No `arguments` on this fixture: absence is reported, not invented.
+        detail: null,
       })
       expect(state.openTools).toHaveLength(1)
       expect(state.toolCallsInTurn).toBe(1)
@@ -451,3 +454,58 @@ describe('live-task derivation', () => {
     })
   })
 })
+
+  describe('what the call was asked to do', () => {
+    const callEvent = (callId: string, name: string, args: unknown): LiveTaskObservation =>
+      event('tool/call', 3, { callId, name, turn: 1, step: 1, arguments: args })
+
+    it('reads the command out of a JSON-string argument payload', () => {
+      // The session records `arguments` as a JSON string, which is why this is
+      // parsed rather than read as an object.
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), callEvent('call-1', 'bash', JSON.stringify({ command: 'sleep 30 && echo done' }))])
+      expect(state.lastTool?.detail).toBe('sleep 30 && echo done')
+    })
+
+    it('falls back to the path for a file tool and clips a long value', () => {
+      const long = `/very/long/${'x'.repeat(200)}.ts`
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), callEvent('call-1', 'write', { file_path: long })])
+      expect(state.lastTool?.detail?.startsWith('/very/long/')).toBe(true)
+      expect(state.lastTool?.detail?.endsWith('…')).toBe(true)
+      expect(state.lastTool?.detail?.length).toBeLessThanOrEqual(80)
+    })
+
+    it('reports absence rather than guessing when the payload is unreadable', () => {
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), callEvent('call-1', 'bash', '{not json')])
+      // The raw text is still the most useful thing available, so it is shown…
+      expect(state.lastTool?.detail).toBe('{not json')
+      // …while a payload with nothing readable at all reports null.
+      const empty = foldLiveTasks([event('turn/start', 1, { turn: 1 }), callEvent('call-2', 'bash', { count: 3 })])
+      expect(empty.lastTool?.detail).toBeNull()
+    })
+  })
+
+  describe('the recent-events trail', () => {
+    it('keeps the newest observations last and never grows past the limit', () => {
+      const observations: LiveTaskObservation[] = [event('turn/start', 1, { turn: 1 })]
+      for (let i = 0; i < 12; i += 1) {
+        observations.push(event('step/start', 2 + i, { turn: 1, step: i }))
+      }
+      const state = foldLiveTasks(observations)
+
+      expect(state.recent).toHaveLength(RECENT_EVENT_LIMIT)
+      expect(state.recent.at(-1)?.seq).toBe(13)
+      expect(state.recent[0]?.seq).toBe(8)
+    })
+  })
+
+  describe('the recent-events trail', () => {
+    it('leaves transport receipts out of the trail but still reports them as the last event', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('session-log-deepseek/delivery-accepted', 2, { accepted: true }),
+      ])
+
+      expect(state.lastEvent?.type).toBe('session-log-deepseek/delivery-accepted')
+      expect(state.recent.map((entry) => entry.type)).toEqual(['turn/start'])
+    })
+  })

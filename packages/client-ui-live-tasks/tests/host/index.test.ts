@@ -363,6 +363,7 @@ describe('liveTask projection unit', () => {
       'lastEvent',
       'lastTool',
       'openTools',
+      'recent',
       'running',
       'seq',
       'step',

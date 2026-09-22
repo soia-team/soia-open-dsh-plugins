@@ -11,6 +11,13 @@
 export declare const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
+    readonly 'section.running': '正在跑';
+    readonly 'section.recent': '最近事件';
+    readonly 'tool.none': '当前没有在跑的调用';
+    readonly 'time.runningFor': '已运行 {s} 秒';
+    readonly 'time.agoSeconds': '{s} 秒前';
+    readonly 'time.agoMinutes': '{m} 分前';
+    readonly 'time.justNow': '刚刚';
     readonly 'view.tab': '任务';
     readonly 'view.title': '会话任务状态';
     readonly 'view.empty': '本会话当前没有进行中的任务。';
