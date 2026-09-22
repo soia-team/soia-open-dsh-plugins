@@ -5196,7 +5196,7 @@ function settleTurn(turns, turn, time, failed) {
 * @returns a new bounded array.
 */
 function pushTimeline(timeline, entry) {
-	return [...timeline, entry].slice(-30);
+	return [...timeline, entry].slice(-20);
 }
 /** Replace one row in place, keeping its position in the narrative. */
 function settleTimeline(timeline, id, patch) {
@@ -5309,6 +5309,8 @@ function numberOf(value) {
 function stringOf(value) {
 	return typeof value === "string" ? value : void 0;
 }
+/** Longest detail payload carried for an expanded row. */
+const DETAIL_PAYLOAD_LIMIT = 600;
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80;
 /** Longest result line carried to the client. */
@@ -5454,6 +5456,25 @@ function summarizeResultLine(line) {
 * @param data - the `tool/result` payload.
 * @returns one clipped line, or null when the result carried no text.
 */
+/**
+* The whole text of a tool result, for the expanded row.
+* @param data - the `tool/result` payload.
+* @returns concatenated text blocks, or null when the result carried none.
+*/
+function fullToolResult(data) {
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	let text = "";
+	for (const block of blocks) {
+		const record = recordOf(block);
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] === "text" && typeof candidate["text"] === "string") text += candidate["text"];
+		}
+	}
+	return text === "" ? null : text;
+}
 function summarizeToolResult(data) {
 	const message = recordOf(data?.["message"]);
 	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
@@ -5469,6 +5490,23 @@ function summarizeToolResult(data) {
 	const line = text.split("\n").map((value) => value.trim()).find((value) => value !== "");
 	if (line === void 0) return null;
 	return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT);
+}
+/**
+* Prepare a payload for the expanded row: pretty-print JSON when it parses,
+* otherwise pass the text through, clipped.
+* @param value - raw text or JSON string.
+* @returns the expandable form, or null when there is nothing to show.
+*/
+function expandable(value) {
+	if (value === null || value.trim() === "") return null;
+	const text = value.trim().startsWith("{") || value.trim().startsWith("[") ? (() => {
+		try {
+			return JSON.stringify(JSON.parse(value), null, 2);
+		} catch {
+			return value;
+		}
+	})() : value;
+	return text.length <= DETAIL_PAYLOAD_LIMIT ? text : `${text.slice(0, DETAIL_PAYLOAD_LIMIT)}…`;
 }
 /** Collapse whitespace and clip to the wire budget. */
 function clip(value) {
@@ -5589,6 +5627,8 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					endedAt: null,
 					title: "",
 					detail: null,
+					argsFull: null,
+					resultFull: null,
 					result: null,
 					status: "ok"
 				}),
@@ -5672,6 +5712,8 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					title: name,
 					detail: call.detail,
 					result: null,
+					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null),
+					resultFull: null,
 					status: "running"
 				}),
 				...observed(state, event, name)
@@ -5697,6 +5739,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				timeline: callId === void 0 ? state.timeline : settleTimeline(state.timeline, callId, {
 					endedAt: time,
 					result: summarizeToolResult(data),
+					resultFull: expandable(fullToolResult(data)),
 					status: resultFailed ? "failed" : "ok"
 				}),
 				actions: settled === void 0 ? state.actions : [...state.actions.filter((action) => action.callId !== settled.callId), actionOf(settled, time, data, resultFailed)].slice(-8),
@@ -5717,6 +5760,8 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					title: "",
 					detail,
 					result: null,
+					argsFull: null,
+					resultFull: expandable(fullToolResult(data)),
 					status: "ok"
 				}),
 				...observed(state, event, null)
@@ -5737,6 +5782,8 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				title: "",
 				detail: firstLineOfMessage(data),
 				result: null,
+				argsFull: null,
+				resultFull: expandable(fullToolResult(data)),
 				status: "ok"
 			}) : state.timeline,
 			...observed(state, event, null)
@@ -5850,6 +5897,8 @@ const liveTimelineEntrySchema = object({
 	title: string(),
 	detail: string().nullable(),
 	result: string().nullable(),
+	argsFull: string().nullable(),
+	resultFull: string().nullable(),
 	status: _enum([
 		"ok",
 		"failed",

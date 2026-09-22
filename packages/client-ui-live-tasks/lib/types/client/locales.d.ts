@@ -20,6 +20,12 @@ export declare const zh: {
     readonly 'head.toolRunning': '正在用的工具';
     readonly 'head.toolLast': '最近用的工具';
     readonly 'head.toolNone': '还没有用过工具';
+    readonly 'bar.search': '搜索工具或命令';
+    readonly 'bar.expandAll': '展开全部';
+    readonly 'bar.collapseAll': '收起全部';
+    readonly 'bar.failedOnly': '只看失败';
+    readonly 'bar.scrollHint': '横向可滚动';
+    readonly 'detail.none': '（没有可显示的内容）';
     readonly 'axis.title': '轮次横轴（时间向右）';
     readonly 'axis.turn': '第 {n} 轮';
     readonly 'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）';

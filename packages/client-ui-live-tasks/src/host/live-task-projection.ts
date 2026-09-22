@@ -54,6 +54,8 @@ const liveTimelineEntrySchema = z.object({
   title: z.string(),
   detail: z.string().nullable(),
   result: z.string().nullable(),
+  argsFull: z.string().nullable(),
+  resultFull: z.string().nullable(),
   status: z.enum(['ok', 'failed', 'running']),
 }).strict()
 

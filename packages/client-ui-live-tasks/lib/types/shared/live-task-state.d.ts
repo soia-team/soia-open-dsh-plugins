@@ -27,7 +27,7 @@ export declare const INITIAL_LIVE_TASK_STATE: LiveTaskState;
 /** How many recent observations the view keeps for its trail. */
 export declare const RECENT_EVENT_LIMIT = 6;
 /** How many timeline rows the view keeps. */
-export declare const TIMELINE_LIMIT = 30;
+export declare const TIMELINE_LIMIT = 20;
 /** How many turns the axis keeps. */
 export declare const TURN_LIMIT = 20;
 /** How many finished calls the activity log keeps. */
@@ -57,14 +57,6 @@ export declare function summarizeToolArguments(data: Record<string, unknown> | u
  * @returns true when either layer reports a failure.
  */
 export declare function toolResultFailed(data: Record<string, unknown> | undefined, harnessError?: boolean): boolean;
-/**
- * First non-empty line of a tool result, clipped.
- *
- * A tool's answer can be kilobytes; the activity log needs only enough to say
- * "it came back with something" — a failing call is reported by its error line.
- * @param data - the `tool/result` payload.
- * @returns one clipped line, or null when the result carried no text.
- */
 export declare function summarizeToolResult(data: Record<string, unknown> | undefined): string | null;
 /**
  * Fold one normalized observation into the live-task state.

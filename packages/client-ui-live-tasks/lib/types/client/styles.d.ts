@@ -34,6 +34,15 @@ export declare const styles: {
     readonly resultLine: 'lt-resultLine';
     readonly badgeOk: 'lt-badgeOk';
     readonly badgeFailed: 'lt-badgeFailed';
+    readonly bar: 'lt-bar';
+    readonly search: 'lt-search';
+    readonly barButton: 'lt-barButton';
+    readonly barOn: 'lt-barOn';
+    readonly barHint: 'lt-barHint';
+    readonly axisScroll: 'lt-axisScroll';
+    readonly detailBlock: 'lt-detailBlock';
+    readonly detailLabel: 'lt-detailLabel';
+    readonly detailPre: 'lt-detailPre';
     readonly axis: 'lt-axis';
     readonly axisSegment: 'lt-axisSegment';
     readonly axisSegmentActive: 'lt-axisSegmentActive';
