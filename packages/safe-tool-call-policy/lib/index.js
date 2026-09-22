@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { Service } from "@deepseek-ai/cordis";
 //#region packages/safe-tool-call-policy/src/host/call-shape.ts
 /** The one argument each understood tool is read from, paired with its shape. */
 const COMMAND_ARGUMENT = { bash: "command" };
@@ -687,6 +688,71 @@ function renderPolicyReason(decision) {
 	return parts.join(" ");
 }
 //#endregion
+//#region packages/safe-tool-call-policy/src/host/health.ts
+/**
+* Runtime self-check for this package.
+*
+* A tool that only reports per-call results cannot say whether it has been
+* working: the host sees successes and failures one call at a time, and nothing
+* carries the package's own view of its behaviour. These counters do, and they
+* are exposed as a host service so a diagnostic surface (or a test) can read
+* them without the model paying for a tool schema.
+*
+* The snapshot is frozen: a caller cannot mutate the package's counters by
+* holding on to what it read.
+*/
+/**
+* Counter store behind the service.
+*
+* A `Service` rather than a plain object because that is how this host attaches
+* a lifetime: the counters disappear with the plugin instead of leaking into a
+* later composition.
+*/
+var PolicyHealth = class extends Service {
+	calls = 0;
+	failures = 0;
+	lastCallAt = null;
+	lastFailureAt = null;
+	matches = /* @__PURE__ */ new Map();
+	/**
+	* @param ctx - host context owning this service's lifetime.
+	*/
+	constructor(ctx) {
+		super(ctx, "safeToolCallPolicyHealth");
+	}
+	/**
+	* Record one completed call.
+	* @param failed - whether the call ended in a failure report.
+	* @param at - epoch milliseconds of completion.
+	*/
+	record(failed, at = Date.now()) {
+		this.calls += 1;
+		this.lastCallAt = at;
+		if (failed) {
+			this.failures += 1;
+			this.lastFailureAt = at;
+		}
+	}
+	/** Record one rule match.
+	* @param ruleId - the rule that decided the call. */
+	recordMatch(ruleId) {
+		this.matches.set(ruleId, (this.matches.get(ruleId) ?? 0) + 1);
+	}
+	/**
+	* Read the counters.
+	* @returns a frozen snapshot.
+	*/
+	snapshot() {
+		return Object.freeze({
+			calls: this.calls,
+			failures: this.failures,
+			lastCallAt: this.lastCallAt,
+			lastFailureAt: this.lastFailureAt,
+			matches: Object.freeze(Object.fromEntries(this.matches))
+		});
+	}
+};
+//#endregion
 //#region packages/safe-tool-call-policy/src/index.ts
 /** Cordis plugin name used by loader diagnostics; equals the entry id derived from the package name. */
 const name = "safe-tool-call-policy";
@@ -735,16 +801,23 @@ function createDecide(ctx) {
 * @param ctx - the plugin context; both hooks unregister when it unloads.
 */
 function apply(ctx) {
+	const health = new PolicyHealth(ctx);
+	const decideAndCount = (exec) => {
+		const decision = decide(exec);
+		health.record(decision.action === "deny");
+		if (decision.ruleId !== void 0) health.recordMatch(decision.ruleId);
+		return decision;
+	};
 	const decide = createDecide(ctx);
 	ctx.on("tools/pre-execute", async (exec, next) => {
-		const decision = decide(exec);
+		const decision = decideAndCount(exec);
 		return decision.action === "ask" ? {
 			kind: "ask",
 			reason: renderPolicyReason(decision)
 		} : next();
 	});
 	ctx.effect(() => ctx.tools.guard((exec) => {
-		const decision = decide(exec);
+		const decision = decideAndCount(exec);
 		return decision.action === "deny" ? renderPolicyReason(decision) : void 0;
 	}), "safe-tool-call-policy: deny guard");
 }

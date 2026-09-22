@@ -3,6 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, re
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as zlib from "node:zlib";
+import { Service } from "@deepseek-ai/cordis";
 //#region packages/check-skills/src/host/session.ts
 /**
 * Session-log reader: locate, decompress and parse the JSONL artifact DSH
@@ -822,6 +823,74 @@ function writeEvidenceReport(dir, recordedAt, text) {
 	return target;
 }
 //#endregion
+//#region packages/check-skills/src/host/health.ts
+/**
+* Runtime self-check for this package.
+*
+* A tool that only reports per-call results cannot say whether it has been
+* working: the host sees successes and failures one call at a time, and nothing
+* carries the package's own view of its behaviour. These counters do, and they
+* are exposed as a host service so a diagnostic surface (or a test) can read
+* them without the model paying for a tool schema.
+*
+* The snapshot is frozen: a caller cannot mutate the package's counters by
+* holding on to what it read.
+*/
+/**
+* Counter store behind the service.
+*
+* A `Service` rather than a plain object because that is how this host attaches
+* a lifetime: the counters disappear with the plugin instead of leaking into a
+* later composition.
+*/
+var SkillsHealth = class extends Service {
+	calls = 0;
+	failures = 0;
+	lastCallAt = null;
+	lastFailureAt = null;
+	sessionsRead = 0;
+	decodeFailures = 0;
+	/**
+	* @param ctx - host context owning this service's lifetime.
+	*/
+	constructor(ctx) {
+		super(ctx, "checkSkillsHealth");
+	}
+	/**
+	* Record one completed call.
+	* @param failed - whether the call ended in a failure report.
+	* @param at - epoch milliseconds of completion.
+	*/
+	record(failed, at = Date.now()) {
+		this.calls += 1;
+		this.lastCallAt = at;
+		if (failed) {
+			this.failures += 1;
+			this.lastFailureAt = at;
+		}
+	}
+	/** Record one session log read.
+	* @param decoded - whether the log could be decoded. */
+	recordSessionRead(decoded) {
+		this.sessionsRead += 1;
+		if (!decoded) this.decodeFailures += 1;
+	}
+	/**
+	* Read the counters.
+	* @returns a frozen snapshot.
+	*/
+	snapshot() {
+		return Object.freeze({
+			calls: this.calls,
+			failures: this.failures,
+			lastCallAt: this.lastCallAt,
+			lastFailureAt: this.lastFailureAt,
+			sessionsRead: this.sessionsRead,
+			decodeFailures: this.decodeFailures
+		});
+	}
+};
+//#endregion
 //#region packages/check-skills/src/index.ts
 const name = "tool-check-skills";
 /** The host service this package registers into. */
@@ -910,6 +979,7 @@ function runCheckSkills(options) {
 	};
 }
 function apply(ctx) {
+	const health = new SkillsHealth(ctx);
 	ctx.tools.register(defineTool({
 		name: "check_skills",
 		description: TOOL_DESCRIPTION,
@@ -999,11 +1069,14 @@ function apply(ctx) {
 			}]
 		},
 		async execute(args) {
-			return runCheckSkills({
+			const report = await runCheckSkills({
 				...args.sessionPath === void 0 ? {} : { sessionPath: args.sessionPath },
 				...args.applicableSkills === void 0 ? {} : { applicableSkills: args.applicableSkills },
 				...args.evidenceDir === void 0 ? {} : { evidenceDir: args.evidenceDir }
 			});
+			health.record(report.status !== "ok");
+			health.recordSessionRead(report.status === "ok");
+			return report;
 		}
 	}));
 }

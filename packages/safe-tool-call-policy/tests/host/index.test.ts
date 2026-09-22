@@ -38,6 +38,14 @@ function createFakeContext() {
   const warnings: string[] = []
 
   const ctx = {
+    // The health service extends cordis' `Service`, which publishes itself through
+    // `ctx.reflect.provide`; the real host always has it, so the stub mirrors that
+    // contract instead of letting the plugin take a different path under test.
+    reflect: {
+      provide: (name: string, value: unknown) => {
+        (ctx as unknown as Record<string, unknown>)[name] = value
+      },
+    },
     on: (event: string, listener: PreExecuteListener): (() => boolean) => {
       if (event !== 'tools/pre-execute') throw new TypeError(`unexpected event: ${event}`)
       listeners.push(listener)

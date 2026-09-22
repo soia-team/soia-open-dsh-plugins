@@ -26,8 +26,8 @@
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -47,6 +47,15 @@ const dsh = process.env['DSH_BIN'] ?? 'dsh'
 const profile = `acceptance-${Date.now().toString(36)}`
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-acceptance-'))
 const evidenceDir = join(scratch, 'evidence')
+/**
+ * Where run history is appended.
+ *
+ * Machine-specific data, so it lives outside the repository: under `$DSH_HOME`
+ * by default, overridable for tests. A trend line needs many runs, and many runs
+ * are exactly what a throwaway scratch directory cannot provide.
+ */
+const historyPath = process.env['SOIA_ACCEPTANCE_HISTORY']
+  ?? join(process.env['DSH_HOME'] ?? join(homedir(), '.dsh'), 'acceptance-history.jsonl')
 mkdirSync(evidenceDir, { recursive: true })
 
 /** One check: a prompt plus the assertions its tool results must satisfy. */
@@ -123,6 +132,27 @@ const CHECKS = [
     },
   },
 ]
+
+/**
+ * Sum the token usage the host reports for one run.
+ * @param stdout - the run's JSON event stream.
+ * @returns total tokens, or null when the stream carried no usage.
+ */
+function tokensOf(stdout) {
+  let total = null
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue
+    try {
+      const event = JSON.parse(line)
+      if (event.type === 'status' && typeof event.usage?.totalTokens === 'number') {
+        total = (total ?? 0) + event.usage.totalTokens
+      }
+    } catch {
+      continue
+    }
+  }
+  return total
+}
 
 /** Collect the tool results out of one headless run's JSON event stream. */
 function parseRun(stdout) {
@@ -214,17 +244,24 @@ try {
   for (const check of CHECKS) {
     if (only !== undefined && check.id !== only) continue
     process.stdout.write(`acceptance-live: ${check.id} … `)
+    const startedAt = Date.now()
     const stdout = run(dsh, ['--profile', profile, 'headless', '--json', check.prompt(context)], { stdio: 'pipe' })
     writeFileSync(join(evidenceDir, `${check.id}.jsonl`), stdout)
     const problems = check.assert(parseRun(stdout), context)
-    if (problems.length === 0) {
-      console.log('✓')
-      summary.push({ id: check.id, status: 'pass', title: check.title })
-    } else {
+    const record = {
+      id: check.id,
+      status: problems.length === 0 ? 'pass' : 'fail',
+      title: check.title,
+      durationMs: Date.now() - startedAt,
+      tokens: tokensOf(stdout),
+      ...(problems.length === 0 ? {} : { problems }),
+    }
+    if (record.status === 'pass') console.log('✓')
+    else {
       console.log(`✗ ${problems.join('; ')}`)
       failures += 1
-      summary.push({ id: check.id, status: 'fail', title: check.title, problems })
     }
+    summary.push(record)
   }
 } catch (error) {
   console.error(`acceptance-live: precondition failed — ${String(error).slice(0, 400)}`)
@@ -238,6 +275,26 @@ try {
   }
   rmSync(join(process.env['DSH_HOME'] ?? '', 'profiles', profile), { recursive: true, force: true })
   writeFileSync(join(scratch, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  // One line per run: a pass rate needs history, and history needs a file that
+  // survives the scratch directory.
+  const passed = summary.filter((entry) => entry.status === 'pass').length
+  try {
+    mkdirSync(dirname(historyPath), { recursive: true })
+    appendFileSync(historyPath, `${JSON.stringify({
+      at: new Date().toISOString(),
+      // A partial run must not read as a full pass in the trend.
+      only: only ?? null,
+      checks: summary.length,
+      passed,
+      failed: summary.length - passed,
+      durationMs: summary.reduce((sum, entry) => sum + (entry.durationMs ?? 0), 0),
+      tokens: summary.reduce((sum, entry) => sum + (entry.tokens ?? 0), 0),
+      detail: summary.map(({ id, status, durationMs, tokens }) => ({ id, status, durationMs, tokens })),
+    })}\n`)
+    console.log(`acceptance-live: history appended to ${historyPath}`)
+  } catch (error) {
+    console.warn(`acceptance-live: could not append history — ${String(error).slice(0, 120)}`)
+  }
   console.log(`acceptance-live: evidence in ${evidenceDir}`)
   if (!keep) rmSync(scratch, { recursive: true, force: true })
   else console.log(`acceptance-live: kept ${scratch}`)

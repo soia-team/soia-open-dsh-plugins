@@ -1,6 +1,7 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { Service } from "@deepseek-ai/cordis";
 //#region packages/check-quality-gates/src/shared/types.ts
 /**
 * Public types and contract constants of the gate core. Kept free of any DSH
@@ -668,6 +669,70 @@ function resolveGateReport(input) {
 	}
 }
 //#endregion
+//#region packages/check-quality-gates/src/host/health.ts
+/**
+* Runtime self-check for this package.
+*
+* A tool that only reports per-call results cannot say whether it has been
+* working: the host sees successes and failures one call at a time, and nothing
+* carries the package's own view of its behaviour. These counters do, and they
+* are exposed as a host service so a diagnostic surface (or a test) can read
+* them without the model paying for a tool schema.
+*
+* The snapshot is frozen: a caller cannot mutate the package's counters by
+* holding on to what it read.
+*/
+/**
+* Counter store behind the service.
+*
+* A `Service` rather than a plain object because that is how this host attaches
+* a lifetime: the counters disappear with the plugin instead of leaking into a
+* later composition.
+*/
+var QualityGatesHealth = class extends Service {
+	calls = 0;
+	failures = 0;
+	lastCallAt = null;
+	lastFailureAt = null;
+	configErrors = 0;
+	/**
+	* @param ctx - host context owning this service's lifetime.
+	*/
+	constructor(ctx) {
+		super(ctx, "checkQualityGatesHealth");
+	}
+	/**
+	* Record one completed call.
+	* @param failed - whether the call ended in a failure report.
+	* @param at - epoch milliseconds of completion.
+	*/
+	record(failed, at = Date.now()) {
+		this.calls += 1;
+		this.lastCallAt = at;
+		if (failed) {
+			this.failures += 1;
+			this.lastFailureAt = at;
+		}
+	}
+	/** Record one call that failed on its configuration rather than on its input. */
+	recordConfigError() {
+		this.configErrors += 1;
+	}
+	/**
+	* Read the counters.
+	* @returns a frozen snapshot.
+	*/
+	snapshot() {
+		return Object.freeze({
+			calls: this.calls,
+			failures: this.failures,
+			lastCallAt: this.lastCallAt,
+			lastFailureAt: this.lastFailureAt,
+			configErrors: this.configErrors
+		});
+	}
+};
+//#endregion
 //#region packages/check-quality-gates/src/index.ts
 const name = "tool-check-quality-gates";
 /**
@@ -683,6 +748,7 @@ const inject = ["tools"];
 */
 const TOOL_DESCRIPTION = "Map the files changed in a task to the quality gates the caller's config requires, with the raw evidence each gate must return. Report only: enforcement is \"none\", so an unrun gate is never blocked.";
 function apply(ctx) {
+	const health = new QualityGatesHealth(ctx);
 	ctx.tools.register(defineTool({
 		name: "check_quality_gates",
 		description: TOOL_DESCRIPTION,
@@ -775,11 +841,14 @@ function apply(ctx) {
 			}]
 		},
 		async execute(args) {
-			return resolveGateReport({
+			const report = await resolveGateReport({
 				changedFiles: args.changedFiles,
 				configPath: args.configPath,
 				cwd: args.cwd
 			});
+			health.record(report.error !== null);
+			if (report.error !== null) health.recordConfigError();
+			return report;
 		}
 	}));
 }
