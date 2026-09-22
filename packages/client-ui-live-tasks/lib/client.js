@@ -107,9 +107,13 @@ const CSS = `
 .lt-chartLabels span:nth-child(1) { top: 7px; }
 .lt-chartLabels span:nth-child(2) { top: 21px; }
 .lt-chartLabels span:nth-child(3) { top: 35px; }
-.lt-chartTrack { position: relative; overflow: hidden; }
+.lt-chartTrack { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
 .lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
 .lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
+.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 4; pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 14%, transparent);
+  border-left: 2px solid var(--dsw-alias-state-business-primary, #4078ff);
+  border-right: 2px solid var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
 .lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
   cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
@@ -214,6 +218,16 @@ const CSS = `
   background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-callTook { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
+/* 轮次内的步骤分组（与轨迹一致） */
+.lt-stepGroup { display: flex; flex-direction: column; }
+.lt-stepLabel { margin: 6px 0 2px 6px; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+  letter-spacing: .02em; }
+
+/* 详情：概览网格 + 参数/结果 */
+.lt-detailGrid { display: grid; grid-template-columns: 64px 1fr; gap: 2px 10px; margin: 0; }
+.lt-detailGrid dt { color: var(--dsw-alias-label-tertiary); }
+.lt-detailGrid dd { margin: 0; color: var(--dsw-alias-label-primary); }
+
 /* 模块三：动作日志 */
 .lt-filters { margin-left: auto; display: flex; gap: 4px; }
 .lt-filter, .lt-filterActive { padding: 2px 8px; border: 0; border-radius: 999px; cursor: pointer;
@@ -293,6 +307,9 @@ const styles = {
 	barOn: "lt-barOn",
 	barHint: "lt-barHint",
 	axisScroll: "lt-axisScroll",
+	stepGroup: "lt-stepGroup",
+	stepLabel: "lt-stepLabel",
+	detailGrid: "lt-detailGrid",
 	detailBlock: "lt-detailBlock",
 	detailLabel: "lt-detailLabel",
 	detailPre: "lt-detailPre",
@@ -303,6 +320,7 @@ const styles = {
 	chartLanes: "lt-chartLanes",
 	chartBoundaries: "lt-chartBoundaries",
 	chartBoundary: "lt-chartBoundary",
+	chartSelection: "lt-chartSelection",
 	span: "lt-span",
 	axis: "lt-axis",
 	axisSegment: "lt-axisSegment",
@@ -455,7 +473,8 @@ function secondsBetween(from, to) {
 * @param props - the rows to plot, the turns to mark, and the interaction state.
 * @returns the chart.
 */
-function LaneChart({ entries, turns, now, selected, t, onSelect }) {
+function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange }) {
+	const [drag, setDrag] = (0, react.useState)(null);
 	const plotted = entries.filter((entry) => entry.turn !== null && entry.kind !== "turn");
 	const starts = plotted.map((entry) => entry.startedAt);
 	const ends = plotted.map((entry) => entry.endedAt ?? now);
@@ -480,31 +499,79 @@ function LaneChart({ entries, turns, now, selected, t, onSelect }) {
 				]
 			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: styles.chartTrack,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: styles.chartLanes,
-					children: plotted.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: styles.span,
-						"data-kind": entry.kind,
-						"data-error": entry.status === "failed",
-						"data-selected": selected === null || selected === entry.turn,
+				onPointerDown: (event) => {
+					const rect = event.currentTarget.getBoundingClientRect();
+					const pct = (event.clientX - rect.left) / rect.width * 100;
+					setDrag({
+						startPct: pct,
+						endPct: pct
+					});
+					event.currentTarget.setPointerCapture(event.pointerId);
+				},
+				onPointerMove: (event) => {
+					if (drag === null) return;
+					const rect = event.currentTarget.getBoundingClientRect();
+					const pct = (event.clientX - rect.left) / rect.width * 100;
+					setDrag({
+						startPct: drag.startPct,
+						endPct: pct
+					});
+				},
+				onPointerUp: () => {
+					if (drag === null) return;
+					const lo = Math.min(drag.startPct, drag.endPct);
+					const hi = Math.max(drag.startPct, drag.endPct);
+					onRange(hi - lo < 1.5 ? null : {
+						from: from + lo / 100 * span,
+						to: from + hi / 100 * span
+					});
+					setDrag(null);
+				},
+				children: [
+					range !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: styles.chartSelection,
 						style: {
-							top: `${laneOf(entry.kind) * 14}px`,
-							left: `${at(entry.startedAt)}%`,
-							width: `max(2px, ${Math.max(.2, at(entry.endedAt ?? now) - at(entry.startedAt))}%)`
+							left: `${at(range.from)}%`,
+							width: `${Math.max(.2, at(range.to) - at(range.from))}%`
 						},
-						title: `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
-						"aria-label": `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
-						onClick: () => entry.turn !== null && onSelect(entry.turn)
-					}, entry.id))
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: styles.chartBoundaries,
-					"aria-hidden": "true",
-					children: turns.map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.chartBoundary,
-						style: { left: `${at(turn.startedAt)}%` }
-					}, turn.turn))
-				})]
+						"aria-hidden": "true"
+					}),
+					drag !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: styles.chartSelection,
+						"data-dragging": "true",
+						style: {
+							left: `${Math.min(drag.startPct, drag.endPct)}%`,
+							width: `${Math.max(.2, Math.abs(drag.endPct - drag.startPct))}%`
+						},
+						"aria-hidden": "true"
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: styles.chartLanes,
+						children: plotted.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: styles.span,
+							"data-kind": entry.kind,
+							"data-error": entry.status === "failed",
+							"data-selected": selected === null || selected === entry.turn,
+							style: {
+								top: `${laneOf(entry.kind) * 14}px`,
+								left: `${at(entry.startedAt)}%`,
+								width: `max(2px, ${Math.max(.2, at(entry.endedAt ?? now) - at(entry.startedAt))}%)`
+							},
+							title: `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
+							"aria-label": `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
+							onClick: () => entry.turn !== null && onSelect(entry.turn)
+						}, entry.id))
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: styles.chartBoundaries,
+						"aria-hidden": "true",
+						children: turns.map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.chartBoundary,
+							style: { left: `${at(turn.startedAt)}%` }
+						}, turn.turn))
+					})
+				]
 			})]
 		})
 	});
@@ -553,27 +620,74 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 			]
 		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.toolDetail,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("turn.args")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: styles.detailPre,
-					children: entry.argsFull ?? entry.detail ?? t("detail.none")
-				})]
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("turn.result")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: styles.detailPre,
-					children: entry.resultFull ?? entry.result ?? t("detail.none")
-				})]
-			})]
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("detail.overview")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+						className: styles.detailGrid,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timeline.tool") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.duration") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("time.seconds", { s: took }) }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.started") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: clockOf(entry.startedAt) }),
+							entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
+								turn: entry.turn,
+								step: entry.step
+							}) })] })
+						]
+					})]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("turn.args")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: styles.detailPre,
+						children: entry.argsFull ?? entry.detail ?? t("detail.none")
+					})]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("turn.result")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: styles.detailPre,
+						children: entry.resultFull ?? entry.result ?? t("detail.none")
+					})]
+				})
+			]
 		})]
 	});
+}
+/**
+* Group a turn's rows by step, the way the trajectory view does.
+*
+* Rows keep their order inside a step; a row without a step number (a message
+* between steps) is emitted before the first group that follows it, so nothing
+* is dropped or reordered.
+* @param entries - the turn's rows in order.
+* @returns groups of rows, each labelled with its step or null.
+*/
+function groupByStep(entries) {
+	const groups = [];
+	for (const entry of entries) {
+		const last = groups.at(-1);
+		if (last !== void 0 && last.step === entry.step) last.rows.push(entry);
+		else groups.push({
+			step: entry.step,
+			rows: [entry]
+		});
+	}
+	return groups;
 }
 /** The rows for one turn: its messages and its tool calls, in order. */
 function TurnSection({ turn, entries, selected, now, showClock, open, expandedId, onToggle, t }) {
@@ -612,18 +726,24 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
 		}), !open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 			className: styles.none,
 			children: t("turn.empty")
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-			className: styles.toolList,
-			children: entries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
-				entry,
-				now,
-				showClock,
-				turnStart: turn.startedAt,
-				expanded: expandedId === "__all__" || expandedId === entry.id,
-				onToggle: () => onToggle(entry.id),
-				t
-			}, entry.id))
-		})]
+		}) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: styles.stepGroup,
+			children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: styles.stepLabel,
+				children: t("turn.stepN", { n: group.step })
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+				className: styles.toolList,
+				children: group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
+					entry,
+					now,
+					showClock,
+					turnStart: turn.startedAt,
+					expanded: expandedId === "__all__" || expandedId === entry.id,
+					onToggle: () => onToggle(entry.id),
+					t
+				}, entry.id))
+			})]
+		}, `${group.step ?? "none"}-${index}`))]
 	});
 }
 /**
@@ -640,6 +760,7 @@ function LiveTasksView({ useProjection, t }) {
 	const [query, setQuery] = (0, react.useState)("");
 	const [showClock, setShowClock] = (0, react.useState)(true);
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
+	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
@@ -654,7 +775,7 @@ function LiveTasksView({ useProjection, t }) {
 	const selectedTurn = state.turns.at(-1)?.turn ?? null;
 	const shownTurn = selected ?? selectedTurn;
 	const needle = query.trim().toLowerCase();
-	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle));
+	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
 		children: [
@@ -725,6 +846,12 @@ function LiveTasksView({ useProjection, t }) {
 						className: styles.barButton,
 						onClick: () => setTurnsOpen(!turnsOpen),
 						children: turnsOpen ? t("bar.collapseTurns") : t("bar.expandTurns")
+					}),
+					range !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: styles.barOn,
+						onClick: () => setRange(null),
+						children: t("bar.clearRange")
 					})
 				]
 			}),
@@ -738,8 +865,10 @@ function LiveTasksView({ useProjection, t }) {
 					turns: state.turns,
 					now,
 					selected: shownTurn,
+					range,
 					t,
-					onSelect: setSelected
+					onSelect: setSelected,
+					onRange: setRange
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -828,6 +957,10 @@ const zh = {
 	"axis.title": "轮次横轴（时间向右）",
 	"axis.turn": "第 {n} 轮",
 	"axis.summary": "本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）",
+	"turn.stepN": "第 {n} 步",
+	"detail.overview": "概览",
+	"timing.duration": "时长",
+	"timing.started": "开始时间",
 	"turn.tools": "{n} 个工具",
 	"turn.failed": "{n} 次失败",
 	"turn.expand": "点击查看详情",
@@ -842,6 +975,8 @@ const zh = {
 	"bar.duration": "时长",
 	"bar.clock": "实际时间",
 	"bar.collapseTurns": "收起轮次",
+	"bar.clearRange": "清除选择",
+	"bar.rangeHint": "在时间图上拖动可框选",
 	"bar.expandTurns": "展开轮次",
 	"timeline.title": "时间线",
 	"timeline.user": "你",
@@ -919,6 +1054,10 @@ const en = {
 	"axis.title": "Turns as time (left to right)",
 	"axis.turn": "turn {n}",
 	"axis.summary": "{turns} turns · {calls} calls · {failures} failed · {tools} tools offered ({used} used)",
+	"turn.stepN": "step {n}",
+	"detail.overview": "Overview",
+	"timing.duration": "Duration",
+	"timing.started": "Started",
 	"turn.tools": "{n} tools",
 	"turn.failed": "{n} failed",
 	"turn.expand": "click for details",
@@ -933,6 +1072,8 @@ const en = {
 	"bar.duration": "duration",
 	"bar.clock": "wall clock",
 	"bar.collapseTurns": "Collapse turns",
+	"bar.clearRange": "Clear selection",
+	"bar.rangeHint": "drag on the chart to select",
 	"bar.expandTurns": "Expand turns",
 	"timeline.title": "Timeline",
 	"timeline.user": "you",

@@ -131,8 +131,14 @@ export interface LiveTimelineEntry {
     readonly id: string;
     /** Conversation turn this row belongs to; null before the first `turn/start`. */
     readonly turn: number | null;
+    /**
+     * Step inside the turn this row belongs to, or null when the event carried no
+     * step number (a message between steps, for instance). The trajectory view
+     * groups its rows by step, and the numbers are already in the session events.
+     */
+    readonly step: number | null;
     /** What produced this row. */
-    readonly kind: 'turn' | 'user' | 'assistant' | 'tool';
+    readonly kind: 'turn' | 'user' | 'assistant' | 'tool' | 'context';
     /** Epoch milliseconds the row opened at. */
     readonly startedAt: number;
     /** Epoch milliseconds it settled at, or null while it is still open. */

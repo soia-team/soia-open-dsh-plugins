@@ -42,9 +42,13 @@ const CSS = `
 .lt-chartLabels span:nth-child(1) { top: 7px; }
 .lt-chartLabels span:nth-child(2) { top: 21px; }
 .lt-chartLabels span:nth-child(3) { top: 35px; }
-.lt-chartTrack { position: relative; overflow: hidden; }
+.lt-chartTrack { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
 .lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
 .lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
+.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 4; pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 14%, transparent);
+  border-left: 2px solid var(--dsw-alias-state-business-primary, #4078ff);
+  border-right: 2px solid var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
 .lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
   cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
@@ -149,6 +153,16 @@ const CSS = `
   background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-callTook { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
+/* 轮次内的步骤分组（与轨迹一致） */
+.lt-stepGroup { display: flex; flex-direction: column; }
+.lt-stepLabel { margin: 6px 0 2px 6px; color: var(--dsw-alias-label-tertiary); font-size: 11px;
+  letter-spacing: .02em; }
+
+/* 详情：概览网格 + 参数/结果 */
+.lt-detailGrid { display: grid; grid-template-columns: 64px 1fr; gap: 2px 10px; margin: 0; }
+.lt-detailGrid dt { color: var(--dsw-alias-label-tertiary); }
+.lt-detailGrid dd { margin: 0; color: var(--dsw-alias-label-primary); }
+
 /* 模块三：动作日志 */
 .lt-filters { margin-left: auto; display: flex; gap: 4px; }
 .lt-filter, .lt-filterActive { padding: 2px 8px; border: 0; border-radius: 999px; cursor: pointer;
@@ -229,6 +243,9 @@ export const styles = {
   barOn: 'lt-barOn',
   barHint: 'lt-barHint',
   axisScroll: 'lt-axisScroll',
+  stepGroup: 'lt-stepGroup',
+  stepLabel: 'lt-stepLabel',
+  detailGrid: 'lt-detailGrid',
   detailBlock: 'lt-detailBlock',
   detailLabel: 'lt-detailLabel',
   detailPre: 'lt-detailPre',
@@ -239,6 +256,7 @@ export const styles = {
   chartLanes: 'lt-chartLanes',
   chartBoundaries: 'lt-chartBoundaries',
   chartBoundary: 'lt-chartBoundary',
+  chartSelection: 'lt-chartSelection',
   span: 'lt-span',
   axis: 'lt-axis',
   axisSegment: 'lt-axisSegment',
