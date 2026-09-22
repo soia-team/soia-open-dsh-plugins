@@ -5153,7 +5153,60 @@ function superRefine(fn, params) {
 //#region packages/client-ui-live-tasks/src/shared/live-task-state.ts
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS = Object.freeze([]);
+const NO_ACTIONS = Object.freeze([]);
+/** Counters start at zero; nothing has been folded yet. */
+const INITIAL_HEALTH = Object.freeze({
+	folded: 0,
+	ignored: 0,
+	unknown: 0,
+	frames: 0,
+	deltasAccepted: 0,
+	deltasDropped: 0,
+	agents: 0,
+	registry: 0
+});
+/** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS = Object.freeze([]);
+/**
+* Event types this build recognizes and deliberately leaves out of the fold.
+*
+* Session setup, request headers, policy records and receipts are real events
+* that say nothing about what a task is doing. Naming them is what keeps the
+* `unknown` counter meaningful: a host that adds a type shows up as a number,
+* instead of every ordinary session start looking like a surprise.
+*/
+const IGNORED_TYPES = /* @__PURE__ */ new Set([
+	"session",
+	"session/title",
+	"session/title-llm-request",
+	"system/message",
+	"request/header",
+	"request/context",
+	"permission/preset",
+	"approval/policy",
+	"sandbox/mode",
+	"subagent/model-selection-policy",
+	"agent/inbox/spliced"
+]);
+/**
+* Event types this build folds deliberately.
+*
+* Anything outside both sets is counted as unknown rather than silently
+* dropped: a host that starts emitting a new type should show up as a number
+* the panel can display, not as behaviour that quietly stops updating.
+*/
+const KNOWN_TYPES = /* @__PURE__ */ new Set([
+	"turn/start",
+	"turn/end",
+	"step/start",
+	"step/end",
+	"tool/call",
+	"tool/result",
+	"assistant/message",
+	"assistant/attempt",
+	"user/message",
+	"agent/assistant-stream"
+]);
 /**
 * The state before any observation. Frozen and exported so callers and tests
 * share one identity instead of rebuilding an equal-looking literal.
@@ -5169,8 +5222,10 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	toolCallsInTurn: 0,
 	streamedTextLength: 0,
 	streamedAt: null,
+	health: INITIAL_HEALTH,
 	lastEvent: null,
 	recent: NO_EVENTS,
+	actions: NO_ACTIONS,
 	endedReason: null
 });
 /** Read a JSON object member without trusting the value. */
@@ -5187,15 +5242,17 @@ function stringOf(value) {
 }
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80;
-/** Argument keys worth showing, most specific first, keyed by what they mean. */
+/** Longest result line carried to the client. */
+const RESULT_LIMIT = 60;
+/** Argument keys worth showing, in the order a reader wants them. */
 const DETAIL_KEYS = [
 	"command",
 	"file_path",
 	"path",
+	"selector",
+	"url",
 	"pattern",
 	"query",
-	"url",
-	"selector",
 	"task",
 	"prompt"
 ];
@@ -5220,12 +5277,129 @@ function summarizeToolArguments(data) {
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;
 	const args = parsed;
+	const parts = [];
 	for (const key of DETAIL_KEYS) {
 		const value = args[key];
-		if (typeof value === "string" && value.trim() !== "") return clip(value);
+		if (typeof value === "string" && value.trim() !== "") parts.push(value);
+		if (parts.length === 2) break;
 	}
+	if (parts.length > 0) return clip(parts.join(" @ "));
 	const firstString = Object.values(args).find((value) => typeof value === "string" && value.trim() !== "");
 	return typeof firstString === "string" ? clip(firstString) : null;
+}
+/**
+* Turn a call and its result into one activity-log line.
+* @param call - the call record as it was opened.
+* @param endedAt - epoch milliseconds of the matching result.
+* @param data - the `tool/result` payload.
+* @returns the human-readable action record.
+*/
+function actionOf(call, endedAt, data, failed) {
+	return {
+		callId: call.callId,
+		name: call.name,
+		detail: call.detail,
+		startedAt: call.startedAt,
+		endedAt,
+		status: failed ? "failed" : "ok",
+		result: summarizeToolResult(data)
+	};
+}
+/** Status values a tool uses in its own payload to report a failed operation. */
+const FAILURE_STATUSES = /* @__PURE__ */ new Set([
+	"error",
+	"failed",
+	"failure",
+	"not_found",
+	"unavailable",
+	"denied",
+	"timeout",
+	"invalid"
+]);
+/**
+* Decide whether a tool call failed, from both places a failure can be written.
+*
+* A tool can fail the way the harness notices (`isError` on the result block) or
+* the way this ecosystem's tools usually report it: a successful tool call whose
+* payload says `{"status":"error","code":…}`. The panel is for a person, and "the
+* call worked but the operation failed" must not read as 完成 — measured live,
+* where a failed page load and a missing file both showed as completed.
+* @param data - the `tool/result` payload.
+* @param harnessError - the harness-level error flag, if the caller read one.
+* @returns true when either layer reports a failure.
+*/
+function toolResultFailed(data, harnessError) {
+	if (harnessError === true) return true;
+	if (data !== void 0 && data["error"] !== void 0 && data["error"] !== null) return true;
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	for (const block of blocks) {
+		const record = recordOf(block);
+		if (record?.["isError"] === true) return true;
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] !== "text" || typeof candidate["text"] !== "string") continue;
+			const firstLine = candidate["text"].split("\n").map((line) => line.trim()).find((line) => line !== "");
+			if (firstLine === void 0 || !firstLine.startsWith("{")) continue;
+			try {
+				const parsed = JSON.parse(firstLine);
+				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+				const status = parsed["status"];
+				if (typeof status === "string" && FAILURE_STATUSES.has(status)) return true;
+			} catch {}
+		}
+	}
+	return false;
+}
+/**
+* Make one result line readable.
+*
+* Tools answer with JSON far more often than with prose, and a raw object reads
+* as noise in a log. Scalar fields are shown as `key=value` pairs instead; a
+* payload whose interesting field is nested keeps its first line, because a
+* half-rendered object would be worse than an honest one.
+* @param line - the first non-empty line of the result.
+* @returns a compact human-readable form of that line.
+*/
+function summarizeResultLine(line) {
+	if (!line.startsWith("{")) return line;
+	try {
+		const parsed = JSON.parse(line);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return line;
+		const pairs = [];
+		for (const [key, value] of Object.entries(parsed)) {
+			if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") pairs.push(`${key}=${String(value)}`);
+			if (pairs.length === 4) break;
+		}
+		return pairs.length === 0 ? line : pairs.join(", ");
+	} catch {
+		return line;
+	}
+}
+/**
+* First non-empty line of a tool result, clipped.
+*
+* A tool's answer can be kilobytes; the activity log needs only enough to say
+* "it came back with something" — a failing call is reported by its error line.
+* @param data - the `tool/result` payload.
+* @returns one clipped line, or null when the result carried no text.
+*/
+function summarizeToolResult(data) {
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	let text = "";
+	for (const block of blocks) {
+		const record = recordOf(block);
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] === "text" && typeof candidate["text"] === "string") text += candidate["text"];
+		}
+	}
+	const line = text.split("\n").map((value) => value.trim()).find((value) => value !== "");
+	if (line === void 0) return null;
+	return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT);
 }
 /** Collapse whitespace and clip to the wire budget. */
 function clip(value) {
@@ -5294,13 +5468,20 @@ function readToolResult(data) {
 * @param event - one durable session event.
 * @returns the next state, or the same state for a duplicate or stale event.
 */
-function foldEvent(state, event) {
+function foldEvent(state, event, agentAttached = false, registrySize) {
 	const seq = numberOf(event.seq);
 	const time = numberOf(event.time);
 	if (seq === void 0 || time === void 0 || seq <= state.seq) return state;
 	const envelope = {
 		seq,
-		updatedAt: state.updatedAt === null ? time : Math.max(state.updatedAt, time)
+		updatedAt: state.updatedAt === null ? time : Math.max(state.updatedAt, time),
+		health: {
+			...state.health,
+			folded: state.health.folded + 1,
+			...agentAttached ? { agents: state.health.agents + 1 } : {},
+			...registrySize === void 0 ? {} : { registry: registrySize < 0 ? registrySize : Math.max(state.health.registry, registrySize) },
+			...KNOWN_TYPES.has(event.type) ? {} : IGNORED_TYPES.has(event.type) || event.type.startsWith("session-log-") ? { ignored: state.health.ignored + 1 } : { unknown: state.health.unknown + 1 }
+		}
 	};
 	const data = recordOf(event.data);
 	switch (event.type) {
@@ -5373,7 +5554,8 @@ function foldEvent(state, event) {
 				turn: numberOf(data?.["turn"]) ?? state.turn,
 				step: numberOf(data?.["step"]) ?? state.step,
 				open: true,
-				detail: summarizeToolArguments(data)
+				detail: summarizeToolArguments(data),
+				startedAt: time
 			};
 			return {
 				...state,
@@ -5386,6 +5568,7 @@ function foldEvent(state, event) {
 		}
 		case "tool/result": {
 			const { callId, failed } = readToolResult(data);
+			const resultFailed = toolResultFailed(data, failed);
 			const settled = callId === void 0 ? void 0 : state.openTools.find((call) => call.callId === callId);
 			return {
 				...state,
@@ -5394,8 +5577,11 @@ function foldEvent(state, event) {
 				lastTool: state.lastTool !== null && callId !== void 0 && state.lastTool.callId === callId ? {
 					...state.lastTool,
 					open: false,
-					...failed === true ? { failed: true } : {}
+					endedAt: time,
+					result: summarizeToolResult(data),
+					...resultFailed ? { failed: true } : {}
 				} : state.lastTool,
+				actions: settled === void 0 ? state.actions : [...state.actions.filter((action) => action.callId !== settled.callId), actionOf(settled, time, data, resultFailed)].slice(-8),
 				...observed(state, event, settled?.name ?? null)
 			};
 		}
@@ -5427,18 +5613,29 @@ function foldEvent(state, event) {
 * @returns the next state, or the same state when the delta does not apply.
 */
 function foldTextDelta(state, delta) {
-	if (!state.running) return state;
-	if (delta.turn !== state.turn || delta.step !== state.step) return state;
-	if (!Number.isFinite(delta.time)) return state;
-	if (state.streamedAt !== null && delta.time < state.streamedAt) return state;
+	const dropped = () => ({
+		...state,
+		health: {
+			...state.health,
+			deltasDropped: state.health.deltasDropped + 1
+		}
+	});
+	if (!state.running) return dropped();
+	if (delta.turn !== state.turn || delta.step !== state.step) return dropped();
+	if (!Number.isFinite(delta.time)) return dropped();
+	if (state.streamedAt !== null && delta.time < state.streamedAt) return dropped();
 	const length = delta.text.length;
 	const updatedAt = state.updatedAt === null ? delta.time : Math.max(state.updatedAt, delta.time);
-	if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return state;
+	if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return dropped();
 	return {
 		...state,
 		streamedTextLength: state.streamedTextLength + length,
 		streamedAt: delta.time,
-		updatedAt
+		updatedAt,
+		health: {
+			...state.health,
+			deltasAccepted: state.health.deltasAccepted + 1
+		}
 	};
 }
 /**
@@ -5448,7 +5645,14 @@ function foldTextDelta(state, delta) {
 * @returns the next state; the same reference when the observation changes nothing.
 */
 function reduceLiveTask(state, observation) {
-	return observation.kind === "event" ? foldEvent(state, observation.event) : foldTextDelta(state, observation);
+	if (observation.kind === "stream-frame") return {
+		...state,
+		health: {
+			...state.health,
+			frames: state.health.frames + 1
+		}
+	};
+	return observation.kind === "event" ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize) : foldTextDelta(state, observation);
 }
 //#endregion
 //#region packages/client-ui-live-tasks/src/shared/projection.ts
@@ -5471,7 +5675,33 @@ const liveToolCallSchema = object({
 	step: number().int().nullable(),
 	open: boolean(),
 	failed: boolean().optional(),
-	detail: string().nullable()
+	detail: string().nullable(),
+	startedAt: number(),
+	endedAt: number().optional(),
+	result: string().nullable().optional()
+}).strict();
+const liveTaskHealthSchema = object({
+	folded: number().int().nonnegative(),
+	ignored: number().int().nonnegative(),
+	unknown: number().int().nonnegative(),
+	frames: number().int().nonnegative(),
+	agents: number().int().nonnegative(),
+	registry: number().int().nonnegative(),
+	deltasAccepted: number().int().nonnegative(),
+	deltasDropped: number().int().nonnegative()
+}).strict();
+const liveTaskActionSchema = object({
+	callId: string(),
+	name: string(),
+	detail: string().nullable(),
+	startedAt: number(),
+	endedAt: number().nullable(),
+	status: _enum([
+		"ok",
+		"failed",
+		"running"
+	]),
+	result: string().nullable()
 }).strict();
 /** The "last event" line as it crosses the wire. */
 const liveEventSummarySchema = object({
@@ -5499,6 +5729,8 @@ const liveTaskStateSchema = object({
 	toolCallsInTurn: number().int().nonnegative(),
 	lastEvent: liveEventSummarySchema.nullable(),
 	recent: array(liveEventSummarySchema),
+	actions: array(liveTaskActionSchema),
+	health: liveTaskHealthSchema,
 	endedReason: string().nullable(),
 	streamedTextLength: number().int().nonnegative(),
 	streamedAt: number().nullable()
@@ -5521,6 +5753,9 @@ const liveTaskViewSchema = object({
 	toolCallsInTurn: number().int().nonnegative(),
 	lastEvent: liveEventSummarySchema.nullable(),
 	recent: array(liveEventSummarySchema),
+	actions: array(liveTaskActionSchema),
+	health: liveTaskHealthSchema,
+	streamedAt: number().nullable(),
 	endedReason: string().nullable()
 }).strict();
 /**
@@ -5552,6 +5787,9 @@ function viewOf(state) {
 		toolCallsInTurn: state.toolCallsInTurn,
 		lastEvent: state.lastEvent,
 		recent: state.recent,
+		actions: state.actions,
+		health: state.health,
+		streamedAt: state.streamedAt,
 		endedReason: state.endedReason
 	};
 	VIEWS.set(state, view);
@@ -5648,30 +5886,6 @@ var LiveTaskTracker = class {
 		return this.states.size;
 	}
 };
-//#endregion
-//#region packages/client-ui-live-tasks/src/host/live-task-store.ts
-/**
-* `ctx.liveTasks` — the host-only liveness surface.
-*
-* This service subscribes to both feeds the package derives from and keeps the
-* current state per session:
-*
-* - `session/event` is the durable log feed. It is also what the `liveTask`
-*   session projection folds for the browser, but the store folds its own copy
-*   so a host consumer can read liveness without reaching into the projection
-*   registry (and so this surface survives a composition that mounts no
-*   registry).
-* - `agent/assistant-stream` is the process-local model stream. It is NOT a
-*   session event and never reaches the durable log, so no projection can carry
-*   it; it is the reason this host-only surface exists at all. It advances
-*   `streamedTextLength` while the model writes, which is the difference
-*   between "a turn is open" and "a turn is open and text is arriving".
-*
-* Nothing in this package consumes `ctx.liveTasks`; it is published for host
-* consumers such as diagnostics. The browser panel reads the projection, which
-* is the only surface that can cross the wire. See the README's
-* `Known Limitations and Deferred Work`.
-*/
 /** Per-session live-task state, folded from the durable log and the model stream. */
 var LiveTaskStore = class extends Service {
 	tracker = new LiveTaskTracker();
@@ -5680,21 +5894,65 @@ var LiveTaskStore = class extends Service {
 	/**
 	* @param ctx - host context owning this service's lifetime.
 	*/
+	/** Sessions whose agent already carries a stream listener. */
+	attached = /* @__PURE__ */ new Set();
+	/** The host context, kept for lazy service lookups. */
+	host;
 	constructor(ctx) {
 		super(ctx, "liveTasks");
-		ctx.on("session/event", (session, event) => {
-			this.fold(session.id, {
-				kind: "event",
-				event
-			});
-		});
+		this.host = ctx;
 		ctx.on("session/disposed", (session) => {
 			this.attempts.delete(session.id);
 			if (this.tracker.forget(session.id)) this.publish(session.id, void 0);
 		});
-		ctx.on("agent/assistant-stream", ({ agent, frame }) => {
-			this.foldStreamFrame(agent.session.id, frame);
+		ctx.on("session/event", (session, event) => {
+			const lookup = this.attachToAgent(session.id);
+			this.fold(session.id, {
+				kind: "event",
+				event,
+				...lookup.attached ? { agentAttached: true } : {},
+				...lookup.registrySize === void 0 ? {} : { registrySize: lookup.registrySize }
+			});
 		});
+	}
+	/**
+	* Attach the stream listener to a session's live agent, once.
+	*
+	* Looks the agent up through the `agents` registry rather than waiting for
+	* `agent/created`, which is dispatched in the agent's scope and therefore
+	* never reaches this context.
+	* @param sessionId - the session whose agent should be attached.
+	*/
+	attachToAgent(sessionId) {
+		if (this.attached.has(sessionId)) return { attached: false };
+		const agents = this.host.agents;
+		if (agents === void 0) return {
+			attached: false,
+			registrySize: -1
+		};
+		let live;
+		try {
+			live = agents.list();
+		} catch {
+			return {
+				attached: false,
+				registrySize: -2
+			};
+		}
+		const agent = live.find((candidate) => candidate.session.id === sessionId);
+		if (agent === void 0) return {
+			attached: false,
+			registrySize: live.length
+		};
+		this.attached.add(sessionId);
+		agent.ctx.on("agent/assistant-stream", ({ frame }) => {
+			this.fold(sessionId, { kind: "stream-frame" });
+			this.foldStreamFrame(sessionId, frame);
+		});
+		return {
+			attached: true,
+			registrySize: live.length
+		};
 	}
 	/**
 	* Read one session's current state.
@@ -5800,11 +6058,14 @@ var LiveTaskStore = class extends Service {
 const name = "ui-live-tasks";
 /**
 * The projection registry owns the wire mirror this package serves through, so
-* it must exist before `apply` runs. The plugin reads no other host service:
-* both feeds it folds are plain Cordis events, and both listeners are removed
-* automatically with this fiber.
+* it must exist before `apply` runs.
+*
+* `agents` is what makes the streaming feed reachable: `agent/assistant-stream`
+* is declared `this: Scoped<Agent>` and dispatched inside the agent's own scope,
+* so a listener on this plugin's entry context never receives it. Injecting the
+* registry gives the store a way to reach each live agent and attach there.
 */
-const inject = ["sessionProjections"];
+const inject = ["sessionProjections", "agents"];
 /**
 * Install the host surface.
 *

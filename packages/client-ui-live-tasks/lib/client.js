@@ -12,6 +12,19 @@ let react_jsx_runtime = require("react/jsx-runtime");
 //#region src/shared/live-task-state.ts
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS = Object.freeze([]);
+const NO_ACTIONS = Object.freeze([]);
+/** Counters start at zero; nothing has been folded yet. */
+const INITIAL_HEALTH = Object.freeze({
+	folded: 0,
+	ignored: 0,
+	unknown: 0,
+	frames: 0,
+	deltasAccepted: 0,
+	deltasDropped: 0,
+	agents: 0,
+	registry: 0
+});
+/** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS = Object.freeze([]);
 Object.freeze({
 	turn: null,
@@ -24,8 +37,10 @@ Object.freeze({
 	toolCallsInTurn: 0,
 	streamedTextLength: 0,
 	streamedAt: null,
+	health: INITIAL_HEALTH,
 	lastEvent: null,
 	recent: NO_EVENTS,
+	actions: NO_ACTIONS,
 	endedReason: null
 });
 /**
@@ -54,35 +69,71 @@ function hasLiveActivity(state) {
 * active theme without duplicating any palette.
 */
 const CSS = `
-.lt-view { display: flex; flex-direction: column; gap: 16px; padding: 18px 20px; }
+.lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px; }
 .lt-head { display: flex; align-items: center; gap: 8px; }
-.lt-title { font-size: 13.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
-.lt-section { display: flex; flex-direction: column; gap: 6px; }
-.lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em;
-  color: var(--dsw-alias-label-tertiary); }
-.lt-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.lt-call { display: grid; grid-template-columns: 10px 84px 1fr; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 18px;
-  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
-.lt-callName { color: var(--dsw-alias-label-primary); font-weight: 600; }
-.lt-callDetail { min-width: 0; overflow: hidden; font-family: var(--dsw-font-mono, monospace);
-  white-space: nowrap; text-overflow: ellipsis; color: var(--dsw-alias-label-secondary); }
-.lt-event { display: grid; grid-template-columns: 76px 112px 1fr; align-items: baseline; gap: 10px;
-  padding: 4px 8px; border-radius: 6px; font-size: 12.5px; line-height: 18px; }
-.lt-event:nth-child(odd) { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
-.lt-eventTime { color: var(--dsw-alias-label-tertiary); }
-.lt-eventType { color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, monospace); }
-.lt-eventDetail { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  color: var(--dsw-alias-label-primary); font-family: var(--dsw-font-mono, monospace); }
-.lt-none { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }
-.lt-rows { display: flex; flex-direction: column; gap: 2px; }
-.lt-row { display: grid; grid-template-columns: 132px 1fr; align-items: baseline; gap: 12px;
-  padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 18px;
+
+/* 模块：统一的标题层级与间距，让每块自成一段 */
+.lt-section { display: flex; flex-direction: column; gap: 8px; }
+.lt-sectionHead { display: flex; align-items: center; gap: 10px; }
+.lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
+
+/* 顶部工具行：不展开表格也能看到"现在用哪个工具" */
+.lt-toolLine { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 0; }
+.lt-toolLineLabel { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
+.lt-toolLineValue { font-size: 13px; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
   color: var(--dsw-alias-label-primary); }
-.lt-rowLabel { color: var(--dsw-alias-label-tertiary); }
-.lt-rowValue { min-width: 0; overflow: hidden; font-family: var(--dsw-font-mono, monospace);
-  white-space: nowrap; text-overflow: ellipsis; }
+
+/* 模块一：概览卡网格 */
+.lt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; }
+.lt-stat { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 10px;
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-statLabel { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
+.lt-statValue { font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums; }
+.lt-statValueFailed { font-size: 15px; font-weight: 600; color: var(--dsw-alias-label-error, #b42318); }
+
+/* 模块二：正在跑 */
+.lt-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.lt-call { display: grid; grid-template-columns: 10px 150px 1fr auto; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 18px;
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-callTook { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+
+/* 模块三：动作日志 */
+.lt-filters { margin-left: auto; display: flex; gap: 4px; }
+.lt-filter, .lt-filterActive { padding: 2px 8px; border: 0; border-radius: 999px; cursor: pointer;
+  font-size: 11.5px; line-height: 18px; }
+.lt-filter { color: var(--dsw-alias-label-tertiary); background: transparent; }
+.lt-filter:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
+.lt-filterActive { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 7%)); }
+.lt-table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 18px; }
+.lt-th { padding: 4px 8px; text-align: left; font-weight: 600; color: var(--dsw-alias-label-tertiary);
+  border-bottom: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 8%)); white-space: nowrap; }
+.lt-table tbody tr:nth-child(odd) { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-rowFailed { background: rgb(180 35 24 / 6%) !important; }
+.lt-tdTime { padding: 5px 8px; color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); white-space: nowrap; }
+.lt-tdTool { padding: 5px 8px; white-space: nowrap; }
+.lt-tdWhat { padding: 5px 8px; max-width: 260px; }
+.lt-tdTook { padding: 5px 8px; color: var(--dsw-alias-label-tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lt-tdResult { padding: 5px 8px; }
+.lt-resultLine { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  max-width: 260px; color: var(--dsw-alias-label-primary); }
+.lt-badgeOk, .lt-badgeFailed { display: inline-block; margin-top: 2px; padding: 0 6px; border-radius: 6px;
+  font-size: 11px; line-height: 16px; }
+.lt-badgeOk { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
+.lt-badgeFailed { color: var(--dsw-alias-label-error, #b42318); background: rgb(180 35 24 / 10%); }
+
+/* 模块五：运行状况 */
+.lt-health { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.lt-healthStale { color: var(--dsw-alias-label-error, #b42318); }
+
+/* 共用 */
+.lt-toolName { color: var(--dsw-alias-label-primary); font-weight: 600; font-family: var(--dsw-font-mono, monospace); }
+.lt-callDetail, .lt-tdWhat { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-family: var(--dsw-font-mono, monospace); color: var(--dsw-alias-label-secondary); }
+.lt-none { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }
 .lt-empty { display: flex; align-items: center; gap: 8px; padding: 24px 20px;
   color: var(--dsw-alias-label-tertiary); font-size: 13px; }
 `;
@@ -90,23 +141,40 @@ const CSS = `
 const styles = {
 	view: "lt-view",
 	head: "lt-head",
-	title: "lt-title",
 	elapsed: "lt-elapsed",
+	toolLine: "lt-toolLine",
+	toolLineLabel: "lt-toolLineLabel",
+	toolLineValue: "lt-toolLineValue",
 	section: "lt-section",
+	sectionHead: "lt-sectionHead",
 	sectionTitle: "lt-sectionTitle",
+	stats: "lt-stats",
+	stat: "lt-stat",
+	statLabel: "lt-statLabel",
+	statValue: "lt-statValue",
+	statValueFailed: "lt-statValueFailed",
 	list: "lt-list",
 	call: "lt-call",
-	callName: "lt-callName",
 	callDetail: "lt-callDetail",
-	event: "lt-event",
-	eventTime: "lt-eventTime",
-	eventType: "lt-eventType",
-	eventDetail: "lt-eventDetail",
+	callTook: "lt-callTook",
+	filters: "lt-filters",
+	filter: "lt-filter",
+	filterActive: "lt-filterActive",
+	table: "lt-table",
+	th: "lt-th",
+	rowFailed: "lt-rowFailed",
+	tdTime: "lt-tdTime",
+	tdTool: "lt-tdTool",
+	tdWhat: "lt-tdWhat",
+	tdTook: "lt-tdTook",
+	tdResult: "lt-tdResult",
+	resultLine: "lt-resultLine",
+	badgeOk: "lt-badgeOk",
+	badgeFailed: "lt-badgeFailed",
+	health: "lt-health",
+	healthStale: "lt-healthStale",
+	toolName: "lt-toolName",
 	none: "lt-none",
-	rows: "lt-rows",
-	row: "lt-row",
-	rowLabel: "lt-rowLabel",
-	rowValue: "lt-rowValue",
 	empty: "lt-empty"
 };
 /** Plugin id the injected style tag is tagged with. */
@@ -121,17 +189,34 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 //#endregion
 //#region src/client/LiveTasksView.tsx
 /**
-* The `conversation.view` entry: what this session's task is doing right now.
+* The `conversation.view` entry: what this session is doing, in human terms.
 *
-* The first version showed counts, which answered "is anything running" but not
-* "what is it doing". This one shows the in-flight calls with the argument line
-* the host folded for each, a trailing window of recent events with relative
-* times, and how long the turn has been running — the three things a reader
-* actually needs to tell a working session from a stuck one.
+* ## Architecture
 *
-* Visuals come from the official primitives (`StateDot`, `Tag`, `Pill`) so the
-* view sits in the same design system as the built-in views; the local
-* stylesheet is only the layout skeleton primitives do not provide.
+* The panel is four modules under one header, in the order a reader asks the
+* questions — and the module boundaries are the design, not decoration:
+*
+*   概览 (overview)    a card grid of the facts you scan first: state, position,
+*                       call count, failures
+*   正在跑 (running)   one line per in-flight call: tool, what it was given, how
+*                       long it has been running
+*   动作日志 (log)     the table: one row per finished call — when, which tool,
+*                       what it did, how long it took, what came back — with a
+*                       filter to the failures, which is the question a log is
+*                       usually asked
+*   最近动静 (recent)  up to three plain-language phrases about model activity
+*
+* Each module owns its copy keys (`overview.*`, `running.*`, `log.*`,
+* `recent.*`) and its own empty state, so a module can be read, translated or
+* removed without touching the others.
+*
+* Two earlier versions failed a readability test the author should have run
+* first: one showed counts only, the other showed raw session event types
+* (`step/start`, `session-log-*`). Both are the log's vocabulary, not a
+* reader's. Nothing here prints a protocol type name.
+*
+* Visuals come from the official primitives so the view belongs to the same
+* design system as the built-in views.
 *
 * @module soia-dsh-client-ui-live-tasks/client/view
 */
@@ -147,29 +232,87 @@ function useNow() {
 	}, []);
 	return now;
 }
-/** Render a duration in seconds as "just now" / "Ns ago" / "Nm ago". */
-function ago(at, now, t) {
-	const seconds = Math.max(0, Math.round((now - at) / 1e3));
-	if (seconds < 2) return t("time.justNow");
-	if (seconds < 60) return t("time.agoSeconds", { s: seconds });
-	return t("time.agoMinutes", { m: Math.round(seconds / 60) });
+/** Wall-clock `HH:MM:SS` in the reader's own timezone. */
+function clockOf(at) {
+	return new Date(at).toLocaleTimeString(void 0, { hour12: false });
 }
-/** One event line in the trail. */
-function EventRow({ summary, now, t }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-		className: styles.event,
+/** Whole seconds between two instants, floored at zero. */
+function secondsBetween(from, to) {
+	return Math.max(0, Math.round((to - from) / 1e3));
+}
+/**
+* Turn one session event into the phrase a person would use for it.
+*
+* Only the few worth a line are phrased; transport bookkeeping and anything a
+* newer build adds are dropped rather than labelled "other activity", because a
+* line that says nothing is worse than no line.
+* @param summary - the folded observation.
+* @param t - translator.
+* @returns the human phrase, or null when the event is not worth a line.
+*/
+function phraseOf(summary, t) {
+	switch (summary.type) {
+		case "turn/start": return t("event.turnStart");
+		case "turn/end": return t("event.turnEnd");
+		case "user/message": return t("event.userMessage");
+		case "assistant/message": return t("event.assistantMessage");
+		case "tool/call": return summary.detail === null ? null : t("event.toolCall", { name: summary.detail });
+		case "tool/result": return summary.detail === null ? null : t("event.toolResult", { name: summary.detail });
+		default: return null;
+	}
+}
+/** One card in the overview grid. */
+function Stat({ label, value, failed }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: styles.stat,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: styles.statLabel,
+			children: label
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: failed === true ? styles.statValueFailed : styles.statValue,
+			children: value
+		})]
+	});
+}
+/** One row of the activity log: when, which tool, what it did, how long, result. */
+function ActionRow({ action, now, t }) {
+	const status = action.status === "running" ? t("status.running") : action.status === "failed" ? t("status.failed") : t("status.ok");
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+		className: action.status === "failed" ? styles.rowFailed : void 0,
 		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.eventTime,
-				children: ago(summary.time, now, t)
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+				className: styles.tdTime,
+				children: clockOf(action.startedAt)
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.eventType,
-				children: summary.type
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+				className: styles.tdTool,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+					state: action.status === "running" ? "ongoing" : action.status === "failed" ? "error" : "done",
+					size: 8
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.toolName,
+					children: action.name
+				})]
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.eventDetail,
-				children: summary.detail ?? ""
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+				className: styles.tdWhat,
+				title: action.detail ?? "",
+				children: action.detail ?? ""
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+				className: styles.tdTook,
+				children: t("time.seconds", { s: secondsBetween(action.startedAt, action.endedAt ?? now) })
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+				className: styles.tdResult,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.resultLine,
+					title: action.result ?? "",
+					children: action.result ?? ""
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: action.status === "failed" ? styles.badgeFailed : styles.badgeOk,
+					children: status
+				})]
 			})
 		]
 	});
@@ -181,15 +324,21 @@ function EventRow({ summary, now, t }) {
 */
 function LiveTasksView({ useProjection, t }) {
 	const state = useProjection("liveTask");
+	const [failuresOnly, setFailuresOnly] = (0, react.useState)(false);
 	const now = useNow();
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "idle" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("view.empty") })]
 	});
 	const inFlight = state.openTools.length > 0;
-	const phase = inFlight ? t("phase.tool") : state.running ? t("phase.running") : state.endedReason !== null ? t("phase.ended") : t("phase.idle");
 	const settled = state.endedReason !== null && !state.running;
-	const elapsedSeconds = state.updatedAt === null ? 0 : Math.round((now - state.updatedAt) / 1e3);
+	const phase = inFlight ? t("phase.tool") : state.running ? t("phase.running") : settled ? t("phase.ended") : t("phase.idle");
+	const actions = [...state.actions].reverse();
+	const failed = actions.filter((action) => action.status === "failed");
+	const shown = failuresOnly ? failed : actions;
+	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
+	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
+	const phrases = [...state.recent].reverse().map((summary) => phraseOf(summary, t)).filter((phrase) => phrase !== null).slice(0, 3);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
 		children: [
@@ -197,29 +346,65 @@ function LiveTasksView({ useProjection, t }) {
 				className: styles.head,
 				children: [
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: inFlight || state.running ? "ongoing" : settled ? "done" : "idle" }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
-						className: styles.title,
-						children: t("view.title")
-					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tag, {
 						tone: settled ? "success" : "info",
 						children: phase
 					}),
-					state.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Pill, { children: `#${state.turn} · ${t("row.step")} ${state.step ?? "—"}` }),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.elapsed,
-						children: state.running ? t("time.runningFor", { s: elapsedSeconds }) : ago(state.updatedAt ?? now, now, t)
+						children: state.running ? t("time.seconds", { s: secondsBetween(state.updatedAt ?? now, now) }) : ""
 					})
 				]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+				className: styles.toolLine,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.toolLineLabel,
+					children: inFlight ? t("head.toolRunning") : t("head.toolLast")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.toolLineValue,
+					children: inFlight ? state.openTools.map((call) => call.name).join(", ") : state.actions.at(-1)?.name ?? t("head.toolNone")
+				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: styles.section,
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
 					className: styles.sectionTitle,
-					children: t("section.running")
+					children: t("overview.title")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.stats,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stat, {
+							label: t("overview.status"),
+							value: phase
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stat, {
+							label: t("overview.at"),
+							value: state.turn === null ? "—" : state.step === null ? t("overview.turnOnly", { turn: state.turn }) : t("overview.atValue", {
+								turn: state.turn,
+								step: state.step
+							})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stat, {
+							label: t("overview.calls"),
+							value: String(state.actions.length)
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Stat, {
+							label: t("overview.failures"),
+							value: String(failed.length),
+							...failed.length > 0 ? { failed: true } : {}
+						})
+					]
+				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("running.title")
 				}), state.openTools.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 					className: styles.none,
-					children: t("tool.none")
+					children: t("running.empty")
 				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
 					className: styles.list,
 					children: state.openTools.map((call) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
@@ -230,12 +415,17 @@ function LiveTasksView({ useProjection, t }) {
 								size: 8
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: styles.callName,
+								className: styles.toolName,
 								children: call.name
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 								className: styles.callDetail,
+								title: call.detail ?? "",
 								children: call.detail ?? ""
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.callTook,
+								children: t("running.started", { s: secondsBetween(call.startedAt, now) })
 							})
 						]
 					}, call.callId))
@@ -243,42 +433,97 @@ function LiveTasksView({ useProjection, t }) {
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: styles.section,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-					className: styles.sectionTitle,
-					children: t("section.recent")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-					className: styles.list,
-					children: [...state.recent].reverse().map((summary) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EventRow, {
-						summary,
-						now,
-						t
-					}, `${summary.seq}-${summary.type}`))
-				})]
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
-				className: styles.section,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: styles.rows,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: styles.row,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.rowLabel,
-							children: t("row.toolCalls")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.rowValue,
-							children: String(state.toolCallsInTurn)
-						})]
-					}), state.lastTool !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-						className: styles.row,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.rowLabel,
-							children: t("row.lastTool")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.rowValue,
-							children: `${state.lastTool.name} · ${state.lastTool.open ? t("tool.open") : state.lastTool.failed === true ? t("tool.failed") : t("tool.done")}`
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.sectionHead,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+						className: styles.sectionTitle,
+						children: t("log.title")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: styles.filters,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: failuresOnly ? styles.filter : styles.filterActive,
+							onClick: () => setFailuresOnly(false),
+							children: t("log.filterAll", { n: actions.length })
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: failuresOnly ? styles.filterActive : styles.filter,
+							onClick: () => setFailuresOnly(true),
+							children: t("log.filterFailed", { n: failed.length })
 						})]
 					})]
-				})
+				}), shown.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: styles.none,
+					children: t("log.filterEmpty")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
+					className: styles.table,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: styles.th,
+							children: t("log.time")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: styles.th,
+							children: t("log.tool")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: styles.th,
+							children: t("log.did")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: styles.th,
+							children: t("log.took")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: styles.th,
+							children: t("log.result")
+						})
+					] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tbody", { children: shown.map((action) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ActionRow, {
+						action,
+						now,
+						t
+					}, action.callId)) })]
+				})]
+			}),
+			phrases.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("recent.title")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: styles.none,
+					children: phrases.join(" · ")
+				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("health.title")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.health,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.unknown > 0 ? styles.healthStale : void 0,
+							children: `${t("health.unknown")} ${state.health.unknown}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.registry < 0 ? styles.healthStale : void 0,
+							children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
+							ok: state.health.deltasAccepted,
+							dropped: state.health.deltasDropped
+						}) }),
+						lastDataAt !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
+							children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
+						})
+					]
+				})]
 			})
 		]
 	});
@@ -288,73 +533,135 @@ function LiveTasksView({ useProjection, t }) {
 /**
 * Dictionaries of the `liveTasks` namespace.
 *
-* Simplified Chinese is the key-set source of truth; English carries the
-* identical key set, so neither direction can leave a key unresolved. Only
-* human-facing panel copy lives here — the package adds nothing model-visible,
-* and a protocol token such as a tool name or a `TurnEndReason.kind` is
-* rendered verbatim rather than translated.
+* The panel is organised as modules — an overview, what is running, what it did,
+* what just happened — and the keys mirror that structure (`overview.*`,
+* `running.*`, `log.*`, `recent.*`) so copy can be read against the layout.
+*
+* Simplified Chinese is the key-set source of truth; English is typed as
+* `Record<LiveTaskKey, string>`, so a missing or extra key is a compile error in
+* either direction. Tool names and event types are deliberately left
+* untranslated: they are protocol identifiers, and paraphrasing them would hide
+* which tool actually ran.
 */
 /** Dictionary namespace owned by this plugin. */
 const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 const zh = {
-	"section.running": "正在跑",
-	"section.recent": "最近事件",
-	"tool.none": "当前没有在跑的调用",
-	"time.runningFor": "已运行 {s} 秒",
-	"time.agoSeconds": "{s} 秒前",
-	"time.agoMinutes": "{m} 分前",
-	"time.justNow": "刚刚",
 	"view.tab": "任务",
-	"view.title": "会话任务状态",
-	"view.empty": "本会话当前没有进行中的任务。",
-	"panel.empty": "本次会话还没有事件。",
-	"row.phase": "状态",
-	"row.turn": "回合",
-	"row.step": "步骤",
-	"row.lastTool": "最后工具调用",
-	"row.toolCalls": "本轮工具调用数",
-	"row.lastEvent": "最后事件",
-	"row.endedReason": "结束原因",
-	"phase.running": "运行中",
-	"phase.tool": "等待工具结果",
+	"view.empty": "本会话还没有动作。",
+	"head.toolRunning": "正在用的工具",
+	"head.toolLast": "最近用的工具",
+	"head.toolNone": "还没有用过工具",
+	"overview.title": "概览",
+	"overview.status": "状态",
+	"overview.at": "位置",
+	"overview.elapsed": "已运行",
+	"overview.calls": "工具调用",
+	"overview.failures": "失败",
+	"overview.atValue": "#{turn} · 第 {step} 步",
+	"overview.turnOnly": "#{turn}",
+	"running.title": "正在跑",
+	"running.empty": "现在没有在跑的动作",
+	"running.started": "已跑 {s} 秒",
+	"log.title": "动作日志",
+	"log.filterAll": "全部 {n}",
+	"log.filterFailed": "只看失败 {n}",
+	"log.filterEmpty": "没有符合条件的记录",
+	"log.time": "时间",
+	"log.tool": "工具",
+	"log.did": "干了什么",
+	"log.took": "耗时",
+	"log.result": "结果",
+	"recent.title": "最近动静",
+	"health.title": "运行状况",
+	"health.folded": "已折叠事件",
+	"health.ignored": "已忽略（会话管理类）",
+	"health.unknown": "未知类型",
+	"health.frames": "收到流式帧",
+	"health.agents": "已接管 agent",
+	"health.registry": "注册表可见",
+	"health.unreachable": "不可达",
+	"health.deltas": "流式增量",
+	"health.deltasValue": "接受 {ok} · 丢弃 {dropped}",
+	"health.lastData": "数据更新",
+	"health.silence": "{s} 秒前",
+	"health.stale": "已 {s} 秒没有新数据",
+	"status.ok": "完成",
+	"status.failed": "失败",
+	"status.running": "进行中",
+	"phase.running": "正在干活",
+	"phase.tool": "等工具返回",
 	"phase.idle": "空闲",
 	"phase.ended": "已结束",
-	"tool.open": "进行中",
-	"tool.failed": "失败",
-	"tool.done": "已完成",
-	"value.none": "无",
-	"value.openCount": "{count} 个进行中"
+	"time.seconds": "{s} 秒",
+	"time.justNow": "刚刚",
+	"time.agoSeconds": "{s} 秒前",
+	"time.agoMinutes": "{m} 分前",
+	"event.turnStart": "开始处理",
+	"event.turnEnd": "处理结束",
+	"event.userMessage": "收到你的消息",
+	"event.assistantMessage": "模型回复",
+	"event.toolCall": "调用 {name}",
+	"event.toolResult": "{name} 返回"
 };
 /** English dictionary, key-identical to the Chinese source of truth. */
 const en = {
-	"section.running": "In flight",
-	"section.recent": "Recent events",
-	"tool.none": "No call in flight",
-	"time.runningFor": "running for {s}s",
+	"view.tab": "Tasks",
+	"view.empty": "This session has no actions yet.",
+	"head.toolRunning": "Tool in use",
+	"head.toolLast": "Last tool used",
+	"head.toolNone": "No tool used yet",
+	"overview.title": "Overview",
+	"overview.status": "State",
+	"overview.at": "Position",
+	"overview.elapsed": "Elapsed",
+	"overview.calls": "Tool calls",
+	"overview.failures": "Failures",
+	"overview.atValue": "#{turn} · step {step}",
+	"overview.turnOnly": "#{turn}",
+	"running.title": "Running now",
+	"running.empty": "Nothing is running right now",
+	"running.started": "{s}s so far",
+	"log.title": "Activity log",
+	"log.filterAll": "All {n}",
+	"log.filterFailed": "Failures only {n}",
+	"log.filterEmpty": "No record matches this filter",
+	"log.time": "time",
+	"log.tool": "tool",
+	"log.did": "what it did",
+	"log.took": "took",
+	"log.result": "result",
+	"recent.title": "Just happened",
+	"health.title": "Panel health",
+	"health.folded": "Events folded",
+	"health.ignored": "Ignored (session setup)",
+	"health.unknown": "Unknown types",
+	"health.frames": "Stream frames",
+	"health.agents": "Agents attached",
+	"health.registry": "Registry size",
+	"health.unreachable": "unreachable",
+	"health.deltas": "Stream deltas",
+	"health.deltasValue": "{ok} kept · {dropped} dropped",
+	"health.lastData": "Last data",
+	"health.silence": "{s}s ago",
+	"health.stale": "no new data for {s}s",
+	"status.ok": "done",
+	"status.failed": "failed",
+	"status.running": "running",
+	"phase.running": "working",
+	"phase.tool": "waiting for a tool",
+	"phase.idle": "idle",
+	"phase.ended": "finished",
+	"time.seconds": "{s}s",
+	"time.justNow": "just now",
 	"time.agoSeconds": "{s}s ago",
 	"time.agoMinutes": "{m}m ago",
-	"time.justNow": "just now",
-	"view.tab": "Tasks",
-	"view.title": "Session task state",
-	"view.empty": "This session has no task in progress.",
-	"panel.empty": "This session has no events yet.",
-	"row.phase": "State",
-	"row.turn": "Turn",
-	"row.step": "Step",
-	"row.lastTool": "Last tool call",
-	"row.toolCalls": "Tool calls this turn",
-	"row.lastEvent": "Last event",
-	"row.endedReason": "Ended",
-	"phase.running": "running",
-	"phase.tool": "waiting for a tool result",
-	"phase.idle": "idle",
-	"phase.ended": "ended",
-	"tool.open": "in flight",
-	"tool.failed": "failed",
-	"tool.done": "settled",
-	"value.none": "none",
-	"value.openCount": "{count} in flight"
+	"event.turnStart": "started working",
+	"event.turnEnd": "finished working",
+	"event.userMessage": "your message arrived",
+	"event.assistantMessage": "model replied",
+	"event.toolCall": "called {name}",
+	"event.toolResult": "{name} returned"
 };
 //#endregion
 //#region src/client/index.ts

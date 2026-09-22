@@ -2,7 +2,7 @@
   {
     "id": "data-root-write",
     "tool": "*",
-    "pattern": "(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|>>?\\s*(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])sed\\b[^\\n;&|]*?-i[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?/(?:etc|var/lib|var/db|usr/local|Library|System)/|>>?\\s*/(?:etc|var/lib|var/db|usr/local|Library|System)/|^(?:write|edit)\\s+(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|^(?:write|edit)\\s+/(?:etc|var/lib|var/db|usr/local|Library|System)/",
+    "pattern": "(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|>>?\\s*(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])sed\\b[^\\n;&|]*?-i[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?/(?:etc|var/lib|var/db|usr/local|Library|System)/|>>?\\s*/(?:etc|var/lib|var/db|usr/local|Library|System)/|^(?:write|edit)\\s+(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|^(?:write|edit)\\s+/(?:etc|var/lib|var/db|usr/local|Library|System)/|(?:^|[\\s;&|(])(?:sqlite3|psql|mysql|mariadb|mongo|mongosh)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+[^\\n;&|]*?\\b(?:delete|drop|update|insert|alter|create|replace|truncate|vacuum|migrat\\w*)\\b",
     "action": "deny",
     "reason": "This call writes into a real application-data root — a home dot-directory such as ~/.<app>, or a system data path such as /etc — instead of a project or scratch location.",
     "remedy": "Write the same data under the session workspace or a scratch directory and point the program at it with an isolated config or data-home setting.",
@@ -11,7 +11,7 @@
   {
     "id": "secret-in-argv",
     "tool": "bash",
-    "pattern": "[Aa]uthorization\\s*:\\s*\\S+|--?(?:token|api[-_]?key|apikey|password|passwd|secret|access[-_]?token|auth[-_]?token|client[-_]?secret)[=\\s]+\\S+|\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{3,}|\\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\\bgithub_pat_[A-Za-z0-9_]{20,}|\\bsk-[A-Za-z0-9_-]{16,}|\\bxox[baprs]-[A-Za-z0-9-]{10,}|(?:^|\\s)-p(?=[A-Za-z0-9!@#$%^&*_+]{8,}(?=\\s|$))(?=\\S*[0-9])\\S+",
+    "pattern": "[Aa]uthorization\\s*:\\s*(?![^\\n\"']*\\$)[^\\n\"']+|--?(?:token|api[-_]?key|apikey|password|passwd|secret|access[-_]?token|auth[-_]?token|client[-_]?secret)[=\\s]+\\S+|\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{3,}|\\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\\bgithub_pat_[A-Za-z0-9_]{20,}|\\bsk-[A-Za-z0-9_-]{16,}|\\bxox[baprs]-[A-Za-z0-9-]{10,}|(?:^|\\s)-p(?=[A-Za-z0-9!@#$%^&*_+]{8,}(?=\\s|$))(?=\\S*[0-9])\\S+",
     "action": "deny",
     "reason": "This command carries a credential literal — a token, JWT, Authorization header, or -p<password> value — on the command line, where it lands in the shell history, the process table, and this session log.",
     "remedy": "Pass the credential through a file, an environment variable, or the tool's own credential store, and reference it by name instead of pasting its value.",
@@ -38,7 +38,7 @@
   {
     "id": "high-impact-action",
     "tool": "bash",
-    "pattern": "\\b(?:npm|pnpm|yarn|bun)\\s+publish\\b|\\brm\\s+(?:-\\S+\\s+)*(?:-\\S*r\\S*f\\S*|-\\S*f\\S*r\\S*)\\s+(?:/(?:[\\w.-]+)?(?=\\s|$)|~(?=\\s|/|$)|\\$\\{?HOME\\}?(?=\\s|/|$)|\\*(?=\\s|$)|\\.\\.(?=\\s|/|$))|\\bgit\\s+worktree\\s+remove\\b[^\\n]*--force|\\brsync\\b[^\\n]*--delete\\b|(?:^|[^>0-9])>{1,2}\\s*\\S+\\.(?:css|scss|sass|less)(?=\\s|$)",
+    "pattern": "\\b(?:npm|pnpm|yarn|bun)\\s+publish\\b|\\brm\\s+(?:-\\S+\\s+)*(?:-\\S*r\\S*f\\S*|-\\S*f\\S*r\\S*)\\s+(?:/(?:[\\w.-]+)?(?=\\s|$)|~(?=\\s|/|$)|\\$\\{?HOME\\}?(?=\\s|/|$)|\\*(?=\\s|$)|\\.\\.(?=\\s|/|$))|\\brsync\\b[^\\n]*--delete\\b|(?:^|[^>0-9])>{1,2}\\s*\\S+\\.(?:css|scss|sass|less)(?=\\s|$)",
     "action": "ask",
     "reason": "This is a high-impact action — publishing a package, a wholesale rm -rf, a forced worktree removal, a mirror delete, or a whole-file overwrite of a stylesheet — where a mistake is expensive and hard to reverse.",
     "remedy": "State the intended end state first, then do the same thing on a copy, a dry run, or a named target so the destructive step is the last, smallest one.",

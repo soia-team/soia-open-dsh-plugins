@@ -2,5 +2,5 @@
 # confirmed-consistent state. Both languages carry equal authority; after editing
 # either side, bring the other along and re-record with:
 #   git hash-object packages/client-ui-live-tasks/README.md packages/client-ui-live-tasks/README.en.md
-README.md: 0e2e3315ccd8a162ebe1ee116fe7aecc3a127889
-README.en.md: b28e80d4082ab95de66435cd669c60f8057b9275
+README.md: feafc7423105aa92ffa05e1cbbafc918c59fb347
+README.en.md: 44e23617b0229eb181eea7b8d61a66832a438694

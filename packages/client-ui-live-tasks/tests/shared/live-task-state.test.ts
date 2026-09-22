@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   RECENT_EVENT_LIMIT,
+  summarizeToolResult,
   INITIAL_LIVE_TASK_STATE,
   foldLiveTasks,
   hasLiveActivity,
@@ -154,7 +155,7 @@ describe('live-task derivation', () => {
     it('tracks the call as in flight', () => {
       const state = foldLiveTasks(openStepWithTool())
 
-      expect(state.lastTool).toEqual({
+      expect(state.lastTool).toMatchObject({
         callId: 'call-1',
         name: 'bash',
         turn: 1,
@@ -162,6 +163,8 @@ describe('live-task derivation', () => {
         open: true,
         // No `arguments` on this fixture: absence is reported, not invented.
         detail: null,
+        // The activity log needs a start instant to render "when" and "how long".
+        startedAt: 3000,
       })
       expect(state.openTools).toHaveLength(1)
       expect(state.toolCallsInTurn).toBe(1)
@@ -507,5 +510,158 @@ describe('live-task derivation', () => {
 
       expect(state.lastEvent?.type).toBe('session-log-deepseek/delivery-accepted')
       expect(state.recent.map((entry) => entry.type)).toEqual(['turn/start'])
+    })
+  })
+
+  describe('lines a person can read', () => {
+    it('joins what and where for a measuring call', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, {
+          callId: 'c1',
+          name: 'check_ui_size',
+          turn: 1,
+          step: 1,
+          arguments: JSON.stringify({ selector: '#card', url: 'http://127.0.0.1:8899/second-case.html', expected: { width: 320 } }),
+        }),
+      ])
+      expect(state.lastTool?.detail).toBe('#card @ http://127.0.0.1:8899/second-case.html')
+    })
+
+    it('summarizes a JSON result as key=value instead of raw braces', () => {
+      const summary = summarizeToolResult({
+        message: {
+          content: [{
+            type: 'tool-result',
+            content: [{ type: 'text', text: '{"status":"ok","selector":"#card","width":320,"nested":{"a":1}}' }],
+          }],
+        },
+      })
+      expect(summary).toBe('status=ok, selector=#card, width=320')
+    })
+
+    it('keeps prose results as they are', () => {
+      const summary = summarizeToolResult({
+        message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: 'done\nsecond line' }] }] },
+      })
+      expect(summary).toBe('done')
+    })
+  })
+
+  describe('a call that came back as an error', () => {
+    const call = event('tool/call', 2, {
+      callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: JSON.stringify({ command: 'rg TODO .' }),
+    })
+    const result = (isError: boolean, text: string): LiveTaskObservation => event('tool/result', 3, {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'tool-result', isError, toolCallId: 'c1', content: [{ type: 'text', text }] }] },
+    })
+
+    it('records the failure in the activity log, not just on the last-call record', () => {
+      // The live panel showed a red "Error: grep search failed" row while the
+      // overview counted zero failures: the flag reached `lastTool` but not the
+      // action record, which is what the log and the counter read.
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), call, result(true, 'Error: grep search failed (exit 2)')])
+
+      expect(state.actions).toHaveLength(1)
+      expect(state.actions[0]?.status).toBe('failed')
+      expect(state.actions[0]?.result).toBe('Error: grep search failed (exit 2)')
+      expect(state.lastTool?.failed).toBe(true)
+    })
+
+    it('keeps a successful result as ok', () => {
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), call, result(false, 'done')])
+
+      expect(state.actions[0]?.status).toBe('ok')
+      expect(state.actions[0]?.result).toBe('done')
+    })
+  })
+
+  describe('a tool that reports failure in its own payload', () => {
+    it('counts as failed even though the harness saw no error', () => {
+      // Measured live: an unreachable page and a missing file both came back as
+      // `{"status":"error",…}` inside a successful tool result, and the panel
+      // showed them as 完成 with a failure count of zero.
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'check_ui_size', turn: 1, step: 1, arguments: '{}' }),
+        event('tool/result', 3, {
+          turn: 1,
+          step: 1,
+          message: {
+            content: [{
+              type: 'tool-result',
+              isError: false,
+              toolCallId: 'c1',
+              content: [{ type: 'text', text: '{"status":"error","code":"navigation_failed"}' }],
+            }],
+          },
+        }),
+      ])
+
+      expect(state.actions[0]?.status).toBe('failed')
+    })
+
+    it('leaves an ordinary payload alone', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'check_file_hash', turn: 1, step: 1, arguments: '{}' }),
+        event('tool/result', 3, {
+          turn: 1,
+          step: 1,
+          message: {
+            content: [{
+              type: 'tool-result',
+              isError: false,
+              toolCallId: 'c1',
+              content: [{ type: 'text', text: '{"status":"ok","hash":"abc"}' }],
+            }],
+          },
+        }),
+      ])
+
+      expect(state.actions[0]?.status).toBe('ok')
+    })
+  })
+
+  describe('the panel reports its own health', () => {
+    it('counts folded events and unknown types separately', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: '{}' }),
+        event('some/new-event-type', 3, { anything: true }),
+      ])
+
+      expect(state.health.folded).toBe(3)
+      // A host newer than the plugin shows up as a number instead of silence.
+      expect(state.health.unknown).toBe(1)
+    })
+
+    it('counts accepted and dropped stream deltas', () => {
+      const accepted = reduceLiveTask(
+        foldLiveTasks([event('turn/start', 1, { turn: 1 }), event('step/start', 2, { turn: 1, step: 1 })]),
+        { kind: 'text-delta', turn: 1, step: 1, time: 3, text: 'hello' },
+      )
+      expect(accepted.health.deltasAccepted).toBe(1)
+      expect(accepted.health.deltasDropped).toBe(0)
+
+      // A delta for a step that is not open is dropped, and the drop is counted:
+      // "the model went quiet" and "this filter ate the frame" must be told apart.
+      const dropped = reduceLiveTask(accepted, { kind: 'text-delta', turn: 1, step: 9, time: 4, text: 'stray' })
+      expect(dropped.health.deltasAccepted).toBe(1)
+      expect(dropped.health.deltasDropped).toBe(1)
+    })
+  })
+
+  describe('stream-frame counting', () => {
+    it('counts a frame as received even when normalization drops it', () => {
+      // The distinction that matters on screen: a listener that never fires
+      // versus a frame the fold could not use. Frames are counted on arrival.
+      const state = reduceLiveTask(INITIAL_LIVE_TASK_STATE, { kind: 'stream-frame' })
+
+      expect(state.health.frames).toBe(1)
+      expect(state.health.deltasAccepted).toBe(0)
+      expect(state.health.deltasDropped).toBe(0)
     })
   })

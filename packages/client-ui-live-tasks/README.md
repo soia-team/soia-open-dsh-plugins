@@ -11,27 +11,30 @@ kind: "package-bundle"
 
 ## 这个包做什么
 
-一轮任务进行中时，人最想知道的三个事实是：**还在跑吗**、**最后调用了什么工具**、**最后一个事件是什么**。这三件事都已经在会话日志里，只是没有一处把它们摊开给你看。
+一轮任务进行中时，人真正会问的是四个问题：**现在在干什么**、**都干过什么**、**什么时候干的**、**结果怎么样**。这四件事都已经在会话日志里，只是没有一处把它们摊开给你看。
 
-本包把 `session/event` 与 `agent/assistant-stream` 折成一个小状态对象（`LiveTaskState`），在会话头部放一个只读面板：
+本包把 `session/event` 与 `agent/assistant-stream` 折成一个小状态对象（`LiveTaskState`），在会话视图区注册一个只读页签「任务」——与内置的「对话 / 轨迹」同排（`conversation.view`，`order: 20`）：
 
-- **触发按钮**：一个状态点加一个短标签。有工具在飞时标签就是工具名（`bash`），否则是「运行中」或「空闲」。会话没有任何事件时整个控件不渲染。
-- **弹层**（点击展开，Esc 或点外部关闭）：
+面板按**模块**组织，每个模块只回答一个问题：
 
-| 行 | 内容 |
+| 模块 | 内容 |
 |---|---|
-| 状态 | `等待工具结果` / `运行中` / `已结束` / `空闲` |
-| 回合 / 步骤 | 当前打开的 turn 与 step 编号，没有则为「无」 |
-| 最后工具调用 | 工具名 + `进行中` / `已完成` / `失败` |
-| 本轮工具调用数 | 当前 turn 内已发起的调用数 |
-| 最后事件 | 事件类型，工具事件再附工具名 |
-| 结束原因 | 上一个 turn 的 `TurnEndReason.kind`，如 `completed`、`aborted`、`error` |
+| **概览** | 卡片网格：状态、位置（`#1 · 第 2 步`）、工具调用数、失败数（有失败时标红） |
+| **正在跑** | 每个在飞调用一行：状态点 + 工具名 + 参数摘要（命令 / 路径 / `选择器 @ 页面`）+ 已跑秒数 |
+| **动作日志** | 五列表格：**时间** · **工具** · **干了什么** · **耗时** · **结果**；带「全部 N / 只看失败 N」筛选，失败行标红 |
+| **最近动静** | 最多三条人话短句：`模型回复`、`bash 返回`、`处理结束`…… 传输记账类事件不进这一行 |
+
+模块边界就是设计本身：每个模块有自己的文案键前缀（`overview.*` / `running.*` / `log.*` / `recent.*`）和自己的空态，可以单独阅读、翻译或移除。
+
+**失败判定认两层信号。** 宿主层的 `isError`，以及工具在**成功返回里**自报的失败（本生态的惯例是 `{"status":"error","code":…}`）。这条是实测踩出来的：一次页面加载失败与一次文件不存在都曾显示成「完成」、失败计数为 0。
+
+段落文案随宿主语言切换（`liveTasks` 命名空间，中英键集由 `Record<LiveTaskKey, string>` 钉住）。工具名与事件类型**故意不翻译**：它们是协议标识符，改写会掩盖"到底是哪个工具在跑"。
 
 ### 面板不显示什么
 
 - **助手流式文本的进度**。它来自 `agent/assistant-stream`，是进程内帧、不落日志，因此无法跨投影线路传输；它只存在于宿主侧的 `ctx.liveTasks`。面板不会显示一个恒为 0 的假进度条。
-- **工具的参数与结果内容**。这里只给「谁在跑」，内容去对话记录里看。
-- **历史回合**。只有最新状态，没有回合列表，也没有耗时统计。
+- **工具返回的完整内容**。结果列只有首行摘要（JSON 结果会折成 `key=value` 短句），全文去对话记录里看。
+- **完整历史**。动作日志是有上限的窗口（最近 8 次调用 / 最近 6 条事件），不是审计记录。
 - **后台任务（jobs）**。那是官方 `dsh-client-ui-jobs` 的范围，见下。
 - **任何写操作**。面板是纯只读的，不能取消、不能重试。
 
@@ -86,51 +89,26 @@ reduceLiveTask(state: LiveTaskState, observation: LiveTaskObservation): LiveTask
 
 `src/client/index.ts` 注册字典与会话头部 action；`src/client/LiveTasksAction.tsx` 通过 slot 标准道具里的 `useProjection('liveTask')` 读值并渲染。`undefined` 表示**能力缺席**（宿主单元没挂载，或还没有快照携带这个键），此时渲染为「什么都没有」，而不是编一个空状态。
 
-## 客户端半的构建状态
+## 浏览器半怎么构建
 
-**`lib/client.js` 还没有产出。源码已经通过类型检查。** 两句都要看，少看一句就会误判本包的状态。
+**`lib/client.js` 由 `scripts/build-client.mjs` 产出，形态与官方一致，且已在真实 profile 里加载并渲染过。**
 
-已经拿到的证据（对照时间 2026-09-21 17:55；工作区同时被并行任务改动，事实以该时刻为准）：
+官方那份共享客户端 preset（harness 仓 `packages/client/tsdown.client.ts`）不发 npm，所以本仓复刻了插件真正需要的那部分：用 tsdown 打成 CommonJS（`react`、`react/jsx-runtime`、`@deepseek-ai/*` 全部 external），再把函数体包进 `window.__ModuleLoader__.load({ id, factory: (require) => … })`，`module`/`exports` 在工厂内部创建、末尾 `return module.exports`。
 
 | 检查 | 结果 |
 |---|---|
-| `pnpm --filter soia-dsh-client-ui-live-tasks run build:types` | ✅ 通过；同时跑宿主与客户端两个 program，产出 `lib/types/**/*.d.ts`，其中 `lib/types/client/index.d.ts` 正是 `exports["./client"].types` 声明的路径 |
-| 客户端半类型检查 | ✅ `tsc -p tsconfig.client.json --noEmit` 0 错误 |
-| `pnpm vitest run packages/client-ui-live-tasks` | ✅ 65 个用例通过 |
-| `pnpm exec oxlint packages/client-ui-live-tasks` | ✅ 0 warning 0 error |
-| `lib/index.js`（宿主 bundle） | ⚠️ 存在但**过期**：187,588 字节，根侧构建于 17:44:01，早于本包源码此后若干次修复 |
-| `lib/client.js` | ❌ **不存在** |
-| 真实加载与界面渲染 | ❌ **从未发生** |
+| `pnpm run build:client` | ✅ 产出 `lib/client.js`（约 19 KB，`require("react/jsx-runtime")` 与 `require("@deepseek-ai/dsh-client-ui-primitives")`，无 ESM 残留）|
+| 客户端类型检查 | ✅ `pnpm run typecheck:client` 0 错误 |
+| 加载 | ✅ 一次性 profile 启动成功；`dsh-client-modules` 在声明的客户端产物缺失时会拒绝启动，所以"能启动"即"产物可组合" |
+| 渲染 | ✅ 真实会话里「任务」页签与 对话/轨迹 同排渲染，无页面错误；动作日志显示工具名、参数、时间与结果 |
 
-### 类型检查能过，靠的是什么
+**样式不走 CSS module。** preset 里的 lightningcss 管线只为一张布局骨架样式表不值得引入，`src/client/styles.ts` 直接注入一个带 `data-plugin-css="ui-live-tasks"` 的 `<style>`，类名统一 `lt-` 前缀以免与页面通用类名相撞。
 
-客户端半之所以能被类型检查，是因为并行任务已经跑过一次 `pnpm install`，把本包 `devDependencies` 里的 `react`、`@types/react` 与 `@deepseek-ai/dsh-client-*` 装进了工作区。
+**客户端 `inject` 必须带上 `sessions` 与 `uiConversation`。** 插槽标准道具 `useProjection` 由注入的服务装配而成；少一个，产物会正常加载却什么都不渲染——这是实际踩过一次的坑，见 [docs/verification.md](../../docs/verification.md)。
 
-单包编译必须**显式加载它扩展的契约**。官方 monorepo 有一个客户端聚合 tsconfig，所有客户端包在同一个 program 里，`declare module` 增补自动生效；本包只编译自己，所以 `src/client/index.ts` 顶部有四个 `import type {} from '@deepseek-ai/dsh-client-*/client'`，分别带来 SlotMap 条目（ui-conversation）、会话标准道具 `useProjection`/`useSession`（ui-session）、`ctx.slots`（ui-renderer）与 `ctx.locale`（locale）。它们全是类型导入，浏览器 bundle 不会因此多一个运行时依赖。
+### 投影只由已提交事件驱动
 
-**一处必须说清的偏差。** `@deepseek-ai/dsh-client-ui-renderer` 是 `ctx.slots` 的唯一声明来源，但它**不在工作区 pnpm store 里**。为了跑通这次类型检查，本包在 `node_modules/@deepseek-ai/dsh-client-ui-renderer` 放了一份手抄副本（同一版本的已发布包，并把它的 `cordis` 指回工作区实例——否则声明会合并到另一个 `Context` 上）。这份副本在 `.gitignore` 覆盖范围内、不进仓；它的正规等价物是主控把该依赖加入后跑一次 `pnpm install`（本包 manifest 已声明该依赖）。**「0 错误」这个结论依赖那份手抄副本**；换成 pnpm 正规安装后结论应当不变，但那一次复跑要由主控完成。
-
-### 真正还缺的那一步
-
-**共享客户端 tsdown preset 不在本仓，也没有发布到 npm。** 官方包在 `package.json` 的注释里点名它（`packages/client/tsdown.client.ts`），`dsh-client-modules` 的 README 把它列为「Development 期间为 `lib/client.js` 盖章」的那一步。它负责本包完全没有的能力：把 ESM 入口包成 `window.__ModuleLoader__.load({ id, factory: (require) => … })` 的惰性 CJS 工厂、把 `*.module.css` 编译成哈希类名加样式注入、把 `react` / `react/jsx-runtime` 与 `dsh.client.external` 解析成 `require(...)`、以及在所有分块写完后给入口盖 revision。没有它，`lib/client.js` 无法产出可用的文件。
-
-关于根 `tsdown.config.ts` 新增的 browser 分支：它按 `packages/*/src/client/index.tsx` 发现条目，而本包的客户端入口是 `src/client/index.ts`，因此不会被它选中。**本包不去迎合这个分支**：`platform: 'browser'` 的普通 ESM bundle 不是 `dsh-client-modules` 服务的形态——官方包的 `lib/client.js` 全文包在 `window.__ModuleLoader__.load({ id, factory: (require) => … })` 里，宿主把文件原样作为脚本发给页面，页面的 facade 靠这次 `load()` 调用注册工厂。普通 ESM bundle 会被加载，然后什么都不注册。正确做法是补上共用 preset，而不是把入口改名去换一个格式错误的产物。
-
-### 宿主产物是过期的
-
-`lib/index.js` 是**根侧构建**的产物，不是本包自证的：根 `tsdown.config.ts` 已改为按 `packages/*/src/index.ts` 自动发现条目，所以宿主半会被构建出来。它必须重建——CI 的 `verify:lib` 会重新构建再与提交的 `lib/` 比对，过期即红。本包按任务约束没有跑根级构建，因此也没有自行重建它。
-
-同一次构建还暴露一个根侧口径问题：bundle 有 187 KB，因为 `zod`（本包 `dependencies` 里的运行时依赖）被**内联**进了产物，而根配置的 `deps.neverBundle` 只覆盖 `/^@deepseek-ai\//` 与 `playwright-core`。已核实的边界：`@deepseek-ai/cordis` 保持 external；`@deepseek-ai/dsh-session` 只以 `import type` 出现、运行时被擦除，所以产物里没有对应的外部导入。
-
-### 根侧已经关掉的一条
-
-根 `tsconfig.json` 现在带有 `"exclude": ["packages/*/src/client/**"]`（并行任务已加）。这正是单包客户端源码需要的位置：客户端半由各包自己的 `tsconfig.client.json` 覆盖，根 program 不再用宿主选项（无 DOM、无 `jsx`）去编译它。因此根 `pnpm run typecheck` 不会再因本包客户端源码报 TS2307。
-
-**这些缺口没有被绕过**：本包没有为了让检查变绿而删掉客户端源码，也没有伪造一个手工拼的 `lib/client.js`。浏览器半的类型层面已经站住，但它**没有构建、没有加载、没有渲染过**，任何「界面上应该能看见」的说法目前都没有证据。
-
-### 面板的可见范围只由投影决定
-
-投影只由**已提交的会话事件**驱动。这意味着面板里的每个字段都能在持久日志里找到出处，重启页面或重启宿主后重新折叠会得到同样的值；代价是瞬时帧推动的字段（见上）永远到不了页面。
+面板里的每个字段都能在持久日志里找到出处，重启页面或重启宿主后重新折叠会得到同样的值；代价是瞬时帧推动的字段（流式文本长度）永远到不了页面。
 
 ## 设计说明
 
@@ -159,12 +137,14 @@ None; the package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **`lib/client.js` 没有产出，宿主产物是过期的。** 客户端源码已通过类型检查，但共享客户端 preset 缺席使 bundle 无法产出；宿主 bundle 由根侧构建产生、且早于源码定稿。证据到哪一层见上文 [客户端半的构建状态](#客户端半的构建状态)。这是本包最大的缺口：源码与类型产物在仓里，可安装、可信任的产物不在。
 - **`ctx.liveTasks` 目前没有任何消费者。** 它存在的理由是 `agent/assistant-stream` 是进程内帧、投影线路载不动，所以需要一个宿主侧落点；但仓内没有第二个包读它。它现在是给诊断与后续宿主消费者准备的面，不是被验证过的能力。
 - **面板看不到流式文本进度。** 见上文「面板不显示什么」。想让页面也看到进度，需要一条能把瞬时帧送到浏览器的线路，而投影注册表按契约只由已提交事件驱动。
+- **动作日志在全新会话里看不到。** 没有活动时这个页签根本不渲染（实测：新会话的视图条里没有「任务」），所以 `view.empty` 这一分支在真实会话里不可达，只有单测覆盖。
+
 - **投影键是进程级的，不是每会话能力信号。** 任何一个预设注册了 `liveTask`，每个会话的快照里都会出现这个键；面板读的是值，不是键的存在与否（官方 `dsh-session-projection` README 把这条列为该注册表自身的限制）。
-- **只有最新状态，没有历史。** 折叠只保留「现在」：上一个 turn 的工具调用会被下一个 `turn/start` 重置，回合列表与耗时统计都不在本包范围内。
+- **只有最新状态，没有历史。** 折叠只保留「现在」：上一个 turn 的工具调用会被下一个 `turn/start` 重置；动作日志是"最近 8 次调用"的窗口，不是审计记录。
+- **流式帧（`agent/assistant-stream`）在本机 Web profile 下接不上。** 该事件用 agent 作用域派发，本包因此改为在 `session/event` 上懒挂到 `ctx.agents` 找回的 agent；实测 `agents.list()` 始终为空（面板「运行状况」显示 `已接管 agent 0 / 注册表可见 0`）。**面板可见内容不依赖这条通道**——每个字段都来自持久事件；受影响的只有"数据更新"的新鲜度会以持久事件为准。计数器把这条限制直接摆在用户面前，而不是让它表现为"看起来正常"。
 - **结束原因是协议词，不是本地化文案。** 面板原样显示 `completed` / `aborted` / `error` 等 `TurnEndReason.kind`；理由是未知的。转成人类措辞需要一份随协议增长的映射表，当前没有做。
 - **瞬时文本增量的重复帧会重复计数。** 文本增量没有序号，只按 `time` 与当前步骤筛；同一毫秒内的真实增量都会计入，而重放的瞬时帧也会。这是显示层的计数偏差，且会被该步骤的 durable `assistant/message` 归零，不影响任何其他字段。
 - **`streamedTextLength` 只在宿主可用。** 它衡量「模型正在写」，但客户端半读不到；宿主消费者要自己判断这个字段的用途。
-- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围不匹配预发布版，peer 依赖因此逐个列举了已发布的预发布版本。本包**没有在任何 profile 里加载过**：既没有 `--dump-config` 的配置层证据，也没有 `pluginInventory/list` 的加载证据，更没有一次真实的界面渲染。
+- **兼容性只在本机验证过。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围不匹配预发布版，peer 依赖因此逐个列举了已发布的预发布版本。加载与渲染是在维护者本机的一次性 profile + 演示 profile 上验证的（`--dump-config` 组合行、内置插件清单页显示「已启用」、真实会话渲染），**不是**在客户环境里验证的。

@@ -18,6 +18,7 @@
  * `(turn, step)`.
  */
 import type {
+  LiveTaskAction,
   LiveEventLike,
   LiveEventSummary,
   LiveTaskObservation,
@@ -27,7 +28,39 @@ import type {
 
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
+const NO_ACTIONS: readonly LiveTaskAction[] = Object.freeze([])
+
+/** Counters start at zero; nothing has been folded yet. */
+const INITIAL_HEALTH = Object.freeze({ folded: 0, ignored: 0, unknown: 0, frames: 0, deltasAccepted: 0, deltasDropped: 0, agents: 0, registry: 0 })
+
+/** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS: readonly LiveToolCall[] = Object.freeze([])
+
+/**
+ * Event types this build recognizes and deliberately leaves out of the fold.
+ *
+ * Session setup, request headers, policy records and receipts are real events
+ * that say nothing about what a task is doing. Naming them is what keeps the
+ * `unknown` counter meaningful: a host that adds a type shows up as a number,
+ * instead of every ordinary session start looking like a surprise.
+ */
+const IGNORED_TYPES = new Set([
+  'session', 'session/title', 'session/title-llm-request', 'system/message',
+  'request/header', 'request/context', 'permission/preset', 'approval/policy',
+  'sandbox/mode', 'subagent/model-selection-policy', 'agent/inbox/spliced',
+])
+
+/**
+ * Event types this build folds deliberately.
+ *
+ * Anything outside both sets is counted as unknown rather than silently
+ * dropped: a host that starts emitting a new type should show up as a number
+ * the panel can display, not as behaviour that quietly stops updating.
+ */
+const KNOWN_TYPES = new Set([
+  'turn/start', 'turn/end', 'step/start', 'step/end', 'tool/call', 'tool/result',
+  'assistant/message', 'assistant/attempt', 'user/message', 'agent/assistant-stream',
+])
 
 /**
  * The state before any observation. Frozen and exported so callers and tests
@@ -44,8 +77,10 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   toolCallsInTurn: 0,
   streamedTextLength: 0,
   streamedAt: null,
+  health: INITIAL_HEALTH,
   lastEvent: null,
   recent: NO_EVENTS,
+  actions: NO_ACTIONS,
   endedReason: null,
 })
 
@@ -73,8 +108,14 @@ export const RECENT_EVENT_LIMIT = 6
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80
 
-/** Argument keys worth showing, most specific first, keyed by what they mean. */
-const DETAIL_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'selector', 'task', 'prompt']
+/** How many finished calls the activity log keeps. */
+export const ACTION_LIMIT = 8
+
+/** Longest result line carried to the client. */
+const RESULT_LIMIT = 60
+
+/** Argument keys worth showing, in the order a reader wants them. */
+const DETAIL_KEYS = ['command', 'file_path', 'path', 'selector', 'url', 'pattern', 'query', 'task', 'prompt']
 
 /**
  * Turn a tool call's arguments into one display line.
@@ -99,12 +140,136 @@ export function summarizeToolArguments(data: Record<string, unknown> | undefined
   }
   if (typeof parsed !== 'object' || parsed === null) return null
   const args = parsed as Record<string, unknown>
+  // Up to two fields: "what" plus "where". A measuring call reads best as
+  // `#card @ http://…`, where either half alone leaves the reader guessing.
+  const parts: string[] = []
   for (const key of DETAIL_KEYS) {
     const value = args[key]
-    if (typeof value === 'string' && value.trim() !== '') return clip(value)
+    if (typeof value === 'string' && value.trim() !== '') parts.push(value)
+    if (parts.length === 2) break
   }
+  if (parts.length > 0) return clip(parts.join(' @ '))
   const firstString = Object.values(args).find((value) => typeof value === 'string' && value.trim() !== '')
   return typeof firstString === 'string' ? clip(firstString) : null
+}
+
+/**
+ * Turn a call and its result into one activity-log line.
+ * @param call - the call record as it was opened.
+ * @param endedAt - epoch milliseconds of the matching result.
+ * @param data - the `tool/result` payload.
+ * @returns the human-readable action record.
+ */
+function actionOf(
+  call: LiveToolCall,
+  endedAt: number,
+  data: Record<string, unknown> | undefined,
+  failed: boolean,
+): LiveTaskAction {
+  return {
+    callId: call.callId,
+    name: call.name,
+    detail: call.detail,
+    startedAt: call.startedAt,
+    endedAt,
+    status: failed ? 'failed' : 'ok',
+    result: summarizeToolResult(data),
+  }
+}
+
+/** Status values a tool uses in its own payload to report a failed operation. */
+const FAILURE_STATUSES = new Set(['error', 'failed', 'failure', 'not_found', 'unavailable', 'denied', 'timeout', 'invalid'])
+
+/**
+ * Decide whether a tool call failed, from both places a failure can be written.
+ *
+ * A tool can fail the way the harness notices (`isError` on the result block) or
+ * the way this ecosystem's tools usually report it: a successful tool call whose
+ * payload says `{"status":"error","code":…}`. The panel is for a person, and "the
+ * call worked but the operation failed" must not read as 完成 — measured live,
+ * where a failed page load and a missing file both showed as completed.
+ * @param data - the `tool/result` payload.
+ * @param harnessError - the harness-level error flag, if the caller read one.
+ * @returns true when either layer reports a failure.
+ */
+export function toolResultFailed(data: Record<string, unknown> | undefined, harnessError?: boolean): boolean {
+  if (harnessError === true) return true
+  if (data !== undefined && data['error'] !== undefined && data['error'] !== null) return true
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  for (const block of blocks) {
+    const record = recordOf(block)
+    if (record?.['isError'] === true) return true
+    const inner = Array.isArray(record?.['content']) ? record['content'] as unknown[] : []
+    for (const part of inner) {
+      const candidate = recordOf(part)
+      if (candidate?.['type'] !== 'text' || typeof candidate['text'] !== 'string') continue
+      const firstLine = candidate['text'].split('\n').map((line) => line.trim()).find((line) => line !== '')
+      if (firstLine === undefined || !firstLine.startsWith('{')) continue
+      try {
+        const parsed: unknown = JSON.parse(firstLine)
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue
+        const status = (parsed as Record<string, unknown>)['status']
+        if (typeof status === 'string' && FAILURE_STATUSES.has(status)) return true
+      } catch {
+        // Not JSON after all; the first line stays prose and carries no verdict.
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * Make one result line readable.
+ *
+ * Tools answer with JSON far more often than with prose, and a raw object reads
+ * as noise in a log. Scalar fields are shown as `key=value` pairs instead; a
+ * payload whose interesting field is nested keeps its first line, because a
+ * half-rendered object would be worse than an honest one.
+ * @param line - the first non-empty line of the result.
+ * @returns a compact human-readable form of that line.
+ */
+function summarizeResultLine(line: string): string {
+  if (!line.startsWith('{')) return line
+  try {
+    const parsed: unknown = JSON.parse(line)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return line
+    const pairs: string[] = []
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        pairs.push(`${key}=${String(value)}`)
+      }
+      if (pairs.length === 4) break
+    }
+    return pairs.length === 0 ? line : pairs.join(', ')
+  } catch {
+    return line
+  }
+}
+
+/**
+ * First non-empty line of a tool result, clipped.
+ *
+ * A tool's answer can be kilobytes; the activity log needs only enough to say
+ * "it came back with something" — a failing call is reported by its error line.
+ * @param data - the `tool/result` payload.
+ * @returns one clipped line, or null when the result carried no text.
+ */
+export function summarizeToolResult(data: Record<string, unknown> | undefined): string | null {
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  let text = ''
+  for (const block of blocks) {
+    const record = recordOf(block)
+    const inner = Array.isArray(record?.['content']) ? record['content'] as unknown[] : []
+    for (const part of inner) {
+      const candidate = recordOf(part)
+      if (candidate?.['type'] === 'text' && typeof candidate['text'] === 'string') text += candidate['text']
+    }
+  }
+  const line = text.split('\n').map((value) => value.trim()).find((value) => value !== '')
+  if (line === undefined) return null
+  return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT)
 }
 
 /** Collapse whitespace and clip to the wire budget. */
@@ -178,7 +343,12 @@ function readToolResult(data: Record<string, unknown> | undefined): {
  * @param event - one durable session event.
  * @returns the next state, or the same state for a duplicate or stale event.
  */
-function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
+function foldEvent(
+  state: LiveTaskState,
+  event: LiveEventLike,
+  agentAttached = false,
+  registrySize?: number,
+): LiveTaskState {
   const seq = numberOf(event.seq)
   const time = numberOf(event.time)
   if (seq === undefined || time === undefined || seq <= state.seq) return state
@@ -186,6 +356,21 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
   const envelope = {
     seq,
     updatedAt: state.updatedAt === null ? time : Math.max(state.updatedAt, time),
+    health: {
+      ...state.health,
+      folded: state.health.folded + 1,
+      ...(agentAttached ? { agents: state.health.agents + 1 } : {}),
+      // Negative values are sentinels (unreachable / threw), so they overwrite
+      // rather than lose a `Math.max` against the initial zero.
+      ...(registrySize === undefined
+        ? {}
+        : { registry: registrySize < 0 ? registrySize : Math.max(state.health.registry, registrySize) }),
+      ...(KNOWN_TYPES.has(event.type)
+        ? {}
+        : IGNORED_TYPES.has(event.type) || event.type.startsWith('session-log-')
+          ? { ignored: state.health.ignored + 1 }
+          : { unknown: state.health.unknown + 1 }),
+    },
   }
   const data = recordOf(event.data)
 
@@ -264,6 +449,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         step: numberOf(data?.['step']) ?? state.step,
         open: true,
         detail: summarizeToolArguments(data),
+        startedAt: time,
       }
       return {
         ...state,
@@ -276,6 +462,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
     }
     case 'tool/result': {
       const { callId, failed } = readToolResult(data)
+      const resultFailed = toolResultFailed(data, failed)
       const settled = callId === undefined
         ? undefined
         : state.openTools.find((call) => call.callId === callId)
@@ -287,8 +474,20 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
           : state.openTools.filter((call) => call.callId !== callId),
         lastTool: state.lastTool !== null && callId !== undefined
           && state.lastTool.callId === callId
-          ? { ...state.lastTool, open: false, ...(failed === true ? { failed: true } : {}) }
+          ? {
+              ...state.lastTool,
+              open: false,
+              endedAt: time,
+              result: summarizeToolResult(data),
+              ...(resultFailed ? { failed: true } : {}),
+            }
           : state.lastTool,
+        actions: settled === undefined
+          ? state.actions
+          : [
+              ...state.actions.filter((action) => action.callId !== settled.callId),
+              actionOf(settled, time, data, resultFailed),
+            ].slice(-ACTION_LIMIT),
         ...observed(state, event, settled?.name ?? null),
       }
     }
@@ -325,19 +524,24 @@ function foldTextDelta(
   state: LiveTaskState,
   delta: Extract<LiveTaskObservation, { kind: 'text-delta' }>,
 ): LiveTaskState {
-  if (!state.running) return state
-  if (delta.turn !== state.turn || delta.step !== state.step) return state
-  if (!Number.isFinite(delta.time)) return state
-  if (state.streamedAt !== null && delta.time < state.streamedAt) return state
+  // Every delta is accounted for: `deltasAccepted` is liveness, `deltasDropped`
+  // is the replay/straggler rate. A plugin that silently discards frames cannot
+  // tell you whether the model went quiet or its own filter ate the stream.
+  const dropped = (): LiveTaskState => ({ ...state, health: { ...state.health, deltasDropped: state.health.deltasDropped + 1 } })
+  if (!state.running) return dropped()
+  if (delta.turn !== state.turn || delta.step !== state.step) return dropped()
+  if (!Number.isFinite(delta.time)) return dropped()
+  if (state.streamedAt !== null && delta.time < state.streamedAt) return dropped()
 
   const length = delta.text.length
   const updatedAt = state.updatedAt === null ? delta.time : Math.max(state.updatedAt, delta.time)
-  if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return state
+  if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return dropped()
   return {
     ...state,
     streamedTextLength: state.streamedTextLength + length,
     streamedAt: delta.time,
     updatedAt,
+    health: { ...state.health, deltasAccepted: state.health.deltasAccepted + 1 },
   }
 }
 
@@ -351,8 +555,13 @@ export function reduceLiveTask(
   state: LiveTaskState,
   observation: LiveTaskObservation,
 ): LiveTaskState {
+  if (observation.kind === 'stream-frame') {
+    // Liveness only: the frame is recorded as received, then normalization
+    // decides whether it carries text this fold can use.
+    return { ...state, health: { ...state.health, frames: state.health.frames + 1 } }
+  }
   return observation.kind === 'event'
-    ? foldEvent(state, observation.event)
+    ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize)
     : foldTextDelta(state, observation)
 }
 

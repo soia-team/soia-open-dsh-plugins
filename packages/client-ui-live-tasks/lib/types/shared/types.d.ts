@@ -32,6 +32,14 @@ export interface LiveEventLike {
 export type LiveTaskObservation = {
     readonly kind: 'event';
     readonly event: LiveEventLike;
+    /** Set on the first event of a session this plugin just attached to. */
+    readonly agentAttached?: boolean;
+    /** Registry size observed while trying to attach, when a lookup ran. */
+    readonly registrySize?: number;
+}
+/** A stream frame arrived; counted for liveness before normalization. */
+ | {
+    readonly kind: 'stream-frame';
 } | {
     readonly kind: 'text-delta';
     readonly turn: number;
@@ -56,6 +64,16 @@ export interface LiveToolCall {
     readonly detail: string | null;
     /** Set when the settled result carried `isError`; absent while open or on success. */
     readonly failed?: boolean;
+    /** Epoch milliseconds of the `tool/call` that opened this record. */
+    readonly startedAt: number;
+    /** Epoch milliseconds of the matching `tool/result`; absent while open. */
+    readonly endedAt?: number;
+    /**
+     * First non-empty line of the tool's answer, clipped — a human needs to see
+     * whether the call came back with something, not the whole payload. Null while
+     * the call is still open or when the answer carried no text.
+     */
+    readonly result?: string | null;
 }
 /** Short, display-ready summary of the most recent durable observation. */
 export interface LiveEventSummary {
@@ -65,6 +83,52 @@ export interface LiveEventSummary {
     readonly time: number;
     /** Tool name for tool events; null when the type alone is the whole story. */
     readonly detail: string | null;
+}
+/**
+ * What the fold itself has been doing.
+ *
+ * The panel exists to say what a session is doing; these counters say whether
+ * the panel can still be believed. They are the difference between "nothing is
+ * happening" and "this view stopped receiving data", which look identical on
+ * screen otherwise.
+ */
+export interface LiveTaskHealth {
+    /** Durable events folded into the state. */
+    readonly folded: number;
+    /** Events this build deliberately does not fold (session setup, receipts, …). */
+    readonly ignored: number;
+    /** Events whose type this build has never seen — a host newer than the plugin. */
+    readonly unknown: number;
+    /**
+     * Stream frames the host delivered to this plugin.
+     *
+     * Counted at the listener, before any normalization: a frame that arrives and
+     * is then discarded for not matching the open attempt is a different problem
+     * from a listener that never fires, and the two were indistinguishable while
+     * only the post-normalization numbers were recorded.
+     */
+    readonly frames: number;
+    /** Agents this plugin attached a stream listener to. */
+    readonly agents: number;
+    /** Agents visible in the host registry when the attach was attempted. */
+    readonly registry: number;
+    /** Transient text deltas accepted as live progress. */
+    readonly deltasAccepted: number;
+    /** Transient deltas dropped as replays, stragglers or out-of-step frames. */
+    readonly deltasDropped: number;
+}
+/** One finished (or running) tool call as a human-readable line. */
+export interface LiveTaskAction {
+    readonly callId: string;
+    readonly name: string;
+    /** Argument summary: the command, path or URL the call was given. */
+    readonly detail: string | null;
+    readonly startedAt: number;
+    readonly endedAt: number | null;
+    /** `ok`, `failed`, or `running` while the result has not arrived. */
+    readonly status: 'ok' | 'failed' | 'running';
+    /** First line of the answer, clipped; null while running or when empty. */
+    readonly result: string | null;
 }
 /**
  * The client-visible subset of the fold — what the `liveTask` projection
@@ -101,6 +165,12 @@ export interface LiveTaskView {
     readonly lastEvent: LiveEventSummary | null;
     /** Newest-last window of recent observations, so the view can show a trail. */
     readonly recent: readonly LiveEventSummary[];
+    /** Called tool names with their outcome summary, newest last. */
+    readonly actions: readonly LiveTaskAction[];
+    /** Fold counters, so the panel can report its own freshness. */
+    readonly health: LiveTaskHealth;
+    /** Unix epoch milliseconds of the newest transient delta, or null if none. */
+    readonly streamedAt: number | null;
     /** `TurnEndReason.kind` of the most recent `turn/end`; null before one. */
     readonly endedReason: string | null;
 }
@@ -120,4 +190,6 @@ export interface LiveTaskState extends LiveTaskView {
     readonly streamedTextLength: number;
     /** Time of the last folded text delta for the open step; null before one. */
     readonly streamedAt: number | null;
+    /** Fold counters, so the host can report its own freshness. */
+    readonly health: LiveTaskHealth;
 }
