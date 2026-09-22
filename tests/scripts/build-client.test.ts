@@ -41,7 +41,10 @@ describe('client bundle artifact', () => {
 
     // No React implementation is inlined: the artifact stays around 10 kB, where
     // a bundled react would put it in the hundreds.
-    expect(artifact.length).toBeLessThan(60_000)
+    // A proxy for "no React is inlined" — an inlined React is hundreds of KB.
+    // Raised from 60k when the timeline became a table with the trajectory view's
+    // own row metrics; the assertion that matters is the order of magnitude.
+    expect(artifact.length).toBeLessThan(90_000)
   })
 
   it('ships a CommonJS body with the plugin exports and no ESM leftovers', () => {

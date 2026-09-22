@@ -14,14 +14,22 @@ const CSS = `
 /* One place for the row grid: the rows, their header and the detail indentation
    all read these, so a column change cannot leave them out of line. */
 .lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px;
-  --lt-col-time: 68px; --lt-col-kind: 46px; --lt-col-took: 64px; --lt-gap: 6px; }
+  --lt-col-time: 84px; --lt-col-kind: 44px; --lt-col-took: 64px; --lt-gap: 8px;
+  /* Narrow windows narrow the columns instead of squeezing the payload, and the
+     row keeps a floor so the timeline scrolls sideways rather than clipping. */
+  container: lt-panel / inline-size; }
+@container lt-panel (width <= 620px) {
+  .lt-view { --lt-col-time: 50px; --lt-col-kind: 20px; }
+  .lt-kindTag { padding: 0; justify-content: center; }
+}
 .lt-head { display: flex; align-items: center; gap: 8px; }
 .lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
 /* 模块：统一的标题层级与间距，让每块自成一段 */
 .lt-section { display: flex; flex-direction: column; gap: 8px; }
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
-.lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
+.lt-sectionTitle { margin: 0; font: var(--dsw-font-xs-strong-13, 600 13px/18px inherit);
+  color: var(--dsw-alias-label-secondary); user-select: none; }
 
 /* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
 .lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
@@ -83,7 +91,7 @@ const CSS = `
 .lt-turnSectionActive { border-left-color: var(--soia-turn-accent, color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 45%, transparent)); }
 .lt-turnRail { position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, transparent)); }
-.lt-turnHead { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.lt-turnHead { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12px; }
 /* 轮次标签：与轨迹的 turnLabel 同规格（胶囊、字距、accent 背景） */
 .lt-turnLabel, .lt-turnLabelActive { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 650;
   letter-spacing: .035em; }
@@ -91,13 +99,69 @@ const CSS = `
 .lt-turnLabelActive { color: var(--dsw-alias-label-primary);
   background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff)); }
 .lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
-.lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
+/* The timeline scrolls as one pane, both ways: vertical for length, horizontal
+   for a narrow window, where the rows keep a floor width instead of clipping. */
+.lt-scroll { min-width: 0; max-height: 62vh; overflow: auto; }
+
+/* ── Table structure, copied from the trajectory view ────────────────────────
+   Same two-column table, same 30px rows, same half-pixel separators, same hover
+   and selection tokens, same container-query widths. The panel is meant to look
+   like a sibling of that view, so its numbers are taken from it rather than
+   invented here. */
+.lt-tablePane { box-sizing: border-box; min-width: 0; width: 100%; max-height: 62vh;
+  position: relative; overflow: auto; container: lt-panel / inline-size; }
+.lt-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; }
+.lt-table td { box-sizing: border-box; height: 30px; padding: 0 8px; overflow: hidden;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  white-space: nowrap; text-overflow: ellipsis; vertical-align: middle; }
+.lt-table tbody tr { transition: background-color .12s var(--ds-ease-in-out, ease-in-out); }
+.lt-table tbody tr:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-table tbody tr[data-selected='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-table tbody tr[data-dim='true'] { opacity: .24; }
+.lt-table tbody tr[data-picked='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-table tbody tr[data-turn-start='true'] td { position: relative; overflow: visible; }
+.lt-table tbody tr[data-turn-start='true']:not(:first-child) td::before {
+  content: ''; position: absolute; inset: 0 0 auto; height: 2px; transform: translateY(-50%);
+  background: var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); pointer-events: none; z-index: 1; }
+.lt-eventColumn { width: 84px; }
+@container lt-panel (width <= 620px) {
+  /* The trajectory view narrows this column to 50px because its chip is a 13px
+     icon there; ours is a word, so it narrows less — the row still scrolls
+     sideways rather than clipping. */
+  .lt-eventColumn { width: 64px; }
+  .lt-kindTag { padding: 0 4px; }
+  .lt-tlEntryId { display: none; }
+}
+.lt-eventCell { position: relative; overflow: visible; padding-left: 12px !important; padding-right: 4px !important; }
+.lt-contentColumn { width: auto; }
+.lt-contentCell { min-width: 0; color: var(--dsw-alias-label-primary); padding-left: 4px !important; }
+.lt-rowButton { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0;
+  border: 0; background: transparent; text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+.lt-rowButton:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary); }
+.lt-turnRow td { height: 26px; }
+.lt-turnRail { position: absolute; left: 0; top: -1px; bottom: -1px; width: 2px; z-index: 4;
+  background: var(--soia-turn-accent, color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff))); }
+.lt-stepRow td { height: 22px; border-bottom: 0; }
+.lt-stepLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+.lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-turnMeta { margin-right: 12px; }
+.lt-toolList { display: flex; flex-direction: column; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
+/* Rows follow the trajectory view's table: one 30px line each, a half-pixel
+   separator, no card chrome. Floating rounded rows read as a different product. */
 .lt-toolButton { display: grid;
   grid-template-columns: var(--lt-col-time) var(--lt-col-kind) minmax(0, 1fr) var(--lt-col-took) 12px;
   align-items: center; gap: var(--lt-gap);
-  width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
-  text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+  box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px;
+  border: 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 0; background: transparent;
+  text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer;
+  transition: background-color .12s var(--ds-ease-in-out, ease-in-out); }
+.lt-toolButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-toolButton[data-selected='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+/* A row outside the selected range dims the way the trajectory view dims its own. */
+.lt-toolItem[data-dim='true'] { opacity: .24; }
 
 /* 类型徽标：照抄轨迹 kindSlot / kindTag 的规格（中文槽宽 44px、标签高 19px、圆角 4px、10px/650、字距 .035em） */
 .lt-kindSlot { display: flex; justify-content: flex-end; align-items: center; width: 44px; flex: none; }
@@ -147,7 +211,8 @@ const CSS = `
 .lt-tlTurnDot { position: relative; z-index: 1; width: 5px; height: 5px; border-radius: 50%;
   background: var(--dsw-alias-label-tertiary); }
 .lt-tlTurnLabel { font-weight: 600; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.lt-tlTime { color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); white-space: nowrap; }
+.lt-tlTime { color: var(--dsw-alias-label-caption); font-family: var(--dsw-font-mono, monospace);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lt-tlBadge, .lt-tlBadgeTool { display: inline-block; padding: 0 5px; border-radius: 5px; font-size: 11px;
   line-height: 16px; text-align: center; }
 .lt-tlBadge { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
@@ -312,6 +377,20 @@ export const styles = {
   turnHead: 'lt-turnHead',
   turnMeta: 'lt-turnMeta',
   toolList: 'lt-toolList',
+    tablePane: 'lt-tablePane',
+    eventColumn: 'lt-eventColumn',
+    contentColumn: 'lt-contentColumn',
+    row: 'lt-row',
+    eventCell: 'lt-eventCell',
+    contentCell: 'lt-contentCell',
+    rowButton: 'lt-rowButton',
+    turnRow: 'lt-turnRow',
+    stepRow: 'lt-stepRow',
+    detailRow: 'lt-detailRow',
+    detailCell: 'lt-detailCell',
+    turnBody: 'lt-turnBody',
+  scroll: 'lt-scroll',
+  rowsInner: 'lt-rowsInner',
   toolItem: 'lt-toolItem',
   toolButton: 'lt-toolButton',
   toolHint: 'lt-toolHint',
