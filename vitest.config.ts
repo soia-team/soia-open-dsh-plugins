@@ -7,7 +7,9 @@ import { defineConfig } from 'vitest/config'
  */
 export default defineConfig({
   test: {
-    include: ['packages/*/tests/**/*.test.ts'],
+    // Package tests live beside their package; `tests/` holds repository-level
+    // tests (the scripts under scripts/, the client artifact shape).
+    include: ['packages/*/tests/**/*.test.ts', 'tests/**/*.test.ts'],
     environment: 'node',
     globals: false,
     restoreMocks: true,

@@ -4,7 +4,7 @@ export interface LiveTasksViewProps {
     /** Host-computed projection value for this session, if the unit has one. */
     useProjection: (key: string) => unknown;
     /** Namespace-bound translator for this view's copy. */
-    t: (key: LiveTaskKey) => string;
+    t: (key: LiveTaskKey, params?: Record<string, string | number>) => string;
 }
 /**
  * Render the live task view for the current session.

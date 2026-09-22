@@ -19,7 +19,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const CHARS_PER_TOKEN = 4
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+// `TOKEN_BUDGET_ROOT` lets a test point the gate at a fixture workspace.
+const root = process.env['TOKEN_BUDGET_ROOT'] ?? join(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Characters of the tool projection the model actually receives. */
 function toolChars(tool) {

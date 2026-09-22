@@ -5152,6 +5152,7 @@ function superRefine(fn, params) {
 //#endregion
 //#region packages/client-ui-live-tasks/src/shared/live-task-state.ts
 /** One frozen array reused for every state without open tool calls. */
+const NO_EVENTS = Object.freeze([]);
 const NO_TOOLS = Object.freeze([]);
 /**
 * The state before any observation. Frozen and exported so callers and tests
@@ -5169,6 +5170,7 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	streamedTextLength: 0,
 	streamedAt: null,
 	lastEvent: null,
+	recent: NO_EVENTS,
 	endedReason: null
 });
 /** Read a JSON object member without trusting the value. */
@@ -5183,13 +5185,81 @@ function numberOf(value) {
 function stringOf(value) {
 	return typeof value === "string" ? value : void 0;
 }
-/** Display summary of one durable event. */
+/** Longest argument summary carried to the client; longer values are clipped. */
+const DETAIL_LIMIT = 80;
+/** Argument keys worth showing, most specific first, keyed by what they mean. */
+const DETAIL_KEYS = [
+	"command",
+	"file_path",
+	"path",
+	"pattern",
+	"query",
+	"url",
+	"selector",
+	"task",
+	"prompt"
+];
+/**
+* Turn a tool call's arguments into one display line.
+*
+* The session records `data.arguments` as a JSON **string** (occasionally as an
+* already-parsed object), and the useful part differs per tool: a shell call is
+* its command, a file call its path, a fetch its URL. Unknown shapes fall back
+* to the first string value, and an unreadable payload reports `null` rather
+* than a guess — a wrong line here would be worse than no line.
+* @param data - the `tool/call` event payload, already narrowed to an object.
+* @returns one clipped line, or null when nothing readable was carried.
+*/
+function summarizeToolArguments(data) {
+	const raw = data?.["arguments"];
+	let parsed = raw;
+	if (typeof raw === "string") try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return clip(raw);
+	}
+	if (typeof parsed !== "object" || parsed === null) return null;
+	const args = parsed;
+	for (const key of DETAIL_KEYS) {
+		const value = args[key];
+		if (typeof value === "string" && value.trim() !== "") return clip(value);
+	}
+	const firstString = Object.values(args).find((value) => typeof value === "string" && value.trim() !== "");
+	return typeof firstString === "string" ? clip(firstString) : null;
+}
+/** Collapse whitespace and clip to the wire budget. */
+function clip(value) {
+	const flat = value.replace(/\s+/g, " ").trim();
+	return flat.length <= DETAIL_LIMIT ? flat : `${flat.slice(0, 79)}…`;
+}
 function summary(event, detail) {
 	return {
 		type: event.type,
 		seq: event.seq,
 		time: event.time,
 		detail
+	};
+}
+/**
+* Record one observation: the "last event" line plus the bounded trail.
+*
+* The trail is what makes the view readable — a single last-event line says
+* what just happened, not what the session has been doing. It is capped so the
+* wire payload stays a fixed size no matter how long a turn runs.
+* @param state - state before this observation.
+* @param event - the event being folded.
+* @param detail - display detail for this observation, or null.
+* @returns the two fields every fold branch writes.
+*/
+function observed(state, event, detail) {
+	const entry = summary(event, detail);
+	if (event.type.startsWith("session-log-")) return {
+		lastEvent: entry,
+		recent: state.recent
+	};
+	return {
+		lastEvent: entry,
+		recent: [...state.recent, entry].slice(-6)
 	};
 }
 /**
@@ -5247,7 +5317,7 @@ function foldEvent(state, event) {
 				streamedTextLength: 0,
 				streamedAt: null,
 				endedReason: null,
-				lastEvent: summary(event, null)
+				...observed(state, event, null)
 			};
 		}
 		case "turn/end": {
@@ -5263,7 +5333,7 @@ function foldEvent(state, event) {
 					open: false
 				},
 				endedReason: stringOf(reason?.["kind"]) ?? "unknown",
-				lastEvent: summary(event, null)
+				...observed(state, event, null)
 			};
 		}
 		case "step/start": {
@@ -5275,7 +5345,7 @@ function foldEvent(state, event) {
 				turn: turn ?? state.turn,
 				step: step ?? state.step,
 				running: true,
-				lastEvent: summary(event, null)
+				...observed(state, event, null)
 			};
 		}
 		case "step/end": {
@@ -5286,7 +5356,7 @@ function foldEvent(state, event) {
 				...state,
 				...envelope,
 				step: closesOpenStep ? null : state.step,
-				lastEvent: summary(event, null)
+				...observed(state, event, null)
 			};
 		}
 		case "tool/call": {
@@ -5295,14 +5365,15 @@ function foldEvent(state, event) {
 			if (callId === void 0 || name === void 0) return {
 				...state,
 				...envelope,
-				lastEvent: summary(event, null)
+				...observed(state, event, null)
 			};
 			const call = {
 				callId,
 				name,
 				turn: numberOf(data?.["turn"]) ?? state.turn,
 				step: numberOf(data?.["step"]) ?? state.step,
-				open: true
+				open: true,
+				detail: summarizeToolArguments(data)
 			};
 			return {
 				...state,
@@ -5310,7 +5381,7 @@ function foldEvent(state, event) {
 				lastTool: call,
 				openTools: [...state.openTools, call],
 				toolCallsInTurn: state.toolCallsInTurn + 1,
-				lastEvent: summary(event, name)
+				...observed(state, event, name)
 			};
 		}
 		case "tool/result": {
@@ -5325,7 +5396,7 @@ function foldEvent(state, event) {
 					open: false,
 					...failed === true ? { failed: true } : {}
 				} : state.lastTool,
-				lastEvent: summary(event, settled?.name ?? null)
+				...observed(state, event, settled?.name ?? null)
 			};
 		}
 		case "assistant/message":
@@ -5334,12 +5405,12 @@ function foldEvent(state, event) {
 			...envelope,
 			streamedTextLength: 0,
 			streamedAt: null,
-			lastEvent: summary(event, null)
+			...observed(state, event, null)
 		};
 		default: return {
 			...state,
 			...envelope,
-			lastEvent: summary(event, null)
+			...observed(state, event, null)
 		};
 	}
 }
@@ -5399,7 +5470,8 @@ const liveToolCallSchema = object({
 	turn: number().int().nullable(),
 	step: number().int().nullable(),
 	open: boolean(),
-	failed: boolean().optional()
+	failed: boolean().optional(),
+	detail: string().nullable()
 }).strict();
 /** The "last event" line as it crosses the wire. */
 const liveEventSummarySchema = object({
@@ -5426,6 +5498,7 @@ const liveTaskStateSchema = object({
 	openTools: array(liveToolCallSchema),
 	toolCallsInTurn: number().int().nonnegative(),
 	lastEvent: liveEventSummarySchema.nullable(),
+	recent: array(liveEventSummarySchema),
 	endedReason: string().nullable(),
 	streamedTextLength: number().int().nonnegative(),
 	streamedAt: number().nullable()
@@ -5447,6 +5520,7 @@ const liveTaskViewSchema = object({
 	openTools: array(liveToolCallSchema),
 	toolCallsInTurn: number().int().nonnegative(),
 	lastEvent: liveEventSummarySchema.nullable(),
+	recent: array(liveEventSummarySchema),
 	endedReason: string().nullable()
 }).strict();
 /**
@@ -5477,6 +5551,7 @@ function viewOf(state) {
 		openTools: state.openTools,
 		toolCallsInTurn: state.toolCallsInTurn,
 		lastEvent: state.lastEvent,
+		recent: state.recent,
 		endedReason: state.endedReason
 	};
 	VIEWS.set(state, view);

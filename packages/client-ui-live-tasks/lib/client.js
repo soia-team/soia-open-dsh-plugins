@@ -7,9 +7,11 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+let react = require("react");
 let react_jsx_runtime = require("react/jsx-runtime");
 //#region src/shared/live-task-state.ts
 /** One frozen array reused for every state without open tool calls. */
+const NO_EVENTS = Object.freeze([]);
 const NO_TOOLS = Object.freeze([]);
 Object.freeze({
 	turn: null,
@@ -23,6 +25,7 @@ Object.freeze({
 	streamedTextLength: 0,
 	streamedAt: null,
 	lastEvent: null,
+	recent: NO_EVENTS,
 	endedReason: null
 });
 /**
@@ -51,14 +54,32 @@ function hasLiveActivity(state) {
 * active theme without duplicating any palette.
 */
 const CSS = `
-.lt-view { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.lt-view { display: flex; flex-direction: column; gap: 16px; padding: 18px 20px; }
 .lt-head { display: flex; align-items: center; gap: 8px; }
 .lt-title { font-size: 13.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.lt-section { display: flex; flex-direction: column; gap: 6px; }
+.lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  color: var(--dsw-alias-label-tertiary); }
+.lt-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lt-call { display: grid; grid-template-columns: 10px 84px 1fr; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 18px;
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-callName { color: var(--dsw-alias-label-primary); font-weight: 600; }
+.lt-callDetail { min-width: 0; overflow: hidden; font-family: var(--dsw-font-mono, monospace);
+  white-space: nowrap; text-overflow: ellipsis; color: var(--dsw-alias-label-secondary); }
+.lt-event { display: grid; grid-template-columns: 76px 112px 1fr; align-items: baseline; gap: 10px;
+  padding: 4px 8px; border-radius: 6px; font-size: 12.5px; line-height: 18px; }
+.lt-event:nth-child(odd) { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-eventTime { color: var(--dsw-alias-label-tertiary); }
+.lt-eventType { color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, monospace); }
+.lt-eventDetail { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--dsw-alias-label-primary); font-family: var(--dsw-font-mono, monospace); }
+.lt-none { margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }
 .lt-rows { display: flex; flex-direction: column; gap: 2px; }
 .lt-row { display: grid; grid-template-columns: 132px 1fr; align-items: baseline; gap: 12px;
   padding: 6px 8px; border-radius: 8px; font-size: 13px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
-.lt-row:nth-child(odd) { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-rowLabel { color: var(--dsw-alias-label-tertiary); }
 .lt-rowValue { min-width: 0; overflow: hidden; font-family: var(--dsw-font-mono, monospace);
   white-space: nowrap; text-overflow: ellipsis; }
@@ -70,6 +91,18 @@ const styles = {
 	view: "lt-view",
 	head: "lt-head",
 	title: "lt-title",
+	elapsed: "lt-elapsed",
+	section: "lt-section",
+	sectionTitle: "lt-sectionTitle",
+	list: "lt-list",
+	call: "lt-call",
+	callName: "lt-callName",
+	callDetail: "lt-callDetail",
+	event: "lt-event",
+	eventTime: "lt-eventTime",
+	eventType: "lt-eventType",
+	eventDetail: "lt-eventDetail",
+	none: "lt-none",
 	rows: "lt-rows",
 	row: "lt-row",
 	rowLabel: "lt-rowLabel",
@@ -88,39 +121,58 @@ if (typeof document !== "undefined" && document.querySelector(`style[data-plugin
 //#endregion
 //#region src/client/LiveTasksView.tsx
 /**
-* The `conversation.view` entry: a live view of what this session's task is
-* doing, rendered from the host-folded `liveTask` projection.
+* The `conversation.view` entry: what this session's task is doing right now.
 *
-* Visuals come from the official primitives (`StateDot`, `Pill`, `Tag`) rather
-* than hand-rolled CSS, so the view sits in the same visual system as the
-* built-in views. The only local stylesheet is the layout skeleton that
-* primitives deliberately do not provide (row grid, spacing).
+* The first version showed counts, which answered "is anything running" but not
+* "what is it doing". This one shows the in-flight calls with the argument line
+* the host folded for each, a trailing window of recent events with relative
+* times, and how long the turn has been running — the three things a reader
+* actually needs to tell a working session from a stuck one.
+*
+* Visuals come from the official primitives (`StateDot`, `Tag`, `Pill`) so the
+* view sits in the same design system as the built-in views; the local
+* stylesheet is only the layout skeleton primitives do not provide.
 *
 * @module soia-dsh-client-ui-live-tasks/client/view
 */
-/** One labelled fact row. */
-function Row({ label, value }) {
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-		className: styles.row,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-			className: styles.rowLabel,
-			children: label
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-			className: styles.rowValue,
-			children: value
-		})]
-	});
-}
 /**
-* Map the folded state onto the primitive's semantic dot.
-* @param running - whether the session is mid-turn.
-* @param openTools - tool calls still in flight.
-* @param ended - whether the last turn ended.
-* @returns the dot state.
+* Re-render once a second so elapsed and relative times stay true.
+* @returns the current epoch milliseconds.
 */
-function dotState(running, openTools, ended) {
-	if (openTools > 0 || running) return "ongoing";
-	return ended ? "done" : "idle";
+function useNow() {
+	const [now, setNow] = (0, react.useState)(() => Date.now());
+	(0, react.useEffect)(() => {
+		const timer = setInterval(() => setNow(Date.now()), 1e3);
+		return () => clearInterval(timer);
+	}, []);
+	return now;
+}
+/** Render a duration in seconds as "just now" / "Ns ago" / "Nm ago". */
+function ago(at, now, t) {
+	const seconds = Math.max(0, Math.round((now - at) / 1e3));
+	if (seconds < 2) return t("time.justNow");
+	if (seconds < 60) return t("time.agoSeconds", { s: seconds });
+	return t("time.agoMinutes", { m: Math.round(seconds / 60) });
+}
+/** One event line in the trail. */
+function EventRow({ summary, now, t }) {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+		className: styles.event,
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: styles.eventTime,
+				children: ago(summary.time, now, t)
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: styles.eventType,
+				children: summary.type
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: styles.eventDetail,
+				children: summary.detail ?? ""
+			})
+		]
+	});
 }
 /**
 * Render the live task view for the current session.
@@ -129,45 +181,106 @@ function dotState(running, openTools, ended) {
 */
 function LiveTasksView({ useProjection, t }) {
 	const state = useProjection("liveTask");
+	const now = useNow();
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "idle" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("view.empty") })]
 	});
-	const phase = state.openTools.length > 0 ? t("phase.tool") : state.running ? t("phase.running") : state.endedReason !== null ? t("phase.ended") : t("phase.idle");
+	const inFlight = state.openTools.length > 0;
+	const phase = inFlight ? t("phase.tool") : state.running ? t("phase.running") : state.endedReason !== null ? t("phase.ended") : t("phase.idle");
 	const settled = state.endedReason !== null && !state.running;
+	const elapsedSeconds = state.updatedAt === null ? 0 : Math.round((now - state.updatedAt) / 1e3);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
-			className: styles.head,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: dotState(state.running, state.openTools.length, settled) }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
-					className: styles.title,
-					children: t("view.title")
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tag, {
-					tone: settled ? "success" : "info",
-					children: phase
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Pill, { children: `#${state.turn} · ${t("row.step")} ${state.step}` })
-			]
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: styles.rows,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.toolCalls"),
-					value: String(state.toolCallsInTurn)
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.lastTool"),
-					value: state.lastTool === null ? "—" : `${state.lastTool.name} · ${state.lastTool.open ? t("tool.open") : t("tool.done")}`
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(Row, {
-					label: t("row.lastEvent"),
-					value: state.lastEvent === null ? "—" : state.lastEvent.detail === null ? state.lastEvent.type : `${state.lastEvent.type} · ${state.lastEvent.detail}`
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
+				className: styles.head,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: inFlight || state.running ? "ongoing" : settled ? "done" : "idle" }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
+						className: styles.title,
+						children: t("view.title")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tag, {
+						tone: settled ? "success" : "info",
+						children: phase
+					}),
+					state.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Pill, { children: `#${state.turn} · ${t("row.step")} ${state.step ?? "—"}` }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.elapsed,
+						children: state.running ? t("time.runningFor", { s: elapsedSeconds }) : ago(state.updatedAt ?? now, now, t)
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("section.running")
+				}), state.openTools.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: styles.none,
+					children: t("tool.none")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+					className: styles.list,
+					children: state.openTools.map((call) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+						className: styles.call,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
+								state: "ongoing",
+								size: 8
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.callName,
+								children: call.name
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.callDetail,
+								children: call.detail ?? ""
+							})
+						]
+					}, call.callId))
+				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("section.recent")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
+					className: styles.list,
+					children: [...state.recent].reverse().map((summary) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(EventRow, {
+						summary,
+						now,
+						t
+					}, `${summary.seq}-${summary.type}`))
+				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
+				className: styles.section,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.rows,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: styles.row,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.rowLabel,
+							children: t("row.toolCalls")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.rowValue,
+							children: String(state.toolCallsInTurn)
+						})]
+					}), state.lastTool !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+						className: styles.row,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.rowLabel,
+							children: t("row.lastTool")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.rowValue,
+							children: `${state.lastTool.name} · ${state.lastTool.open ? t("tool.open") : state.lastTool.failed === true ? t("tool.failed") : t("tool.done")}`
+						})]
+					})]
 				})
-			]
-		})]
+			})
+		]
 	});
 }
 //#endregion
@@ -185,6 +298,13 @@ function LiveTasksView({ useProjection, t }) {
 const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 const zh = {
+	"section.running": "正在跑",
+	"section.recent": "最近事件",
+	"tool.none": "当前没有在跑的调用",
+	"time.runningFor": "已运行 {s} 秒",
+	"time.agoSeconds": "{s} 秒前",
+	"time.agoMinutes": "{m} 分前",
+	"time.justNow": "刚刚",
 	"view.tab": "任务",
 	"view.title": "会话任务状态",
 	"view.empty": "本会话当前没有进行中的任务。",
@@ -208,6 +328,13 @@ const zh = {
 };
 /** English dictionary, key-identical to the Chinese source of truth. */
 const en = {
+	"section.running": "In flight",
+	"section.recent": "Recent events",
+	"tool.none": "No call in flight",
+	"time.runningFor": "running for {s}s",
+	"time.agoSeconds": "{s}s ago",
+	"time.agoMinutes": "{m}m ago",
+	"time.justNow": "just now",
 	"view.tab": "Tasks",
 	"view.title": "Session task state",
 	"view.empty": "This session has no task in progress.",

@@ -13,6 +13,13 @@ export const NS = 'liveTasks'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'section.running': '正在跑',
+  'section.recent': '最近事件',
+  'tool.none': '当前没有在跑的调用',
+  'time.runningFor': '已运行 {s} 秒',
+  'time.agoSeconds': '{s} 秒前',
+  'time.agoMinutes': '{m} 分前',
+  'time.justNow': '刚刚',
   'view.tab': '任务',
   'view.title': '会话任务状态',
   'view.empty': '本会话当前没有进行中的任务。',
@@ -37,6 +44,13 @@ export const zh = {
 
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<LiveTaskKey, string> = {
+  'section.running': 'In flight',
+  'section.recent': 'Recent events',
+  'tool.none': 'No call in flight',
+  'time.runningFor': 'running for {s}s',
+  'time.agoSeconds': '{s}s ago',
+  'time.agoMinutes': '{m}m ago',
+  'time.justNow': 'just now',
   'view.tab': 'Tasks',
   'view.title': 'Session task state',
   'view.empty': 'This session has no task in progress.',

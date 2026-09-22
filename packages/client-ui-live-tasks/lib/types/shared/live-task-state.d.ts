@@ -23,6 +23,21 @@ import type { LiveTaskObservation, LiveTaskState } from './types.ts';
  * share one identity instead of rebuilding an equal-looking literal.
  */
 export declare const INITIAL_LIVE_TASK_STATE: LiveTaskState;
+/** Display summary of one durable event. */
+/** How many recent observations the view keeps for its trail. */
+export declare const RECENT_EVENT_LIMIT = 6;
+/**
+ * Turn a tool call's arguments into one display line.
+ *
+ * The session records `data.arguments` as a JSON **string** (occasionally as an
+ * already-parsed object), and the useful part differs per tool: a shell call is
+ * its command, a file call its path, a fetch its URL. Unknown shapes fall back
+ * to the first string value, and an unreadable payload reports `null` rather
+ * than a guess — a wrong line here would be worse than no line.
+ * @param data - the `tool/call` event payload, already narrowed to an object.
+ * @returns one clipped line, or null when nothing readable was carried.
+ */
+export declare function summarizeToolArguments(data: Record<string, unknown> | undefined): string | null;
 /**
  * Fold one normalized observation into the live-task state.
  * @param state - state before this observation.

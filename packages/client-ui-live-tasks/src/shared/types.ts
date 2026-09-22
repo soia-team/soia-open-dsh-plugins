@@ -50,6 +50,12 @@ export interface LiveToolCall {
   readonly step: number | null
   /** True from `tool/call` until the matching `tool/result` or the turn's end. */
   readonly open: boolean
+  /**
+   * One-line summary of what the call was asked to do — the command for a shell
+   * call, the path for a file call, the URL for a fetch. Null when the event
+   * carried no readable argument: absence is reported, never invented.
+   */
+  readonly detail: string | null
   /** Set when the settled result carried `isError`; absent while open or on success. */
   readonly failed?: boolean
 }
@@ -97,6 +103,8 @@ export interface LiveTaskView {
   readonly toolCallsInTurn: number
   /** Most recent durable observation, for the "last event" line. */
   readonly lastEvent: LiveEventSummary | null
+  /** Newest-last window of recent observations, so the view can show a trail. */
+  readonly recent: readonly LiveEventSummary[]
   /** `TurnEndReason.kind` of the most recent `turn/end`; null before one. */
   readonly endedReason: string | null
 }

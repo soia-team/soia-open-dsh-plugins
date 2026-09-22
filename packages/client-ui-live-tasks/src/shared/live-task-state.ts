@@ -26,6 +26,7 @@ import type {
 } from './types.ts'
 
 /** One frozen array reused for every state without open tool calls. */
+const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
 const NO_TOOLS: readonly LiveToolCall[] = Object.freeze([])
 
 /**
@@ -44,6 +45,7 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   streamedTextLength: 0,
   streamedAt: null,
   lastEvent: null,
+  recent: NO_EVENTS,
   endedReason: null,
 })
 
@@ -65,8 +67,78 @@ function stringOf(value: unknown): string | undefined {
 }
 
 /** Display summary of one durable event. */
+/** How many recent observations the view keeps for its trail. */
+export const RECENT_EVENT_LIMIT = 6
+
+/** Longest argument summary carried to the client; longer values are clipped. */
+const DETAIL_LIMIT = 80
+
+/** Argument keys worth showing, most specific first, keyed by what they mean. */
+const DETAIL_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'selector', 'task', 'prompt']
+
+/**
+ * Turn a tool call's arguments into one display line.
+ *
+ * The session records `data.arguments` as a JSON **string** (occasionally as an
+ * already-parsed object), and the useful part differs per tool: a shell call is
+ * its command, a file call its path, a fetch its URL. Unknown shapes fall back
+ * to the first string value, and an unreadable payload reports `null` rather
+ * than a guess — a wrong line here would be worse than no line.
+ * @param data - the `tool/call` event payload, already narrowed to an object.
+ * @returns one clipped line, or null when nothing readable was carried.
+ */
+export function summarizeToolArguments(data: Record<string, unknown> | undefined): string | null {
+  const raw = data?.['arguments']
+  let parsed: unknown = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return clip(raw)
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const args = parsed as Record<string, unknown>
+  for (const key of DETAIL_KEYS) {
+    const value = args[key]
+    if (typeof value === 'string' && value.trim() !== '') return clip(value)
+  }
+  const firstString = Object.values(args).find((value) => typeof value === 'string' && value.trim() !== '')
+  return typeof firstString === 'string' ? clip(firstString) : null
+}
+
+/** Collapse whitespace and clip to the wire budget. */
+function clip(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim()
+  return flat.length <= DETAIL_LIMIT ? flat : `${flat.slice(0, DETAIL_LIMIT - 1)}…`
+}
+
 function summary(event: LiveEventLike, detail: string | null): LiveEventSummary {
   return { type: event.type, seq: event.seq, time: event.time, detail }
+}
+
+/**
+ * Record one observation: the "last event" line plus the bounded trail.
+ *
+ * The trail is what makes the view readable — a single last-event line says
+ * what just happened, not what the session has been doing. It is capped so the
+ * wire payload stays a fixed size no matter how long a turn runs.
+ * @param state - state before this observation.
+ * @param event - the event being folded.
+ * @param detail - display detail for this observation, or null.
+ * @returns the two fields every fold branch writes.
+ */
+function observed(
+  state: LiveTaskState,
+  event: LiveEventLike,
+  detail: string | null,
+): Pick<LiveTaskState, 'lastEvent' | 'recent'> {
+  const entry = summary(event, detail)
+  // Transport bookkeeping (`session-log-*` delivery receipts and the like) is
+  // real but unreadable in a task trail: it would push the events a reader
+  // cares about out of the window without saying anything about the task.
+  if (event.type.startsWith('session-log-')) return { lastEvent: entry, recent: state.recent }
+  return { lastEvent: entry, recent: [...state.recent, entry].slice(-RECENT_EVENT_LIMIT) }
 }
 
 /**
@@ -131,7 +203,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         streamedTextLength: 0,
         streamedAt: null,
         endedReason: null,
-        lastEvent: summary(event, null),
+        ...observed(state, event, null),
       }
     }
     case 'turn/end': {
@@ -151,7 +223,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         // `unknown` distinguishes "the turn ended, the reason was unreadable"
         // from "no turn has ended yet", which stays null.
         endedReason: stringOf(reason?.['kind']) ?? 'unknown',
-        lastEvent: summary(event, null),
+        ...observed(state, event, null),
       }
     }
     case 'step/start': {
@@ -163,7 +235,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         turn: turn ?? state.turn,
         step: step ?? state.step,
         running: true,
-        lastEvent: summary(event, null),
+        ...observed(state, event, null),
       }
     }
     case 'step/end': {
@@ -176,14 +248,14 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         ...state,
         ...envelope,
         step: closesOpenStep ? null : state.step,
-        lastEvent: summary(event, null),
+        ...observed(state, event, null),
       }
     }
     case 'tool/call': {
       const callId = stringOf(data?.['callId'])
       const name = stringOf(data?.['name'])
       if (callId === undefined || name === undefined) {
-        return { ...state, ...envelope, lastEvent: summary(event, null) }
+        return { ...state, ...envelope, ...observed(state, event, null) }
       }
       const call: LiveToolCall = {
         callId,
@@ -191,6 +263,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         turn: numberOf(data?.['turn']) ?? state.turn,
         step: numberOf(data?.['step']) ?? state.step,
         open: true,
+        detail: summarizeToolArguments(data),
       }
       return {
         ...state,
@@ -198,7 +271,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         lastTool: call,
         openTools: [...state.openTools, call],
         toolCallsInTurn: state.toolCallsInTurn + 1,
-        lastEvent: summary(event, name),
+        ...observed(state, event, name),
       }
     }
     case 'tool/result': {
@@ -216,7 +289,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
           && state.lastTool.callId === callId
           ? { ...state.lastTool, open: false, ...(failed === true ? { failed: true } : {}) }
           : state.lastTool,
-        lastEvent: summary(event, settled?.name ?? null),
+        ...observed(state, event, settled?.name ?? null),
       }
     }
     case 'assistant/message':
@@ -228,11 +301,11 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         ...envelope,
         streamedTextLength: 0,
         streamedAt: null,
-        lastEvent: summary(event, null),
+        ...observed(state, event, null),
       }
     }
     default:
-      return { ...state, ...envelope, lastEvent: summary(event, null) }
+      return { ...state, ...envelope, ...observed(state, event, null) }
   }
 }
 
