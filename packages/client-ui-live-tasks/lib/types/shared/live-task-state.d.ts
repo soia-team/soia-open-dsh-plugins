@@ -41,6 +41,19 @@ export declare const ACTION_LIMIT = 8;
  */
 export declare function summarizeToolArguments(data: Record<string, unknown> | undefined): string | null;
 /**
+ * Decide whether a tool call failed, from both places a failure can be written.
+ *
+ * A tool can fail the way the harness notices (`isError` on the result block) or
+ * the way this ecosystem's tools usually report it: a successful tool call whose
+ * payload says `{"status":"error","code":…}`. The panel is for a person, and "the
+ * call worked but the operation failed" must not read as 完成 — measured live,
+ * where a failed page load and a missing file both showed as completed.
+ * @param data - the `tool/result` payload.
+ * @param harnessError - the harness-level error flag, if the caller read one.
+ * @returns true when either layer reports a failure.
+ */
+export declare function toolResultFailed(data: Record<string, unknown> | undefined, harnessError?: boolean): boolean;
+/**
  * First non-empty line of a tool result, clipped.
  *
  * A tool's answer can be kilobytes; the activity log needs only enough to say

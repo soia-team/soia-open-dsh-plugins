@@ -15,12 +15,18 @@ While a turn is running, a person asks four questions: **what is it doing now**,
 
 This package folds `session/event` and `agent/assistant-stream` into a small state object (`LiveTaskState`) and registers one read-only view tab, 「任务」, beside the built-in conversation and trajectory tabs (`conversation.view`, `order: 20`):
 
-| Area | Contents |
+The panel is organised as **modules**, each answering one question:
+
+| Module | Contents |
 |---|---|
-| Header line | state dot, "what this session is doing", the phase (`working` / `waiting for a tool` / `finished` / `idle`), turn and step, seconds elapsed |
-| Running now | one line per in-flight call: state dot, **tool name**, **argument summary** (command, path, or `selector @ page`), seconds so far |
-| What it did | a four-column table — **time** (local `HH:MM:SS`), **tool**, **what it did**, **result** (first line of the answer plus `done/failed · Ns`) — keeping the last eight calls |
-| Recent activity | up to three plain-language phrases: `model replied`, `bash returned`, `finished working`; transport receipts never appear |
+| **Overview** | a card grid: state, position (`#1 · step 2`), tool calls, failures (shown in red when non-zero) |
+| **Running now** | one line per in-flight call: state dot, tool name, argument summary (command, path, or `selector @ page`), seconds so far |
+| **Activity log** | a five-column table — **time** · **tool** · **what it did** · **took** · **result** — with an "All N / Failures only N" filter and failed rows tinted red |
+| **Just happened** | up to three plain-language phrases: `model replied`, `bash returned`, `finished working`; transport receipts never appear |
+
+The module boundaries are the design: each one owns its copy key prefix (`overview.*`, `running.*`, `log.*`, `recent.*`) and its own empty state, so a module can be read, translated or removed on its own.
+
+**Failure is read from two layers.** The harness-level `isError`, and a tool reporting failure inside a *successful* result — this ecosystem's convention is `{"status":"error","code":…}`. That second layer was measured, not assumed: a failed page load and a missing file both showed as done with a failure count of zero before it existed.
 
 Copy follows the host language (`liveTasks` namespace; the two dictionaries are pinned to each other by `Record<LiveTaskKey, string>`). Tool names and event types are **deliberately not translated**: they are protocol identifiers, and paraphrasing them would hide which tool actually ran.
 

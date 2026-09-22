@@ -547,3 +547,80 @@ describe('live-task derivation', () => {
       expect(summary).toBe('done')
     })
   })
+
+  describe('a call that came back as an error', () => {
+    const call = event('tool/call', 2, {
+      callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: JSON.stringify({ command: 'rg TODO .' }),
+    })
+    const result = (isError: boolean, text: string): LiveTaskObservation => event('tool/result', 3, {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'tool-result', isError, toolCallId: 'c1', content: [{ type: 'text', text }] }] },
+    })
+
+    it('records the failure in the activity log, not just on the last-call record', () => {
+      // The live panel showed a red "Error: grep search failed" row while the
+      // overview counted zero failures: the flag reached `lastTool` but not the
+      // action record, which is what the log and the counter read.
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), call, result(true, 'Error: grep search failed (exit 2)')])
+
+      expect(state.actions).toHaveLength(1)
+      expect(state.actions[0]?.status).toBe('failed')
+      expect(state.actions[0]?.result).toBe('Error: grep search failed (exit 2)')
+      expect(state.lastTool?.failed).toBe(true)
+    })
+
+    it('keeps a successful result as ok', () => {
+      const state = foldLiveTasks([event('turn/start', 1, { turn: 1 }), call, result(false, 'done')])
+
+      expect(state.actions[0]?.status).toBe('ok')
+      expect(state.actions[0]?.result).toBe('done')
+    })
+  })
+
+  describe('a tool that reports failure in its own payload', () => {
+    it('counts as failed even though the harness saw no error', () => {
+      // Measured live: an unreachable page and a missing file both came back as
+      // `{"status":"error",…}` inside a successful tool result, and the panel
+      // showed them as 完成 with a failure count of zero.
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'check_ui_size', turn: 1, step: 1, arguments: '{}' }),
+        event('tool/result', 3, {
+          turn: 1,
+          step: 1,
+          message: {
+            content: [{
+              type: 'tool-result',
+              isError: false,
+              toolCallId: 'c1',
+              content: [{ type: 'text', text: '{"status":"error","code":"navigation_failed"}' }],
+            }],
+          },
+        }),
+      ])
+
+      expect(state.actions[0]?.status).toBe('failed')
+    })
+
+    it('leaves an ordinary payload alone', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'check_file_hash', turn: 1, step: 1, arguments: '{}' }),
+        event('tool/result', 3, {
+          turn: 1,
+          step: 1,
+          message: {
+            content: [{
+              type: 'tool-result',
+              isError: false,
+              toolCallId: 'c1',
+              content: [{ type: 'text', text: '{"status":"ok","hash":"abc"}' }],
+            }],
+          },
+        }),
+      ])
+
+      expect(state.actions[0]?.status).toBe('ok')
+    })
+  })

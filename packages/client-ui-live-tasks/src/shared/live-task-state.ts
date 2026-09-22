@@ -128,17 +128,63 @@ export function summarizeToolArguments(data: Record<string, unknown> | undefined
  * @param data - the `tool/result` payload.
  * @returns the human-readable action record.
  */
-function actionOf(call: LiveToolCall, endedAt: number, data: Record<string, unknown> | undefined): LiveTaskAction {
-  const result = summarizeToolResult(data)
+function actionOf(
+  call: LiveToolCall,
+  endedAt: number,
+  data: Record<string, unknown> | undefined,
+  failed: boolean,
+): LiveTaskAction {
   return {
     callId: call.callId,
     name: call.name,
     detail: call.detail,
     startedAt: call.startedAt,
     endedAt,
-    status: call.failed === true ? 'failed' : 'ok',
-    result,
+    status: failed ? 'failed' : 'ok',
+    result: summarizeToolResult(data),
   }
+}
+
+/** Status values a tool uses in its own payload to report a failed operation. */
+const FAILURE_STATUSES = new Set(['error', 'failed', 'failure', 'not_found', 'unavailable', 'denied', 'timeout', 'invalid'])
+
+/**
+ * Decide whether a tool call failed, from both places a failure can be written.
+ *
+ * A tool can fail the way the harness notices (`isError` on the result block) or
+ * the way this ecosystem's tools usually report it: a successful tool call whose
+ * payload says `{"status":"error","code":…}`. The panel is for a person, and "the
+ * call worked but the operation failed" must not read as 完成 — measured live,
+ * where a failed page load and a missing file both showed as completed.
+ * @param data - the `tool/result` payload.
+ * @param harnessError - the harness-level error flag, if the caller read one.
+ * @returns true when either layer reports a failure.
+ */
+export function toolResultFailed(data: Record<string, unknown> | undefined, harnessError?: boolean): boolean {
+  if (harnessError === true) return true
+  if (data !== undefined && data['error'] !== undefined && data['error'] !== null) return true
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  for (const block of blocks) {
+    const record = recordOf(block)
+    if (record?.['isError'] === true) return true
+    const inner = Array.isArray(record?.['content']) ? record['content'] as unknown[] : []
+    for (const part of inner) {
+      const candidate = recordOf(part)
+      if (candidate?.['type'] !== 'text' || typeof candidate['text'] !== 'string') continue
+      const firstLine = candidate['text'].split('\n').map((line) => line.trim()).find((line) => line !== '')
+      if (firstLine === undefined || !firstLine.startsWith('{')) continue
+      try {
+        const parsed: unknown = JSON.parse(firstLine)
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue
+        const status = (parsed as Record<string, unknown>)['status']
+        if (typeof status === 'string' && FAILURE_STATUSES.has(status)) return true
+      } catch {
+        // Not JSON after all; the first line stays prose and carries no verdict.
+      }
+    }
+  }
+  return false
 }
 
 /**
@@ -364,6 +410,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
     }
     case 'tool/result': {
       const { callId, failed } = readToolResult(data)
+      const resultFailed = toolResultFailed(data, failed)
       const settled = callId === undefined
         ? undefined
         : state.openTools.find((call) => call.callId === callId)
@@ -380,14 +427,14 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
               open: false,
               endedAt: time,
               result: summarizeToolResult(data),
-              ...(failed === true ? { failed: true } : {}),
+              ...(resultFailed ? { failed: true } : {}),
             }
           : state.lastTool,
         actions: settled === undefined
           ? state.actions
           : [
               ...state.actions.filter((action) => action.callId !== settled.callId),
-              actionOf(settled, time, data),
+              actionOf(settled, time, data, resultFailed),
             ].slice(-ACTION_LIMIT),
         ...observed(state, event, settled?.name ?? null),
       }
