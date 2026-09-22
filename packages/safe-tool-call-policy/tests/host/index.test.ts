@@ -36,6 +36,9 @@ function createFakeContext() {
   const guards: ToolGuard[] = []
   const effects: (() => void)[] = []
   const warnings: string[] = []
+  /** The plugin also reads the approval policy from the session event stream. */
+  type SessionListener = (session: unknown, event: unknown) => void
+  const sessionListeners: SessionListener[] = []
 
   const ctx = {
     // The health service extends cordis' `Service`, which publishes itself through
@@ -46,9 +49,12 @@ function createFakeContext() {
         (ctx as unknown as Record<string, unknown>)[name] = value
       },
     },
-    on: (event: string, listener: PreExecuteListener): (() => boolean) => {
-      if (event !== 'tools/pre-execute') throw new TypeError(`unexpected event: ${event}`)
-      listeners.push(listener)
+    on: (event: string, listener: PreExecuteListener | SessionListener): (() => boolean) => {
+      // The plugin listens to exactly two events: the pre-execute waterfall, and
+      // `session/event` for the approval policy it must respect per session.
+      if (event === 'tools/pre-execute') listeners.push(listener as PreExecuteListener)
+      else if (event === 'session/event') sessionListeners.push(listener as SessionListener)
+      else throw new TypeError(`unexpected event: ${event}`)
       return () => true
     },
     effect: (execute: () => () => void, label?: string): (() => void) => {
@@ -60,6 +66,9 @@ function createFakeContext() {
       warn: (message: string): void => {
         warnings.push(message)
       },
+    },
+    sessionEvents: (sessionId: string, event: { type: string, data: unknown }): void => {
+      for (const listener of sessionListeners) listener({ id: sessionId } as never, event as never)
     },
     tools: {
       guard: (guard: ToolGuard): (() => void) => {

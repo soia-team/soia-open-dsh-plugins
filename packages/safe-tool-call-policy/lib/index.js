@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Service } from "@deepseek-ai/cordis";
 //#region packages/safe-tool-call-policy/src/host/call-shape.ts
@@ -39,6 +39,203 @@ function callShapeOf(tool, args) {
 		tool,
 		text: ""
 	};
+}
+//#endregion
+//#region packages/safe-tool-call-policy/src/host/decisions.ts
+/**
+* Optional decision journal.
+*
+* Counters answer "how often"; a journal answers "which command, when, and by
+* which rule" — the difference between knowing a policy is noisy and being able
+* to reproduce it. It is off by default and enabled with
+* `SOIA_POLICY_JOURNAL=/path/to/policy.jsonl`, because it records commands, and
+* commands can carry credentials.
+*
+* Every line is redacted before writing: values that look like tokens are masked,
+* so the journal can be shared while diagnosing.
+*
+* @module safe-tool-call-policy/host/decisions
+*/
+/**
+* Mask credential-shaped values.
+* @param text - raw text.
+* @returns the text with such values replaced.
+*/
+function redact(text) {
+	return text.replace(/([Aa]uthorization\s*:\s*\S+\s+)\S+/g, "$1***").replace(/\b(sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{8,}/g, "$1***").replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{3,}/g, "***JWT***").replace(/(\s-p)([A-Za-z0-9!@#$%^&*_+]{8,})/g, "$1***").replace(/((?:token|api[-_]?key|password|passwd|secret)\s*[=:]\s*)\S+/gi, "$1***");
+}
+/**
+* Append one decision to the journal when it is enabled.
+* @param record - the decision to record.
+* @param path - journal path; absent means journalling is off.
+*/
+function journalDecision(record, path) {
+	if (path === void 0 || path === "") return;
+	try {
+		appendFileSync(path, `${JSON.stringify({
+			...record,
+			excerpt: redact(record.excerpt)
+		})}\n`);
+	} catch {}
+}
+//#endregion
+//#region packages/safe-tool-call-policy/src/shared/read-only.ts
+/**
+* Recognise commands that can only read.
+*
+* The rules exist to stop work that changes state without a human looking. A
+* read-only command cannot change state, so asking about one is pure friction —
+* and the measured interception log says exactly that: of thirty-one blocked
+* calls, twenty-five were diagnostic searches (`grep -rn … --include=*.py .`,
+* `grep -rn "'approval/policy'" …/*.d.ts`). The operator's words were "the
+* privilege to diagnose was cut off", which is a fair description of a policy
+* that stops a read.
+*
+* The test is deliberately conservative — it fails closed (says "not read-only")
+* whenever it cannot prove the command only reads:
+*
+*  - every segment of the pipeline must start with a known read-only binary;
+*  - redirection of any kind disqualifies the whole command;
+*  - subcommands are checked where the binary is ambiguous (`git`, `sed`,
+*    `sqlite3`, `curl`, `find`);
+*  - anything the parser does not understand (substitution, grouping, a shell
+*    interpreter) disqualifies it.
+*
+* @param command - the command text a rule is deciding about.
+* @returns true only when the command provably cannot write.
+*/
+/** Binaries that never write, whatever their arguments. */
+const READ_ONLY_BINARIES = /* @__PURE__ */ new Set([
+	"cat",
+	"head",
+	"tail",
+	"wc",
+	"ls",
+	"pwd",
+	"which",
+	"type",
+	"stat",
+	"file",
+	"du",
+	"df",
+	"grep",
+	"rg",
+	"egrep",
+	"fgrep",
+	"sort",
+	"uniq",
+	"cut",
+	"tr",
+	"basename",
+	"dirname",
+	"realpath",
+	"readlink",
+	"date",
+	"whoami",
+	"id",
+	"env",
+	"printenv",
+	"jq",
+	"diff",
+	"cmp",
+	"shasum",
+	"md5",
+	"sha256sum",
+	"awk",
+	"column",
+	"tree",
+	"ps",
+	"lsof",
+	"top",
+	"hostname",
+	"sw_vers",
+	"uname",
+	"echo",
+	"printf",
+	"true",
+	"false",
+	"test",
+	"expr",
+	"seq",
+	"comm"
+]);
+/** Read-only subcommands for binaries that can also write. */
+const READ_ONLY_SUBCOMMANDS = {
+	git: [
+		"log",
+		"status",
+		"diff",
+		"show",
+		"branch",
+		"rev-parse",
+		"describe",
+		"blame",
+		"ls-files",
+		"cat-file",
+		"config",
+		"remote",
+		"tag",
+		"stash",
+		"worktree",
+		"shortlog",
+		"whatchanged",
+		"grep",
+		"rev-list",
+		"symbolic-ref",
+		"for-each-ref"
+	],
+	sed: [],
+	find: [],
+	curl: [],
+	sqlite3: []
+};
+/**
+* Split a command line into its independently executed segments.
+* @param command - the whole command.
+* @returns each segment's text, trimmed, with empty entries dropped.
+*/
+function segments(command) {
+	return command.split(/\n|;|&&|\|\||\|/).map((part) => part.trim()).filter((part) => part !== "");
+}
+/**
+* Whether one segment provably only reads.
+* @param segment - one command segment.
+* @returns true when the segment cannot write.
+*/
+function isReadOnlySegment(segment) {
+	if (/[`]|\$\(|[()]/.test(segment)) return false;
+	const words = segment.split(/\s+/);
+	const [binary] = words;
+	if (binary === void 0 || binary === "") return false;
+	if (/^(bash|sh|zsh|ksh|dash|python3?|node|deno|bun|perl|ruby|php|eval|exec|sudo|doas|nohup|time)$/.test(binary)) return false;
+	if (binary === "env") return words.length === 1;
+	if (READ_ONLY_BINARIES.has(binary)) return true;
+	if (binary === "sed") return !/(^|\s)-i\b/.test(segment);
+	if (binary === "find") return !/-(delete|exec|ok|fprint)/.test(segment);
+	if (binary === "curl") return !/(^|\s)(-X|--request|-d|--data|-F|--form|-T|--upload-file|-o|--output)\b/.test(segment);
+	if (binary === "sqlite3") return /-readonly\b/.test(segment);
+	if (binary === "git") {
+		const subcommand = words[1] ?? "";
+		if (subcommand === "stash") return /^git\s+stash\s+(list|show)\b/.test(segment);
+		if (subcommand === "worktree") return /^git\s+worktree\s+list\b/.test(segment);
+		if (subcommand === "branch") return !/(^|\s)(-d|-D|-m|-M|--delete|--move)\b/.test(segment);
+		if (subcommand === "config") return !/(^|\s)(--add|--unset|--replace-all|--edit)\b/.test(segment);
+		if (subcommand === "tag") return !/(^|\s)(-d|--delete|-f|--force)\b/.test(segment);
+		return (READ_ONLY_SUBCOMMANDS["git"] ?? []).includes(subcommand);
+	}
+	return false;
+}
+/**
+* Whether a command provably only reads.
+* @param command - the command text.
+* @returns true when every segment is read-only and nothing is redirected.
+*/
+function isReadOnlyCommand(command) {
+	const text = command.trim();
+	if (text === "") return false;
+	if (/(^|[^0-9])>{1,2}/.test(text)) return false;
+	const parts = segments(text);
+	return parts.length > 0 && parts.every(isReadOnlySegment);
 }
 //#endregion
 //#region packages/safe-tool-call-policy/src/host/config-error.ts
@@ -606,7 +803,135 @@ function loadPolicy(options) {
 	}
 }
 //#endregion
+//#region packages/safe-tool-call-policy/src/shared/projection.ts
+/**
+* Project a shell command onto the part that actually runs.
+*
+* A substring matcher cannot tell `echo "git commit -m x"` (printing a sentence)
+* from `git commit -m x` (committing). The first is prose, the second is a
+* command, and treating them alike made this policy refuse to let anyone *talk*
+* about git — including a command whose only crime was echoing the rule's own
+* text. The replayed traffic named the same class: `cat > file <<'EOF' … 'git
+* commit' …` was flagged although the text is written to a file, not executed.
+*
+* What this removes, and what it deliberately keeps:
+*
+*  - **Heredoc bodies** are removed when the heredoc is data for a file writer
+*    (`cat >`, `tee`, `dd`), and kept when it is fed to a shell or interpreter
+*    (`bash`, `sh`, `zsh`, `python`, `node`, …) — because that text runs.
+*  - **`echo`/`printf` arguments** are removed: their arguments are output, not
+*    commands. `bash -c "…"` is untouched, so a quoted command still matches.
+*
+* The projection is only for matching. Reasons quote the original command.
+*
+* @param command - the command text a rule is deciding about.
+* @returns the same command with non-executed text blanked out.
+*/
+/** Interpreters whose heredoc input is executed rather than stored. */
+const INTERPRETERS = /^(?:bash|sh|zsh|ksh|dash|python3?|node|deno|bun|perl|ruby|php)$/;
+/**
+* Whether the command feeding a heredoc runs its input.
+*
+* The check looks at **command words**, not at any word: `cat > notes.sh` writes
+* a file whose name merely ends in `.sh`, and an earlier version of this function
+* treated that as a shell, keeping a heredoc body that is only ever written.
+* @param consumer - the text before the heredoc operator.
+* @returns true when the input is executed.
+*/
+function executesHeredoc(consumer) {
+	return consumer.split(/\|\||&&|[|;&]/).map((segment) => segment.trim().split(/\s+/)[0] ?? "").some((word) => INTERPRETERS.test(word));
+}
+/**
+* Blank heredoc bodies that are written to a file.
+* @param command - raw command text.
+* @returns text with those bodies replaced by blank lines.
+*/
+function blankWrittenHeredocs(command) {
+	const lines = command.split("\n");
+	const out = [];
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index] ?? "";
+		const open = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line);
+		if (open === null) {
+			out.push(line);
+			continue;
+		}
+		const delimiter = open[2] ?? "";
+		const executes = executesHeredoc(line.slice(0, open.index));
+		out.push(line);
+		index += 1;
+		for (; index < lines.length; index += 1) {
+			const body = lines[index] ?? "";
+			if (body.trim() === delimiter) {
+				out.push(body);
+				break;
+			}
+			out.push(executes ? body : "");
+		}
+	}
+	return out.join("\n");
+}
+/**
+* Blank the arguments of commands that only print them.
+* @param command - command text.
+* @returns text with those arguments removed.
+*/
+function blankPrintedArguments(command) {
+	let out = "";
+	let index = 0;
+	while (index < command.length) {
+		const match = /\b(?:echo|printf)\b/.exec(command.slice(index));
+		if (match === null) {
+			out += command.slice(index);
+			break;
+		}
+		const argsStart = index + match.index + match[0].length;
+		out += command.slice(index, argsStart);
+		let cursor = argsStart;
+		while (cursor < command.length) {
+			const char = command[cursor] ?? "";
+			if (char === "\\") {
+				cursor += 2;
+				continue;
+			}
+			if (char === "'" || char === "\"") {
+				const close = command.indexOf(char, cursor + 1);
+				cursor = close === -1 ? command.length : close + 1;
+				continue;
+			}
+			if (char === "\n" || char === ";" || char === "&" || char === "|") break;
+			cursor += 1;
+		}
+		out += command.slice(argsStart, cursor).replaceAll(/[^\n]/g, " ");
+		index = cursor;
+	}
+	return out;
+}
+/**
+* Project a command onto its executable text for rule matching.
+* @param command - the command text a rule is deciding about.
+* @returns the projected text.
+*/
+function matchingText(command) {
+	return blankPrintedArguments(blankWrittenHeredocs(command));
+}
+//#endregion
 //#region packages/safe-tool-call-policy/src/shared/evaluate.ts
+/**
+* The pure rule matcher: one call shape plus one effective rule set in, one
+* decision out. No filesystem, no host, no DSH types — the loader feeds it the
+* merged rule list and `src/index.ts` feeds it the pending call.
+*
+* Two properties are deliberate:
+*
+* - **Deny outranks ask, then rule order decides.** A call can match several
+*   rules at once (`rm -rf ~/.app` is both a home-data write and a wholesale
+*   `rm -rf`); the strictest verdict wins, and equal verdicts are broken by the
+*   order of the rule list, so a project can put a specific rule first.
+* - **A broken rule is skipped, never fatal.** An uncompilable pattern drops
+*   that one rule and records a note; every other rule still applies. The
+*   policy never turns its own defect into a blocked or failed call.
+*/
 /** Relative severity of the two blocking verdicts; `allow` never competes. */
 const SEVERITY = {
 	ask: 1,
@@ -651,7 +976,7 @@ function evaluateCall(call, rules) {
 			notes.push(`rule "${rule.id}": pattern is not a valid regular expression and was skipped`);
 			continue;
 		}
-		if (!pattern.test(call.text)) continue;
+		if (!pattern.test(matchingText(call.text))) continue;
 		matched.push(rule.id);
 		if (winner === void 0 || SEVERITY[rule.action] > SEVERITY[winner.action]) winner = rule;
 	}
@@ -713,6 +1038,13 @@ var PolicyHealth = class extends Service {
 	failures = 0;
 	lastCallAt = null;
 	lastFailureAt = null;
+	advisoryOnly = 0;
+	byAction = {
+		allow: 0,
+		ask: 0,
+		deny: 0
+	};
+	lastMatch = null;
 	matches = /* @__PURE__ */ new Map();
 	/**
 	* @param ctx - host context owning this service's lifetime.
@@ -739,12 +1071,35 @@ var PolicyHealth = class extends Service {
 		this.matches.set(ruleId, (this.matches.get(ruleId) ?? 0) + 1);
 	}
 	/**
+	* Record one decision and, when a rule fired, what it was.
+	* @param action - the action actually taken after any downgrade.
+	* @param ruleId - the rule that decided, when one did.
+	* @param tool - the tool the call was for.
+	* @param at - epoch milliseconds.
+	*/
+	recordDecision(action, ruleId, tool, at = Date.now()) {
+		this.byAction[action] += 1;
+		if (ruleId !== void 0) this.lastMatch = {
+			ruleId,
+			tool,
+			action,
+			at
+		};
+	}
+	/** Record one rule that fired while asking was impossible. */
+	recordAdvisoryOnly() {
+		this.advisoryOnly += 1;
+	}
+	/**
 	* Read the counters.
 	* @returns a frozen snapshot.
 	*/
 	snapshot() {
 		return Object.freeze({
 			calls: this.calls,
+			advisoryOnly: this.advisoryOnly,
+			byAction: Object.freeze({ ...this.byAction }),
+			lastMatch: this.lastMatch === null ? null : Object.freeze({ ...this.lastMatch }),
 			failures: this.failures,
 			lastCallAt: this.lastCallAt,
 			lastFailureAt: this.lastFailureAt,
@@ -784,7 +1139,8 @@ function createDecide(ctx) {
 				builtinUrl: BUILTIN_PATTERN_SET
 			});
 			for (const note of policy.notes) ctx.logger.warn(`safe-tool-call-policy: ${note}`);
-			return evaluateCall(callShapeOf(exec.name, exec.arguments), policy.rules);
+			const shape = callShapeOf(exec.name, exec.arguments);
+			return evaluateCall(shape, isReadOnlyCommand(shape.text) ? policy.rules.filter((rule) => rule.action === "deny") : policy.rules);
 		} catch (error) {
 			ctx.logger.warn(`safe-tool-call-policy: evaluation failed (${error.message}); allowing the call`);
 			return {
@@ -802,11 +1158,46 @@ function createDecide(ctx) {
 */
 function apply(ctx) {
 	const health = new PolicyHealth(ctx);
+	/**
+	* Whether each session can actually put a question to a human.
+	*
+	* `approval/policy` is a *session event*, not a host event, so it arrives on
+	* `session/event` and is remembered per session. Measured on real sessions:
+	* with the `never` policy every `ask` came back `rejected` in 0–4 ms and the
+	* tool result blamed the user, who had never been shown anything. An advisory
+	* rule must not become a silent hard block, so when asking is impossible the
+	* rule is reported instead of enforced — `deny` rules are untouched.
+	*/
+	const approvalPolicies = /* @__PURE__ */ new Map();
+	ctx.on("session/event", (session, event) => {
+		if (event.type !== "approval/policy") return;
+		approvalPolicies.set(session.id, event.data.policy);
+	});
+	const journalPath = process.env["SOIA_POLICY_JOURNAL"];
 	const decideAndCount = (exec) => {
+		const canAsk = approvalPolicies.get(exec.agent?.session.id ?? "") !== "never";
 		const decision = decide(exec);
-		health.record(decision.action === "deny");
+		const downgraded = decision.action === "ask" && !canAsk;
+		const action = downgraded ? "allow" : decision.action;
+		health.record(action === "deny");
 		if (decision.ruleId !== void 0) health.recordMatch(decision.ruleId);
-		return decision;
+		if (downgraded) health.recordAdvisoryOnly();
+		health.recordDecision(action, decision.ruleId, exec.name);
+		if (decision.ruleId !== void 0) {
+			ctx.logger.warn(`safe-tool-call-policy: ${decision.ruleId} → ${action}${downgraded ? " (reported only: this session cannot ask)" : ""} on ${exec.name}`);
+			journalDecision({
+				at: Date.now(),
+				ruleId: decision.ruleId,
+				tool: exec.name,
+				action,
+				downgraded,
+				excerpt: callShapeOf(exec.name, exec.arguments).text.slice(0, 160)
+			}, journalPath);
+		}
+		return downgraded ? {
+			...decision,
+			action: "allow"
+		} : decision;
 	};
 	const decide = createDecide(ctx);
 	ctx.on("tools/pre-execute", async (exec, next) => {

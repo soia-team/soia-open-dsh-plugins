@@ -2,7 +2,7 @@
   {
     "id": "data-root-write",
     "tool": "*",
-    "pattern": "(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|>>?\\s*(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])sed\\b[^\\n;&|]*?-i[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?/(?:etc|var/lib|var/db|usr/local|Library|System)/|>>?\\s*/(?:etc|var/lib|var/db|usr/local|Library|System)/|^(?:write|edit)\\s+(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|^(?:write|edit)\\s+/(?:etc|var/lib|var/db|usr/local|Library|System)/|(?:^|[\\s;&|(])(?:sqlite3|psql|mysql|mariadb|mongo|mongosh)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+[^\\n;&|]*?\\b(?:delete|drop|update|insert|alter|create|replace|truncate|vacuum|migrat\\w*)\\b|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+|>>?\\s*(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+|^(?:write|edit)\\s+(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+",
+    "pattern": "(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|>>?\\s*(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])sed\\b[^\\n;&|]*?-i[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?/(?:etc|var/lib|var/db|usr/local|System)/|>>?\\s*/(?:etc|var/lib|var/db|usr/local|System)/|^(?:write|edit)\\s+(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+|^(?:write|edit)\\s+/(?:etc|var/lib|var/db|usr/local|System)/|(?:^|[\\s;&|(])(?:sqlite3|psql|mysql|mariadb|mongo|mongosh)\\b[^\\n;&|]*?(?:~|\\$\\{?HOME\\}?)/(?!\\.local/bin(?:/|$))\\.[\\w.-]+[^\\n;&|]*?\\b(?:delete|drop|update|insert|alter|create|replace|truncate|vacuum|migrat\\w*)\\b|(?:^|[\\s;&|(])(?:rm|mv|cp|mkdir|rmdir|touch|chmod|chown|chgrp|ln|truncate|tee|install|dd)\\b[^\\n;&|]*?(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+|>>?\\s*(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+|^(?:write|edit)\\s+(?:/Users|/home)/[^/\\s]+/\\.[\\w.-]+",
     "action": "deny",
     "reason": "This call writes into a real application-data root — a home dot-directory such as ~/.<app> or its expanded form /Users/<you>/.<app>, or a system data path such as /etc — instead of a project or scratch location.",
     "remedy": "Write the same data under the session workspace or a scratch directory and point the program at it with an isolated config or data-home setting.",
@@ -20,19 +20,19 @@
   {
     "id": "failure-as-evidence",
     "tool": "bash",
-    "pattern": "--include[\\s=]+(?!['\\\"])[^\\s]*\\*|\\bugrep\\b|\\b(?:grep|egrep|fgrep|rg|find)\\b[^\\n;|]*2>\\s*/dev/null[^\\n|]*\\|(?!\\|)",
+    "pattern": "\\bugrep\\b",
     "action": "ask",
-    "reason": "This command can report a false negative as if it were evidence: an unquoted --include glob is expanded by the shell before the search runs, ugrep reads a different pattern dialect than grep, or a redirect on the first pipeline stage discards that stage's errors.",
-    "remedy": "Quote the glob, keep the plain grep dialect, and let the first stage's stderr reach the result, so a failed search is visible as a failure rather than as 'not found'.",
+    "reason": "`ugrep` reads a different pattern dialect than grep, so a pattern that works in one silently matches nothing in the other — a search failure that looks like a negative result.",
+    "remedy": "Use the grep dialect this project already depends on, or check the search ran by its exit status.",
     "source": "memory:failed-command-not-evidence"
   },
   {
     "id": "git-danger",
     "tool": "bash",
-    "pattern": "\\bgit\\s+stash\\b(?!\\s+(?:list|show)\\b)|\\bgit\\s+checkout\\b(?!\\s+-\\S*[bB]\\b)|\\bgit\\s+add\\s+(?:-\\S+\\s+)*(?:-A|--all|\\.)(?=\\s|$)|\\bgit\\s+commit\\b(?![^\\n]*--only\\b)",
+    "pattern": "\\bgit\\s+stash\\b(?!\\s+(?:list|show)\\b)|\\bgit\\s+add\\s+(?:-\\S+\\s+)*(?:-A|--all|\\.)(?=\\s|$)|\\bgit\\s+commit\\b(?![^\\n]*--only\\b)[^\\n]*\\s-a(?:\\s|$)",
     "action": "ask",
-    "reason": "This git command mutates shared checkout state — stash, checkout, add -A, or a commit that stages whatever is already in the index — so it can pick up another worker's in-progress changes.",
-    "remedy": "Do the same operation against explicit paths (git commit --only <pathspec>) or in a separate worktree, and leave the shared index untouched.",
+    "reason": "This git command takes the whole shared index — stash, `add -A`, `add .`, or `commit -a` — so it can pick up another worker's in-progress changes.",
+    "remedy": "Do the same operation against explicit paths (git add <path>, git commit --only <pathspec>) or in a separate worktree, and leave the shared index untouched.",
     "source": "memory:concurrent-git-index"
   },
   {
