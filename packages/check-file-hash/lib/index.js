@@ -167,6 +167,7 @@ function failure(code, message, path) {
 		status: "error",
 		code,
 		message,
+		plugin: "soia-dsh-tool-check-file-hash",
 		...path === void 0 ? {} : { path }
 	};
 }

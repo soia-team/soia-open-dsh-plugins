@@ -47,7 +47,7 @@ function describeError(error: unknown): string {
 
 /** Build a typed failure without a partial file list. */
 function failure(code: HashFailureCode, message: string, path?: string): HashFailure {
-  return { status: 'error', code, message, ...(path === undefined ? {} : { path }) }
+  return { status: 'error', code, message, plugin: 'soia-dsh-tool-check-file-hash', ...(path === undefined ? {} : { path }) }
 }
 
 /**

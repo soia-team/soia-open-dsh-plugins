@@ -76,6 +76,7 @@ export declare const styles: {
     readonly turnLabelActive: 'lt-turnLabelActive';
     readonly toolDetail: 'lt-toolDetail';
     readonly summaryLine: 'lt-summaryLine';
+    readonly usageLine: 'lt-usageLine';
     readonly timeline: 'lt-timeline';
     readonly tlRow: 'lt-tlRow';
     readonly tlTurn: 'lt-tlTurn';
@@ -87,6 +88,8 @@ export declare const styles: {
     readonly tlBadgeTool: 'lt-tlBadgeTool';
     readonly tlBody: 'lt-tlBody';
     readonly tlTitle: 'lt-tlTitle';
+    readonly tlEntryId: 'lt-tlEntryId';
+    readonly detailMono: 'lt-detailMono';
     readonly tlDetail: 'lt-tlDetail';
     readonly tlArrow: 'lt-tlArrow';
     readonly tlResult: 'lt-tlResult';

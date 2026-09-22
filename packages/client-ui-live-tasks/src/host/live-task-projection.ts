@@ -36,6 +36,15 @@ const liveToolCallSchema = z.object({
   result: z.string().nullable().optional(),
 }).strict()
 
+const liveTaskUsageSchema = z.object({
+  reported: z.number().int().nonnegative(),
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  cacheRead: z.number().nonnegative(),
+  reasoning: z.number().nonnegative(),
+  total: z.number().nonnegative(),
+}).strict()
+
 const liveTurnSummarySchema = z.object({
   turn: z.number().int(),
   startedAt: z.number(),
@@ -43,6 +52,7 @@ const liveTurnSummarySchema = z.object({
   toolCalls: z.number().int().nonnegative(),
   failures: z.number().int().nonnegative(),
   tools: z.array(z.string()),
+  tokens: z.number().nonnegative(),
 }).strict()
 
 const liveTimelineEntrySchema = z.object({
@@ -53,6 +63,7 @@ const liveTimelineEntrySchema = z.object({
   startedAt: z.number(),
   endedAt: z.number().nullable(),
   title: z.string(),
+  entryId: z.string().nullable(),
   detail: z.string().nullable(),
   result: z.string().nullable(),
   argsFull: z.string().nullable(),
@@ -114,6 +125,8 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   actions: z.array(liveTaskActionSchema),
   timeline: z.array(liveTimelineEntrySchema),
   turns: z.array(liveTurnSummarySchema),
+  turnsTotal: z.number().int().nonnegative(),
+  usage: liveTaskUsageSchema,
   health: liveTaskHealthSchema,
   endedReason: z.string().nullable(),
   streamedTextLength: z.number().int().nonnegative(),
@@ -144,6 +157,8 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   actions: z.array(liveTaskActionSchema),
   timeline: z.array(liveTimelineEntrySchema),
   turns: z.array(liveTurnSummarySchema),
+  turnsTotal: z.number().int().nonnegative(),
+  usage: liveTaskUsageSchema,
   health: liveTaskHealthSchema,
   streamedAt: z.number().nullable(),
   endedReason: z.string().nullable(),
@@ -185,6 +200,8 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     actions: state.actions,
     timeline: state.timeline,
     turns: state.turns,
+    turnsTotal: state.turnsTotal,
+    usage: state.usage,
     health: state.health,
     streamedAt: state.streamedAt,
     endedReason: state.endedReason,

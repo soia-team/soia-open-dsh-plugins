@@ -47,6 +47,7 @@ function toFailure(error: unknown, sessionPath?: string): CheckSkillsFailure {
   if (error instanceof SessionReadError) {
     return {
       status: 'error',
+      plugin: 'soia-dsh-tool-check-skills',
       code: error.code,
       message: error.message,
       ...(error.sessionPath === undefined ? {} : { sessionPath: error.sessionPath }),
@@ -54,6 +55,7 @@ function toFailure(error: unknown, sessionPath?: string): CheckSkillsFailure {
   }
   return {
     status: 'error',
+    plugin: 'soia-dsh-tool-check-skills',
     code: 'session_unreadable',
     message: error instanceof Error ? error.message : String(error),
     ...(sessionPath === undefined ? {} : { sessionPath }),

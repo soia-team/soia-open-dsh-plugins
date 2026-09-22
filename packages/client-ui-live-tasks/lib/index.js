@@ -5172,7 +5172,8 @@ function addCallToTurn(turns, turn, time, name) {
 		endedAt: null,
 		toolCalls: 1,
 		failures: 0,
-		tools: [name]
+		tools: [name],
+		tokens: 0
 	}].slice(-20);
 	return turns.map((summary) => summary.turn === turn ? {
 		...summary,
@@ -5217,6 +5218,26 @@ function firstLineOfMessage(data) {
 		}
 	}
 	return null;
+}
+/** Usage before any message reported it. */
+const INITIAL_USAGE = Object.freeze({
+	reported: 0,
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	reasoning: 0,
+	total: 0
+});
+/**
+* Read a token count out of a usage record.
+* @param usage - the message's usage payload.
+* @param key - field name.
+* @returns the number, or 0 when the provider did not report it.
+*/
+function usageField(usage, key) {
+	if (usage === void 0) return 0;
+	const value = usage[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 /** Counters start at zero; nothing has been folded yet. */
 const INITIAL_HEALTH = Object.freeze({
@@ -5289,11 +5310,13 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	toolsAvailable: null,
 	streamedTextLength: 0,
 	streamedAt: null,
+	usage: INITIAL_USAGE,
 	health: INITIAL_HEALTH,
 	lastEvent: null,
 	recent: NO_EVENTS,
 	timeline: NO_TIMELINE,
 	turns: NO_TURNS,
+	turnsTotal: 0,
 	actions: NO_ACTIONS,
 	endedReason: null
 });
@@ -5308,6 +5331,21 @@ function numberOf(value) {
 /** Read a string member without trusting the value. */
 function stringOf(value) {
 	return typeof value === "string" ? value : void 0;
+}
+/**
+* The entry id a tool name belongs to, by the ecosystem's naming law.
+*
+* `check_ui_size` is registered by the bundle whose entry id is
+* `tool-check-ui-size` (ids keep dashes, tool names use underscores), and the
+* official tools follow the same law (`bash` → `tool-bash`). Showing it tells a
+* reader which plugin a row came from instead of the generic word "tool".
+* @param toolName - the registered tool name.
+* @returns the entry id, or null when the name carries nothing to derive from.
+*/
+function entryIdOfTool(toolName) {
+	const trimmed = toolName.trim();
+	if (trimmed === "") return null;
+	return `tool-${trimmed.replaceAll("_", "-")}`;
 }
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600;
@@ -5611,13 +5649,15 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				step: null,
 				running: true,
 				openTools: NO_TOOLS,
+				turnsTotal: turn === null || state.turns.some((summary) => summary.turn === turn) ? state.turnsTotal : state.turnsTotal + 1,
 				turns: turn === null || state.turns.some((summary) => summary.turn === turn) ? state.turns : [...state.turns, {
 					turn,
 					startedAt: time,
 					endedAt: null,
 					toolCalls: 0,
 					failures: 0,
-					tools: []
+					tools: [],
+					tokens: 0
 				}].slice(-20),
 				timeline: turn === null ? state.timeline : pushTimeline(state.timeline, {
 					id: `turn-${turn}`,
@@ -5627,6 +5667,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					startedAt: time,
 					endedAt: null,
 					title: "",
+					entryId: null,
 					detail: null,
 					argsFull: null,
 					resultFull: null,
@@ -5712,6 +5753,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					startedAt: time,
 					endedAt: null,
 					title: name,
+					entryId: entryIdOfTool(name),
 					detail: call.detail,
 					result: null,
 					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null),
@@ -5763,6 +5805,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					startedAt: time,
 					endedAt: time,
 					title: "",
+					entryId: null,
 					detail,
 					result: null,
 					argsFull: null,
@@ -5773,27 +5816,46 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 			};
 		}
 		case "assistant/message":
-		case "assistant/attempt": return {
-			...state,
-			...envelope,
-			streamedTextLength: 0,
-			streamedAt: null,
-			timeline: event.type === "assistant/message" ? pushTimeline(state.timeline, {
-				id: `assistant-${seq}`,
-				kind: "assistant",
-				turn: numberOf(data?.["turn"]) ?? state.turn,
-				step: numberOf(data?.["step"]) ?? null,
-				startedAt: time,
-				endedAt: time,
-				title: "",
-				detail: firstLineOfMessage(data),
-				result: null,
-				argsFull: null,
-				resultFull: expandable(fullToolResult(data)),
-				status: "ok"
-			}) : state.timeline,
-			...observed(state, event, null)
-		};
+		case "assistant/attempt": {
+			const usage = recordOf(data?.["usage"]);
+			const reported = usage !== void 0 && typeof usage["totalTokens"] === "number";
+			const spent = reported ? usageField(usage, "totalTokens") : 0;
+			const turn = numberOf(data?.["turn"]) ?? state.turn;
+			return {
+				...state,
+				...envelope,
+				streamedTextLength: 0,
+				streamedAt: null,
+				usage: reported ? {
+					reported: state.usage.reported + 1,
+					input: state.usage.input + usageField(usage, "inputTokens"),
+					output: state.usage.output + usageField(usage, "outputTokens"),
+					cacheRead: state.usage.cacheRead + usageField(usage, "cacheReadTokens"),
+					reasoning: state.usage.reasoning + usageField(usage, "reasoningTokens"),
+					total: state.usage.total + spent
+				} : state.usage,
+				turns: reported && turn !== null ? state.turns.map((summary) => summary.turn === turn ? {
+					...summary,
+					tokens: summary.tokens + spent
+				} : summary) : state.turns,
+				timeline: event.type === "assistant/message" ? pushTimeline(state.timeline, {
+					id: `assistant-${seq}`,
+					kind: "assistant",
+					turn: numberOf(data?.["turn"]) ?? state.turn,
+					step: numberOf(data?.["step"]) ?? null,
+					startedAt: time,
+					endedAt: time,
+					title: "",
+					entryId: null,
+					detail: firstLineOfMessage(data),
+					result: null,
+					argsFull: null,
+					resultFull: expandable(fullToolResult(data)),
+					status: "ok"
+				}) : state.timeline,
+				...observed(state, event, null)
+			};
+		}
 		default: return {
 			...state,
 			...envelope,
@@ -5881,13 +5943,22 @@ const liveToolCallSchema = object({
 	endedAt: number().optional(),
 	result: string().nullable().optional()
 }).strict();
+const liveTaskUsageSchema = object({
+	reported: number().int().nonnegative(),
+	input: number().nonnegative(),
+	output: number().nonnegative(),
+	cacheRead: number().nonnegative(),
+	reasoning: number().nonnegative(),
+	total: number().nonnegative()
+}).strict();
 const liveTurnSummarySchema = object({
 	turn: number().int(),
 	startedAt: number(),
 	endedAt: number().nullable(),
 	toolCalls: number().int().nonnegative(),
 	failures: number().int().nonnegative(),
-	tools: array(string())
+	tools: array(string()),
+	tokens: number().nonnegative()
 }).strict();
 const liveTimelineEntrySchema = object({
 	id: string(),
@@ -5902,6 +5973,7 @@ const liveTimelineEntrySchema = object({
 	startedAt: number(),
 	endedAt: number().nullable(),
 	title: string(),
+	entryId: string().nullable(),
 	detail: string().nullable(),
 	result: string().nullable(),
 	argsFull: string().nullable(),
@@ -5967,6 +6039,8 @@ const liveTaskStateSchema = object({
 	actions: array(liveTaskActionSchema),
 	timeline: array(liveTimelineEntrySchema),
 	turns: array(liveTurnSummarySchema),
+	turnsTotal: number().int().nonnegative(),
+	usage: liveTaskUsageSchema,
 	health: liveTaskHealthSchema,
 	endedReason: string().nullable(),
 	streamedTextLength: number().int().nonnegative(),
@@ -5996,6 +6070,8 @@ const liveTaskViewSchema = object({
 	actions: array(liveTaskActionSchema),
 	timeline: array(liveTimelineEntrySchema),
 	turns: array(liveTurnSummarySchema),
+	turnsTotal: number().int().nonnegative(),
+	usage: liveTaskUsageSchema,
 	health: liveTaskHealthSchema,
 	streamedAt: number().nullable(),
 	endedReason: string().nullable()
@@ -6035,6 +6111,8 @@ function viewOf(state) {
 		actions: state.actions,
 		timeline: state.timeline,
 		turns: state.turns,
+		turnsTotal: state.turnsTotal,
+		usage: state.usage,
 		health: state.health,
 		streamedAt: state.streamedAt,
 		endedReason: state.endedReason

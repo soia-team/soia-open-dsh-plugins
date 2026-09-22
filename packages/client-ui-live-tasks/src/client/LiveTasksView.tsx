@@ -56,6 +56,20 @@ function useNow(): number {
   return now
 }
 
+/**
+ * Render a token count compactly: `1234567` → `1.23M`.
+ *
+ * Six-digit numbers repeated down a column are hard to compare at a glance;
+ * the exact value stays available in the tooltip.
+ * @param value - token count.
+ * @returns the compact form.
+ */
+function compact(value: number): string {
+  if (value < 1000) return String(value)
+  if (value < 1_000_000) return `${(value / 1000).toFixed(1)}k`
+  return `${(value / 1_000_000).toFixed(2)}M`
+}
+
 /** Wall-clock `HH:MM:SS` in the reader's own timezone. */
 function clockOf(at: number): string {
   return new Date(at).toLocaleTimeString(undefined, { hour12: false })
@@ -219,6 +233,9 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
         </span>
         <span className={styles.tlBody}>
           {entry.kind === 'tool' && <span className={styles.tlTitle}>{entry.title}</span>}
+          {/* Which plugin produced this row: the entry id the host lists in its own
+              inventory, next to the tool name it registers. */}
+          {entry.entryId !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
           {entry.detail !== null && <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail}</span>}
           {entry.result !== null && (
             <>
@@ -239,11 +256,21 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
           <div className={styles.detailBlock}>
             <span className={styles.detailLabel}>{t('detail.overview')}</span>
             <dl className={styles.detailGrid}>
-              <dt>{t('timeline.tool')}</dt>
+              <dt>{t('detail.name')}</dt>
               <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
-              <dt>{t('overview.status')}</dt>
-              <dd>{running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}</dd>
-              <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
+              {entry.entryId !== null && (
+                <>
+                  <dt>{t('detail.entryId')}</dt>
+                  <dd className={styles.detailMono}>{entry.entryId}</dd>
+                </>
+              )}
+              {entry.kind === 'tool' && (
+                <>
+                  <dt>{t('overview.status')}</dt>
+                  <dd>{running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}</dd>
+                  <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
+                </>
+              )}
               <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
               {entry.turn !== null && (
                 <>
@@ -255,14 +282,27 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
               )}
             </dl>
           </div>
-          <div className={styles.detailBlock}>
-            <span className={styles.detailLabel}>{t('turn.args')}</span>
-            <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
-          </div>
-          <div className={styles.detailBlock}>
-            <span className={styles.detailLabel}>{t('turn.result')}</span>
-            <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
-          </div>
+          {entry.kind === 'tool'
+            ? (
+                <>
+                  <div className={styles.detailBlock}>
+                    <span className={styles.detailLabel}>{t('turn.args')}</span>
+                    <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
+                  </div>
+                  <div className={styles.detailBlock}>
+                    <span className={styles.detailLabel}>{t('turn.result')}</span>
+                    <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
+                  </div>
+                </>
+              )
+            : (
+                /* A message row has one body, not an argument and a result; showing
+                   the same sentence twice said nothing. */
+                <div className={styles.detailBlock}>
+                  <span className={styles.detailLabel}>{t('detail.content')}</span>
+                  <pre className={styles.detailPre}>{entry.detail ?? t('detail.none')}</pre>
+                </div>
+              )}
         </div>
       )}
     </li>
@@ -311,6 +351,7 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
         <span className={styles.turnMeta}>{started}</span>
         <span className={styles.turnMeta}>{t('time.seconds', { s: took })}</span>
         {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
+        {turn.tokens > 0 && <span className={styles.turnMeta}>{t('usage.turn', { t: compact(turn.tokens) })}</span>}
         {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
       </header>
       {!open
@@ -421,12 +462,28 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
 
       <p className={styles.summaryLine}>
         {t('axis.summary', {
-          turns: state.turns.length,
+          turns: state.turnsTotal,
           calls: state.toolCallsTotal,
           failures: state.failuresTotal,
           tools: state.toolsAvailable ?? '—',
           used: distinctTools,
         })}
+      </p>
+
+      {/* Token telemetry: the host records usage per assistant message, and this
+          is the only surface where a reader can see what the session has cost. */}
+      <p className={styles.usageLine}>
+        {state.usage.reported === 0
+          ? t('usage.unknown')
+          : t('usage.line', {
+              total: compact(state.usage.total),
+              input: compact(state.usage.input),
+              output: compact(state.usage.output),
+              cache: compact(state.usage.cacheRead),
+              pct: state.usage.input === 0
+                ? 0
+                : Math.round((state.usage.cacheRead / state.usage.input) * 100),
+            })}
       </p>
 
       <div className={styles.bar}>
@@ -440,7 +497,16 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         <button type="button" className={failedOnly ? styles.barOn : styles.barButton} onClick={() => setFailedOnly(!failedOnly)}>
           {t('bar.failedOnly')}
         </button>
-        <button type="button" className={styles.barButton} onClick={() => setExpandAll(!expandAll)}>
+        <button
+          type="button"
+          className={styles.barButton}
+          onClick={() => {
+            // Leaving the single-row selection behind avoids the state where
+            // clicking a row changes nothing visible.
+            setExpanded(null)
+            setExpandAll(!expandAll)
+          }}
+        >
           {expandAll ? t('bar.collapseAll') : t('bar.expandAll')}
         </button>
         <button type="button" className={showClock ? styles.barOn : styles.barButton} onClick={() => setShowClock(!showClock)}>
@@ -457,7 +523,11 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
       </div>
 
       <section className={styles.section}>
-        <h4 className={styles.sectionTitle}>{t('axis.title')}</h4>
+        <h4 className={styles.sectionTitle}>
+          {state.turnsTotal > state.turns.length
+            ? t('axis.titleWindow', { total: state.turnsTotal, shown: state.turns.length })
+            : t('axis.title')}
+        </h4>
         <LaneChart
           entries={state.timeline}
           turns={state.turns}
@@ -483,7 +553,12 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
               showClock={showClock}
               open={turnsOpen}
               expandedId={expandAll ? '__all__' : expanded}
-              onToggle={(id) => setExpanded(expanded === id ? null : id)}
+              onToggle={(id) => {
+                // A row click always leaves "expand all": otherwise, with every
+                // row expanded, clicking one looks like nothing happened.
+                setExpandAll(false)
+                setExpanded(expanded === id ? null : id)
+              }}
               t={t}
             />
           ))}

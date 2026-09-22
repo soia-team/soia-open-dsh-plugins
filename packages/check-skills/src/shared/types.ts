@@ -92,6 +92,8 @@ export type CheckSkillsFailureCode =
 /** Failed audit: a typed reason instead of a partial or guessed answer. */
 export interface CheckSkillsFailure {
   status: 'error'
+  /** The plugin that produced this failure, so a reader knows where to look. */
+  plugin: 'soia-dsh-tool-check-skills'
   code: CheckSkillsFailureCode
   message: string
   sessionPath?: string

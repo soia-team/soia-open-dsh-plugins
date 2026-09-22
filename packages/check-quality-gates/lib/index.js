@@ -558,7 +558,8 @@ function buildGateReport(input) {
 		enforcement: "none",
 		unmatched: [...changedFiles],
 		error,
-		code: input.code ?? "config_invalid"
+		code: input.code ?? "config_invalid",
+		plugin: "soia-dsh-tool-check-quality-gates"
 	};
 	const gates = input.gates ?? [];
 	return {

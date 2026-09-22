@@ -73,6 +73,7 @@ function diffAgainstExpected(rect, expected) {
 function failure(code, message, options) {
 	return {
 		status: "error",
+		plugin: "soia-dsh-tool-check-ui-size",
 		code,
 		message,
 		url: options.url,

@@ -26,6 +26,17 @@ export declare const INITIAL_LIVE_TASK_STATE: LiveTaskState;
 /** Display summary of one durable event. */
 /** How many recent observations the view keeps for its trail. */
 export declare const RECENT_EVENT_LIMIT = 6;
+/**
+ * The entry id a tool name belongs to, by the ecosystem's naming law.
+ *
+ * `check_ui_size` is registered by the bundle whose entry id is
+ * `tool-check-ui-size` (ids keep dashes, tool names use underscores), and the
+ * official tools follow the same law (`bash` → `tool-bash`). Showing it tells a
+ * reader which plugin a row came from instead of the generic word "tool".
+ * @param toolName - the registered tool name.
+ * @returns the entry id, or null when the name carries nothing to derive from.
+ */
+export declare function entryIdOfTool(toolName: string): string | null;
 /** How many timeline rows the view keeps. */
 export declare const TIMELINE_LIMIT = 20;
 /** How many turns the axis keeps. */

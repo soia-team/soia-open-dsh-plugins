@@ -40,6 +40,8 @@ const reactDom = readFileSync(join(root, 'node_modules/react-dom/umd/react-dom.p
  * injected context row, a step-less message and a long payload that must clip.
  */
 const fixture = {
+  turnsTotal: 64,
+  usage: { reported: 12, input: 1_240_000, output: 38_000, cacheRead: 1_120_000, reasoning: 4_200, total: 1_402_000 },
   turn: 2,
   step: 2,
   running: true,
@@ -59,20 +61,20 @@ const fixture = {
     { callId: 'c3', name: 'grep', detail: 'rg __no_such_symbol__ fixture.html', startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, status: 'failed', result: 'Error: grep search failed (exit 2)' },
   ],
   timeline: [
-    { id: 'turn-1', kind: 'turn', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: null, title: '1', detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'u1', kind: 'user', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: Date.now() - 70_000, title: '', detail: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', result: null, argsFull: null, resultFull: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', status: 'ok' },
-    { id: 'x1', kind: 'context', turn: 1, step: null, startedAt: Date.now() - 69_500, endedAt: Date.now() - 69_500, title: '', detail: '<system-reminder> The following workspace instructions may be relevant …', result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'a1', kind: 'assistant', turn: 1, step: 1, startedAt: Date.now() - 69_000, endedAt: Date.now() - 69_000, title: '', detail: "I'll run all three checks in parallel.", result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'c1', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 60_000, endedAt: Date.now() - 59_800, title: 'read', detail: '/etc/hosts', result: '<path>/etc/hosts</path>', argsFull: '{\n  "file_path": "/etc/hosts",\n  "limit": 3\n}', resultFull: '<path>/etc/hosts</path>', status: 'ok' },
-    { id: 'c2', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 59_000, endedAt: Date.now() - 58_000, title: 'check_ui_size', detail: '#pill @ http://127.0.0.1:8899/second-case.html', result: 'selector=#pill, matched=1, visible=true, status=ok', argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'c3', kind: 'tool', turn: 1, step: 2, startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, title: 'grep', detail: 'rg __no_such_symbol__ fixture.html', result: 'Error: grep search failed (exit 2)', argsFull: null, resultFull: null, status: 'failed' },
-    { id: 'turn-2', kind: 'turn', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: null, title: '2', detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'u2', kind: 'user', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: Date.now() - 10_000, title: '', detail: '再跑一条 bash: sleep 30', result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'c4', kind: 'tool', turn: 2, step: 2, startedAt: Date.now() - 3_000, endedAt: null, title: 'bash', detail: 'sleep 30', result: null, argsFull: '{\n  "command": "sleep 30",\n  "timeoutMs": 60000\n}', resultFull: null, status: 'running' },
+    { id: 'turn-1', kind: 'turn', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: null, title: '1', entryId: null, detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'u1', kind: 'user', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: Date.now() - 70_000, title: '', entryId: null, detail: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', result: null, argsFull: null, resultFull: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', status: 'ok' },
+    { id: 'x1', kind: 'context', turn: 1, step: null, startedAt: Date.now() - 69_500, endedAt: Date.now() - 69_500, title: '', entryId: null, detail: '<system-reminder> The following workspace instructions may be relevant …', result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'a1', kind: 'assistant', turn: 1, step: 1, startedAt: Date.now() - 69_000, endedAt: Date.now() - 69_000, title: '', entryId: null, detail: "I'll run all three checks in parallel.", result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c1', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 60_000, endedAt: Date.now() - 59_800, title: 'read', entryId: 'tool-read', detail: '/etc/hosts', result: '<path>/etc/hosts</path>', argsFull: '{\n  "file_path": "/etc/hosts",\n  "limit": 3\n}', resultFull: '<path>/etc/hosts</path>', status: 'ok' },
+    { id: 'c2', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 59_000, endedAt: Date.now() - 58_000, title: 'check_ui_size', entryId: 'tool-check-ui-size', detail: '#pill @ http://127.0.0.1:8899/second-case.html', result: 'selector=#pill, matched=1, visible=true, status=ok', argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c3', kind: 'tool', turn: 1, step: 2, startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, title: 'grep', entryId: 'tool-grep', detail: 'rg __no_such_symbol__ fixture.html', result: 'Error: grep search failed (exit 2)', argsFull: null, resultFull: null, status: 'failed' },
+    { id: 'turn-2', kind: 'turn', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: null, title: '2', entryId: null, detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'u2', kind: 'user', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: Date.now() - 10_000, title: '', entryId: null, detail: '再跑一条 bash: sleep 30', result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c4', kind: 'tool', turn: 2, step: 2, startedAt: Date.now() - 3_000, endedAt: null, title: 'bash', entryId: 'tool-bash', detail: 'sleep 30', result: null, argsFull: '{\n  "command": "sleep 30",\n  "timeoutMs": 60000\n}', resultFull: null, status: 'running' },
   ],
   turns: [
-    { turn: 1, startedAt: Date.now() - 70_000, endedAt: Date.now() - 20_000, toolCalls: 3, failures: 1, tools: ['read', 'check_ui_size', 'grep'] },
-    { turn: 2, startedAt: Date.now() - 10_000, endedAt: null, toolCalls: 1, failures: 0, tools: ['bash'] },
+    { turn: 1, startedAt: Date.now() - 70_000, endedAt: Date.now() - 20_000, toolCalls: 3, failures: 1, tools: ['read', 'check_ui_size', 'grep'], tokens: 42000 },
+    { turn: 2, startedAt: Date.now() - 10_000, endedAt: null, toolCalls: 1, failures: 0, tools: ['bash'], tokens: 42000 },
   ],
   health: { folded: 47, ignored: 17, unknown: 0, frames: 0, agents: 0, registry: 0, deltasAccepted: 0, deltasDropped: 0 },
   streamedAt: null,
@@ -95,6 +97,7 @@ const DICTIONARY = {
   'bar.collapseTurns': '收起轮次', 'bar.expandTurns': '展开轮次', 'bar.clearRange': '清除选择',
   'bar.scrollHint': '横向可滚动', 'bar.rangeHint': '在时间图上拖动可框选',
   'axis.title': '轮次横轴（时间向右）',
+  'axis.titleWindow': '轮次横轴（最近 {shown} 轮，共 {total} 轮）',
   'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）',
   'overview.title': '概览', 'overview.status': '状态', 'overview.at': '位置',
   'overview.atValue': '#{turn} · 第 {step} 步', 'overview.turnOnly': '#{turn}',
@@ -104,6 +107,10 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概览', 'detail.none': '（没有可显示的内容）',
+  'detail.name': '名称', 'detail.entryId': '插件 ID（入口）', 'detail.content': '内容',
+  'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）',
+  'usage.unknown': '本会话还没有用量报告',
+  'usage.turn': '{t} tok',
   'status.ok': '完成', 'status.failed': '失败', 'status.running': '进行中',
   'time.seconds': '{s} 秒', 'timing.duration': '时长', 'timing.started': '开始时间',
   'phase.running': '正在干活', 'phase.tool': '等工具返回', 'phase.idle': '空闲', 'phase.ended': '已结束',
@@ -209,6 +216,11 @@ const errors = []
 view.on('pageerror', (error) => errors.push(String(error)))
 await view.goto(`file://${pagePath}`)
 await view.waitForTimeout(900)
+// Open one row so the screenshot shows the detail layout, which is the part a
+// reader judges the panel by.
+await view.locator('[class*="lt-toolButton"]').nth(5).click()
+await view.waitForTimeout(250)
+
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
 // A missing translation renders as its raw key, which is exactly how the first
 // version of this harness hid a 46px chip slot behind overflowing text. Detect it

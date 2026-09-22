@@ -72,4 +72,11 @@ export interface GateReport {
      * `config_not_found`, `config_unreadable`, `config_invalid`.
      */
     code: GateFailureCode | null;
+    /**
+     * The plugin that produced this failure, present exactly when `error` is set.
+     *
+     * Model-visible text names its source: a bare message leaves a reader unable to
+     * tell which plugin to inspect, or whether a plugin was involved at all.
+     */
+    plugin?: 'soia-dsh-tool-check-quality-gates';
 }
