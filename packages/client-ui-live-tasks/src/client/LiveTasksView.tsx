@@ -297,7 +297,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
           <button type="button" className={styles.rowButton} onClick={onToggle} aria-expanded={expanded}>
             <span className={styles.tlTime}>{clock}</span>
             <span className={styles.tlTitle}>{entry.kind === 'tool' ? entry.title : ''}</span>
-            {entry.entryId !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
+            {(entry.entryId ?? null) !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
             {entry.kind === 'tool' && argsInline(entry) !== null && (
               <span className={styles.tlArgs} title={argsInline(entry) ?? ''}>
                 {`（${argsInline(entry)}）`}
@@ -466,7 +466,7 @@ function DetailDrawer({ entry, now, onClose, t }: {
         <dl className={styles.detailGrid}>
           <dt>{t('detail.name')}</dt>
           <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
-          {entry.entryId !== null && (
+          {(entry.entryId ?? null) !== null && (
             <>
               <dt>{t('detail.entryId')}</dt>
               <dd className={styles.detailMono}>{entry.entryId}</dd>
@@ -683,9 +683,14 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
               input: compact(state.usage.input),
               output: compact(state.usage.output),
               cache: compact(state.usage.cacheRead),
-              pct: state.usage.input === 0
+              // The footer's 缓存命中 rate: cache reads over *all* input reads
+              // (billed input + cache reads). Using cache/billed alone reported
+              // 15531% on a real session, because billed input excludes cache.
+              pct: state.usage.cacheRead + state.usage.input === 0
                 ? 0
-                : Math.round((state.usage.cacheRead / state.usage.input) * 100),
+                : Math.round(
+                    (state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100,
+                  ),
             })}
       </p>
 
