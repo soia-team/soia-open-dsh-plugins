@@ -5156,6 +5156,7 @@ const NO_EVENTS = Object.freeze([]);
 const NO_ACTIONS = Object.freeze([]);
 const NO_TIMELINE = Object.freeze([]);
 const NO_TURNS = Object.freeze([]);
+const NO_SPANS = Object.freeze([]);
 /**
 * Record one tool call against its turn's summary, opening the turn if needed.
 * @param turns - existing summaries, oldest first.
@@ -5234,6 +5235,38 @@ const INITIAL_USAGE = Object.freeze({
 * @param key - field name.
 * @returns the number, or 0 when the provider did not report it.
 */
+/**
+* Fold one row into both the row window and the lane segments.
+*
+* They are bounded separately: rows keep the wire small (twenty), the chart needs
+* density (four hundred) or the strip reads as empty next to the trajectory view.
+* @param state - state before the row.
+* @param entry - the row just folded.
+* @returns the new `timeline` and `spans`.
+*/
+function foldTimeline(state, entry) {
+	return {
+		timeline: pushTimeline(state.timeline, entry),
+		spans: pushSpan(state.spans, entry)
+	};
+}
+/**
+* Record one lane segment alongside a timeline row.
+* @param spans - the current segment list.
+* @param entry - the row just folded.
+* @returns the new list, newest-last and bounded.
+*/
+function pushSpan(spans, entry) {
+	if (entry.kind === "turn") return spans;
+	return [...spans, {
+		id: entry.id,
+		turn: entry.turn ?? 0,
+		kind: entry.kind,
+		status: entry.status,
+		startedAt: entry.startedAt,
+		endedAt: entry.endedAt
+	}].slice(-SPAN_LIMIT);
+}
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
 	const value = usage[key];
@@ -5315,6 +5348,7 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	lastEvent: null,
 	recent: NO_EVENTS,
 	timeline: NO_TIMELINE,
+	spans: NO_SPANS,
 	turns: NO_TURNS,
 	turnsTotal: 0,
 	actions: NO_ACTIONS,
@@ -5347,6 +5381,8 @@ function entryIdOfTool(toolName) {
 	if (trimmed === "") return null;
 	return `tool-${trimmed.replaceAll("_", "-")}`;
 }
+/** How many lane segments the view keeps (the chart wants density, not rows). */
+const SPAN_LIMIT = 400;
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600;
 /** Longest argument summary carried to the client; longer values are clipped. */
@@ -5745,7 +5781,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				toolCallsInTurn: state.toolCallsInTurn + 1,
 				toolCallsTotal: state.toolCallsTotal + 1,
 				turns: addCallToTurn(state.turns, call.turn, time, name),
-				timeline: pushTimeline(state.timeline, {
+				...foldTimeline(state, {
 					id: callId,
 					kind: "tool",
 					turn: call.turn,
@@ -5797,7 +5833,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 			return {
 				...state,
 				...envelope,
-				timeline: pushTimeline(state.timeline, {
+				...foldTimeline(state, {
 					id: `user-${seq}`,
 					kind: injected ? "context" : "user",
 					turn: numberOf(data?.["turn"]) ?? state.turn,
@@ -5838,7 +5874,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					...summary,
 					tokens: summary.tokens + spent
 				} : summary) : state.turns,
-				timeline: event.type === "assistant/message" ? pushTimeline(state.timeline, {
+				...event.type === "assistant/message" ? foldTimeline(state, {
 					id: `assistant-${seq}`,
 					kind: "assistant",
 					turn: numberOf(data?.["turn"]) ?? state.turn,
@@ -5852,7 +5888,10 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					argsFull: null,
 					resultFull: expandable(fullToolResult(data)),
 					status: "ok"
-				}) : state.timeline,
+				}) : {
+					timeline: state.timeline,
+					spans: state.spans
+				},
 				...observed(state, event, null)
 			};
 		}
@@ -5960,6 +5999,23 @@ const liveTurnSummarySchema = object({
 	tools: array(string()),
 	tokens: number().nonnegative()
 }).strict();
+const liveSpanSchema = object({
+	id: string(),
+	turn: number().int(),
+	kind: _enum([
+		"user",
+		"assistant",
+		"tool",
+		"context"
+	]),
+	status: _enum([
+		"ok",
+		"failed",
+		"running"
+	]),
+	startedAt: number(),
+	endedAt: number().nullable()
+}).strict();
 const liveTimelineEntrySchema = object({
 	id: string(),
 	turn: number().int().nullable(),
@@ -6038,6 +6094,7 @@ const liveTaskStateSchema = object({
 	recent: array(liveEventSummarySchema),
 	actions: array(liveTaskActionSchema),
 	timeline: array(liveTimelineEntrySchema),
+	spans: array(liveSpanSchema),
 	turns: array(liveTurnSummarySchema),
 	turnsTotal: number().int().nonnegative(),
 	usage: liveTaskUsageSchema,
@@ -6069,6 +6126,7 @@ const liveTaskViewSchema = object({
 	recent: array(liveEventSummarySchema),
 	actions: array(liveTaskActionSchema),
 	timeline: array(liveTimelineEntrySchema),
+	spans: array(liveSpanSchema),
 	turns: array(liveTurnSummarySchema),
 	turnsTotal: number().int().nonnegative(),
 	usage: liveTaskUsageSchema,
@@ -6112,6 +6170,7 @@ function viewOf(state) {
 		timeline: state.timeline,
 		turns: state.turns,
 		turnsTotal: state.turnsTotal,
+		spans: state.spans,
 		usage: state.usage,
 		health: state.health,
 		streamedAt: state.streamedAt,

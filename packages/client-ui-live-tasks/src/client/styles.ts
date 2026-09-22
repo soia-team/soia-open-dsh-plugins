@@ -146,6 +146,36 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* ── Panes and the detail drawer ────────────────────────────────────────────
+   The trajectory view opens a row's detail as a right-hand pane with a 42px
+   header, a tab strip and a scrolling body; an inline block under the row pushed
+   every later row down and could not be read against the row it described. */
+.lt-panes { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+.lt-paneMain { display: flex; flex-direction: column; gap: 18px; flex: 1; min-width: 0; }
+.lt-details { display: flex; flex-direction: column; flex: none; width: 380px; max-height: 78vh;
+  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1, #fff); overflow: hidden; }
+.lt-detailsHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  box-sizing: border-box; height: 42px; padding: 0 8px 0 12px; flex: none;
+  border-bottom: .5px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 14%)); }
+.lt-detailsTitle { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--dsw-alias-label-primary); }
+.lt-detailsName { font-weight: 600; }
+.lt-detailsLocation { min-width: 0; color: var(--dsw-alias-label-tertiary);
+  font: 11px/16px var(--dsw-font-mono, monospace); text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.lt-detailsClose { flex: none; width: 22px; height: 22px; border: 0; border-radius: 4px; cursor: pointer;
+  background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 15px; line-height: 1; }
+.lt-detailsClose:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 6%)); }
+.lt-detailTabs { display: flex; flex: none; overflow-x: auto; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-detailTabs::-webkit-scrollbar { display: none; }
+.lt-detailTab, .lt-detailTabActive { flex: none; position: relative; padding: 6px 9px; border: 0;
+  background: transparent; cursor: pointer; font: var(--dsw-font-xs-13, 13px/18px inherit); }
+.lt-detailTab { color: var(--dsw-alias-label-tertiary); }
+.lt-detailTabActive { color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-detailTabActive::after { content: ''; position: absolute; bottom: 0; left: 9px; right: 9px; height: 2px;
+  border-radius: 1px 1px 0 0; background: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-detailBody { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.lt-detailBody .lt-detailPre { max-height: none; }
 .lt-toolList { display: flex; flex-direction: column; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
 /* Rows follow the trajectory view's table: one 30px line each, a half-pixel
@@ -223,6 +253,8 @@ const CSS = `
 .lt-tlEntryId { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px;
   font-family: var(--dsw-font-mono, monospace); }
 .lt-detailMono { font-family: var(--dsw-font-mono, monospace); }
+.lt-tlArgs { flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail, .lt-tlResult { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   font-family: var(--dsw-font-mono, monospace); }
 .lt-tlDetail { color: var(--dsw-alias-label-secondary); max-width: 42%; }
@@ -389,6 +421,18 @@ export const styles = {
     detailRow: 'lt-detailRow',
     detailCell: 'lt-detailCell',
     turnBody: 'lt-turnBody',
+    panes: 'lt-panes',
+    paneMain: 'lt-paneMain',
+    details: 'lt-details',
+    detailsHeader: 'lt-detailsHeader',
+    detailsTitle: 'lt-detailsTitle',
+    detailsName: 'lt-detailsName',
+    detailsLocation: 'lt-detailsLocation',
+    detailsClose: 'lt-detailsClose',
+    detailTabs: 'lt-detailTabs',
+    detailTab: 'lt-detailTab',
+    detailTabActive: 'lt-detailTabActive',
+    detailBody: 'lt-detailBody',
   scroll: 'lt-scroll',
   rowsInner: 'lt-rowsInner',
   toolItem: 'lt-toolItem',
@@ -414,6 +458,7 @@ export const styles = {
   tlBody: 'lt-tlBody',
   tlTitle: 'lt-tlTitle',
   tlEntryId: 'lt-tlEntryId',
+  tlArgs: 'lt-tlArgs',
   detailMono: 'lt-detailMono',
   tlDetail: 'lt-tlDetail',
   tlArrow: 'lt-tlArrow',

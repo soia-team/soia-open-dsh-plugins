@@ -222,6 +222,22 @@ export interface LiveTaskUsage {
   readonly total: number
 }
 
+/** One lane-chart segment: the shape the trajectory view draws as a dense bar. */
+export interface LiveSpan {
+  /** Same id as the timeline row it belongs to. */
+  readonly id: string
+  /** Turn it happened in. */
+  readonly turn: number
+  /** Which lane: `user`, `assistant`, `tool`, `context`. */
+  readonly kind: 'user' | 'assistant' | 'tool' | 'context'
+  /** `ok`, `failed` or `running`. */
+  readonly status: 'ok' | 'failed' | 'running'
+  /** Epoch milliseconds it started. */
+  readonly startedAt: number
+  /** Epoch milliseconds it settled at, or null while open. */
+  readonly endedAt: number | null
+}
+
 /** One finished (or running) tool call as a human-readable line. */
 export interface LiveTaskAction {
   readonly callId: string
@@ -285,6 +301,14 @@ export interface LiveTaskView {
   readonly actions: readonly LiveTaskAction[]
   /** Newest-last session timeline; bounded, so the wire stays a fixed size. */
   readonly timeline: readonly LiveTimelineEntry[]
+  /**
+   * Lane segments, kept apart from the row window.
+   *
+   * The rows are bounded to keep the wire small, but the lane chart needs every
+   * segment to read as the dense bar the trajectory view draws — a chart of the
+   * twenty retained rows looks empty next to it.
+   */
+  readonly spans: readonly LiveSpan[]
   /** Newest-last turn summaries, for the timeline's horizontal axis. */
   readonly turns: readonly LiveTurnSummary[]
   /**

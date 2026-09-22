@@ -388,6 +388,7 @@ describe('liveTask projection unit', () => {
       'recent',
       'running',
       'seq',
+      'spans',
       'step',
       'streamedAt',
       'timeline',
