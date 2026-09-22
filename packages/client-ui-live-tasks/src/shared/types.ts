@@ -32,14 +32,23 @@ export interface LiveEventLike {
 
 /** One normalized step of the fold. */
 export type LiveTaskObservation =
-  | { readonly kind: 'event'; readonly event: LiveEventLike }
   | {
-      readonly kind: 'text-delta'
-      readonly turn: number
-      readonly step: number
-      readonly time: number
-      readonly text: string
-    }
+    readonly kind: 'event'
+    readonly event: LiveEventLike
+    /** Set on the first event of a session this plugin just attached to. */
+    readonly agentAttached?: boolean
+    /** Registry size observed while trying to attach, when a lookup ran. */
+    readonly registrySize?: number
+  }
+  /** A stream frame arrived; counted for liveness before normalization. */
+  | { readonly kind: 'stream-frame' }
+  | {
+    readonly kind: 'text-delta'
+    readonly turn: number
+    readonly step: number
+    readonly time: number
+    readonly text: string
+  }
 
 /** A tool call the session issued, and whether its result has arrived. */
 export interface LiveToolCall {
@@ -78,6 +87,40 @@ export interface LiveEventSummary {
   readonly time: number
   /** Tool name for tool events; null when the type alone is the whole story. */
   readonly detail: string | null
+}
+
+/**
+ * What the fold itself has been doing.
+ *
+ * The panel exists to say what a session is doing; these counters say whether
+ * the panel can still be believed. They are the difference between "nothing is
+ * happening" and "this view stopped receiving data", which look identical on
+ * screen otherwise.
+ */
+export interface LiveTaskHealth {
+  /** Durable events folded into the state. */
+  readonly folded: number
+  /** Events this build deliberately does not fold (session setup, receipts, …). */
+  readonly ignored: number
+  /** Events whose type this build has never seen — a host newer than the plugin. */
+  readonly unknown: number
+  /**
+   * Stream frames the host delivered to this plugin.
+   *
+   * Counted at the listener, before any normalization: a frame that arrives and
+   * is then discarded for not matching the open attempt is a different problem
+   * from a listener that never fires, and the two were indistinguishable while
+   * only the post-normalization numbers were recorded.
+   */
+  readonly frames: number
+  /** Agents this plugin attached a stream listener to. */
+  readonly agents: number
+  /** Agents visible in the host registry when the attach was attempted. */
+  readonly registry: number
+  /** Transient text deltas accepted as live progress. */
+  readonly deltasAccepted: number
+  /** Transient deltas dropped as replays, stragglers or out-of-step frames. */
+  readonly deltasDropped: number
 }
 
 /** One finished (or running) tool call as a human-readable line. */
@@ -131,6 +174,10 @@ export interface LiveTaskView {
   readonly recent: readonly LiveEventSummary[]
   /** Called tool names with their outcome summary, newest last. */
   readonly actions: readonly LiveTaskAction[]
+  /** Fold counters, so the panel can report its own freshness. */
+  readonly health: LiveTaskHealth
+  /** Unix epoch milliseconds of the newest transient delta, or null if none. */
+  readonly streamedAt: number | null
   /** `TurnEndReason.kind` of the most recent `turn/end`; null before one. */
   readonly endedReason: string | null
 }
@@ -151,4 +198,6 @@ export interface LiveTaskState extends LiveTaskView {
   readonly streamedTextLength: number
   /** Time of the last folded text delta for the open step; null before one. */
   readonly streamedAt: number | null
+  /** Fold counters, so the host can report its own freshness. */
+  readonly health: LiveTaskHealth
 }

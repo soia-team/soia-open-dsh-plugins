@@ -13,6 +13,18 @@ let react_jsx_runtime = require("react/jsx-runtime");
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS = Object.freeze([]);
 const NO_ACTIONS = Object.freeze([]);
+/** Counters start at zero; nothing has been folded yet. */
+const INITIAL_HEALTH = Object.freeze({
+	folded: 0,
+	ignored: 0,
+	unknown: 0,
+	frames: 0,
+	deltasAccepted: 0,
+	deltasDropped: 0,
+	agents: 0,
+	registry: 0
+});
+/** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS = Object.freeze([]);
 Object.freeze({
 	turn: null,
@@ -25,6 +37,7 @@ Object.freeze({
 	toolCallsInTurn: 0,
 	streamedTextLength: 0,
 	streamedAt: null,
+	health: INITIAL_HEALTH,
 	lastEvent: null,
 	recent: NO_EVENTS,
 	actions: NO_ACTIONS,
@@ -105,6 +118,11 @@ const CSS = `
 .lt-badgeOk { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
 .lt-badgeFailed { color: var(--dsw-alias-label-error, #b42318); background: rgb(180 35 24 / 10%); }
 
+/* 模块五：运行状况 */
+.lt-health { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.lt-healthStale { color: var(--dsw-alias-label-error, #b42318); }
+
 /* 共用 */
 .lt-toolName { color: var(--dsw-alias-label-primary); font-weight: 600; font-family: var(--dsw-font-mono, monospace); }
 .lt-callDetail, .lt-tdWhat { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
@@ -144,6 +162,8 @@ const styles = {
 	resultLine: "lt-resultLine",
 	badgeOk: "lt-badgeOk",
 	badgeFailed: "lt-badgeFailed",
+	health: "lt-health",
+	healthStale: "lt-healthStale",
 	toolName: "lt-toolName",
 	none: "lt-none",
 	empty: "lt-empty"
@@ -307,6 +327,8 @@ function LiveTasksView({ useProjection, t }) {
 	const actions = [...state.actions].reverse();
 	const failed = actions.filter((action) => action.status === "failed");
 	const shown = failuresOnly ? failed : actions;
+	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
+	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
 	const phrases = [...state.recent].reverse().map((summary) => phraseOf(summary, t)).filter((phrase) => phrase !== null).slice(0, 3);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
@@ -453,6 +475,36 @@ function LiveTasksView({ useProjection, t }) {
 					className: styles.none,
 					children: phrases.join(" · ")
 				})]
+			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+				className: styles.section,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("health.title")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.health,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.unknown > 0 ? styles.healthStale : void 0,
+							children: `${t("health.unknown")} ${state.health.unknown}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.registry < 0 ? styles.healthStale : void 0,
+							children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
+							ok: state.health.deltasAccepted,
+							dropped: state.health.deltasDropped
+						}) }),
+						lastDataAt !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
+							children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
+						})
+					]
+				})]
 			})
 		]
 	});
@@ -499,6 +551,19 @@ const zh = {
 	"log.took": "耗时",
 	"log.result": "结果",
 	"recent.title": "最近动静",
+	"health.title": "运行状况",
+	"health.folded": "已折叠事件",
+	"health.ignored": "已忽略（会话管理类）",
+	"health.unknown": "未知类型",
+	"health.frames": "收到流式帧",
+	"health.agents": "已接管 agent",
+	"health.registry": "注册表可见",
+	"health.unreachable": "不可达",
+	"health.deltas": "流式增量",
+	"health.deltasValue": "接受 {ok} · 丢弃 {dropped}",
+	"health.lastData": "数据更新",
+	"health.silence": "{s} 秒前",
+	"health.stale": "已 {s} 秒没有新数据",
 	"status.ok": "完成",
 	"status.failed": "失败",
 	"status.running": "进行中",
@@ -542,6 +607,19 @@ const en = {
 	"log.took": "took",
 	"log.result": "result",
 	"recent.title": "Just happened",
+	"health.title": "Panel health",
+	"health.folded": "Events folded",
+	"health.ignored": "Ignored (session setup)",
+	"health.unknown": "Unknown types",
+	"health.frames": "Stream frames",
+	"health.agents": "Agents attached",
+	"health.registry": "Registry size",
+	"health.unreachable": "unreachable",
+	"health.deltas": "Stream deltas",
+	"health.deltasValue": "{ok} kept · {dropped} dropped",
+	"health.lastData": "Last data",
+	"health.silence": "{s}s ago",
+	"health.stale": "no new data for {s}s",
 	"status.ok": "done",
 	"status.failed": "failed",
 	"status.running": "running",

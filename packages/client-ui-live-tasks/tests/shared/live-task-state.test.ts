@@ -624,3 +624,44 @@ describe('live-task derivation', () => {
       expect(state.actions[0]?.status).toBe('ok')
     })
   })
+
+  describe('the panel reports its own health', () => {
+    it('counts folded events and unknown types separately', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: '{}' }),
+        event('some/new-event-type', 3, { anything: true }),
+      ])
+
+      expect(state.health.folded).toBe(3)
+      // A host newer than the plugin shows up as a number instead of silence.
+      expect(state.health.unknown).toBe(1)
+    })
+
+    it('counts accepted and dropped stream deltas', () => {
+      const accepted = reduceLiveTask(
+        foldLiveTasks([event('turn/start', 1, { turn: 1 }), event('step/start', 2, { turn: 1, step: 1 })]),
+        { kind: 'text-delta', turn: 1, step: 1, time: 3, text: 'hello' },
+      )
+      expect(accepted.health.deltasAccepted).toBe(1)
+      expect(accepted.health.deltasDropped).toBe(0)
+
+      // A delta for a step that is not open is dropped, and the drop is counted:
+      // "the model went quiet" and "this filter ate the frame" must be told apart.
+      const dropped = reduceLiveTask(accepted, { kind: 'text-delta', turn: 1, step: 9, time: 4, text: 'stray' })
+      expect(dropped.health.deltasAccepted).toBe(1)
+      expect(dropped.health.deltasDropped).toBe(1)
+    })
+  })
+
+  describe('stream-frame counting', () => {
+    it('counts a frame as received even when normalization drops it', () => {
+      // The distinction that matters on screen: a listener that never fires
+      // versus a frame the fold could not use. Frames are counted on arrival.
+      const state = reduceLiveTask(INITIAL_LIVE_TASK_STATE, { kind: 'stream-frame' })
+
+      expect(state.health.frames).toBe(1)
+      expect(state.health.deltasAccepted).toBe(0)
+      expect(state.health.deltasDropped).toBe(0)
+    })
+  })

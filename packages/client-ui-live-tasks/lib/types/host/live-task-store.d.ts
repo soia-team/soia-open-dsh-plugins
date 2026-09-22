@@ -23,6 +23,10 @@
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { SessionId } from '@deepseek-ai/dsh-session';
 import type { LiveTaskState } from '../shared/types.ts';
+/** Sentinel recorded when the agent registry cannot be reached at all. */
+export declare const REGISTRY_UNAVAILABLE = -1;
+/** Sentinel recorded when reaching the registry threw. */
+export declare const REGISTRY_LOOKUP_FAILED = -2;
 /**
  * One session's live-task state was published.
  *
@@ -45,7 +49,20 @@ export declare class LiveTaskStore extends Service {
     /**
      * @param ctx - host context owning this service's lifetime.
      */
+    /** Sessions whose agent already carries a stream listener. */
+    private readonly attached;
+    /** The host context, kept for lazy service lookups. */
+    private readonly host;
     constructor(ctx: Context);
+    /**
+     * Attach the stream listener to a session's live agent, once.
+     *
+     * Looks the agent up through the `agents` registry rather than waiting for
+     * `agent/created`, which is dispatched in the agent's scope and therefore
+     * never reaches this context.
+     * @param sessionId - the session whose agent should be attached.
+     */
+    private attachToAgent;
     /**
      * Read one session's current state.
      * @param sessionId - durable session identity.

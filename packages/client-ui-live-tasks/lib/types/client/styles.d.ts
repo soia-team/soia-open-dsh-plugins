@@ -29,6 +29,8 @@ export declare const styles: {
     readonly resultLine: 'lt-resultLine';
     readonly badgeOk: 'lt-badgeOk';
     readonly badgeFailed: 'lt-badgeFailed';
+    readonly health: 'lt-health';
+    readonly healthStale: 'lt-healthStale';
     readonly toolName: 'lt-toolName';
     readonly none: 'lt-none';
     readonly empty: 'lt-empty';

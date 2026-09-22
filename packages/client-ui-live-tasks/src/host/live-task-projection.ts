@@ -36,6 +36,17 @@ const liveToolCallSchema = z.object({
   result: z.string().nullable().optional(),
 }).strict()
 
+const liveTaskHealthSchema = z.object({
+  folded: z.number().int().nonnegative(),
+  ignored: z.number().int().nonnegative(),
+  unknown: z.number().int().nonnegative(),
+  frames: z.number().int().nonnegative(),
+  agents: z.number().int().nonnegative(),
+  registry: z.number().int().nonnegative(),
+  deltasAccepted: z.number().int().nonnegative(),
+  deltasDropped: z.number().int().nonnegative(),
+}).strict()
+
 const liveTaskActionSchema = z.object({
   callId: z.string(),
   name: z.string(),
@@ -74,6 +85,7 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   lastEvent: liveEventSummarySchema.nullable(),
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
+  health: liveTaskHealthSchema,
   endedReason: z.string().nullable(),
   streamedTextLength: z.number().int().nonnegative(),
   streamedAt: z.number().nullable(),
@@ -98,6 +110,8 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   lastEvent: liveEventSummarySchema.nullable(),
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
+  health: liveTaskHealthSchema,
+  streamedAt: z.number().nullable(),
   endedReason: z.string().nullable(),
 }).strict()
 
@@ -132,6 +146,8 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     lastEvent: state.lastEvent,
     recent: state.recent,
     actions: state.actions,
+    health: state.health,
+    streamedAt: state.streamedAt,
     endedReason: state.endedReason,
   }
   VIEWS.set(state, view)

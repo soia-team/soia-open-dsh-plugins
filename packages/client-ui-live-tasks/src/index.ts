@@ -30,11 +30,14 @@ export const name = 'ui-live-tasks'
 
 /**
  * The projection registry owns the wire mirror this package serves through, so
- * it must exist before `apply` runs. The plugin reads no other host service:
- * both feeds it folds are plain Cordis events, and both listeners are removed
- * automatically with this fiber.
+ * it must exist before `apply` runs.
+ *
+ * `agents` is what makes the streaming feed reachable: `agent/assistant-stream`
+ * is declared `this: Scoped<Agent>` and dispatched inside the agent's own scope,
+ * so a listener on this plugin's entry context never receives it. Injecting the
+ * registry gives the store a way to reach each live agent and attach there.
  */
-export const inject = ['sessionProjections']
+export const inject = ['sessionProjections', 'agents']
 
 /**
  * Install the host surface.

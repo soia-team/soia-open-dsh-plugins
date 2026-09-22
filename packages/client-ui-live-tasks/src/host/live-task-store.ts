@@ -21,10 +21,25 @@
  * `Known Limitations and Deferred Work`.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 import type { LiveTaskObservation, LiveTaskState } from '../shared/types.ts'
+
+/**
+ * The slice of the host's agent registry this store uses.
+ *
+ * Declared locally rather than imported: the store needs one read-only lookup,
+ * and a narrower structural type keeps the dependency honest about that.
+ */
+interface AgentsService {
+  list(): readonly Agent[]
+}
+
+/** Sentinel recorded when the agent registry cannot be reached at all. */
+export const REGISTRY_UNAVAILABLE = -1
+/** Sentinel recorded when reaching the registry threw. */
+export const REGISTRY_LOOKUP_FAILED = -2
 import { LiveTaskTracker } from './live-task-tracker.ts'
 
 /**
@@ -70,21 +85,74 @@ export class LiveTaskStore extends Service {
   /**
    * @param ctx - host context owning this service's lifetime.
    */
+  /** Sessions whose agent already carries a stream listener. */
+  private readonly attached = new Set<string>()
+
+  /** The host context, kept for lazy service lookups. */
+  private readonly host: Context
+
   constructor(ctx: Context) {
     super(ctx, 'liveTasks')
+    // Read through the context rather than caching the value: an injected
+    // service is resolved when it is first touched, and caching it here would
+    // freeze a `undefined` read taken before the registry was ready.
+    this.host = ctx
 
     // All three listeners are effects of this fiber: cordis removes them when
     // the plugin unloads, so no explicit teardown is needed here.
-    ctx.on('session/event', (session, event) => {
-      this.fold(session.id, { kind: 'event', event })
-    })
     ctx.on('session/disposed', (session) => {
       this.attempts.delete(session.id)
       if (this.tracker.forget(session.id)) this.publish(session.id, undefined)
     })
-    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
-      this.foldStreamFrame(agent.session.id, frame)
+    // `agent/assistant-stream` is declared `this: Scoped<Agent>` and dispatched
+    // inside the agent's own scope, so this entry's context never receives it —
+    // measured as zero frames across a run whose answer streamed for thousands
+    // of tokens. `agent/created` is scoped the same way. The one feed that does
+    // arrive here is `session/event`, so the store attaches to each agent the
+    // first time that session shows activity, and the agent's own context then
+    // carries the stream listener for the rest of its life.
+    ctx.on('session/event', (session, event) => {
+      // One publish per durable event: the attach is recorded as part of this
+      // fold rather than as a state change of its own.
+      const lookup = this.attachToAgent(session.id)
+      this.fold(session.id, {
+        kind: 'event',
+        event,
+        ...(lookup.attached ? { agentAttached: true } : {}),
+        ...(lookup.registrySize === undefined ? {} : { registrySize: lookup.registrySize }),
+      })
     })
+  }
+
+  /**
+   * Attach the stream listener to a session's live agent, once.
+   *
+   * Looks the agent up through the `agents` registry rather than waiting for
+   * `agent/created`, which is dispatched in the agent's scope and therefore
+   * never reaches this context.
+   * @param sessionId - the session whose agent should be attached.
+   */
+  private attachToAgent(sessionId: SessionId): { attached: boolean, registrySize?: number } {
+    if (this.attached.has(sessionId)) return { attached: false }
+    const agents = (this.host as unknown as { agents?: AgentsService }).agents
+    if (agents === undefined) return { attached: false, registrySize: REGISTRY_UNAVAILABLE }
+    let live: readonly Agent[]
+    try {
+      live = agents.list()
+    } catch {
+      // A registry that throws on lookup is a different fault from an empty one.
+      return { attached: false, registrySize: REGISTRY_LOOKUP_FAILED }
+    }
+    const agent = live.find((candidate) => candidate.session.id === sessionId)
+    if (agent === undefined) return { attached: false, registrySize: live.length }
+    this.attached.add(sessionId)
+    agent.ctx.on('agent/assistant-stream', ({ frame }) => {
+      // Counted before normalization: "the listener never fired" and "the frame
+      // was discarded for not matching the open attempt" are different faults.
+      this.fold(sessionId, { kind: 'stream-frame' })
+      this.foldStreamFrame(sessionId, frame)
+    })
+    return { attached: true, registrySize: live.length }
   }
 
   /**

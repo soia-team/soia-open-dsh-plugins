@@ -29,7 +29,38 @@ import type {
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
 const NO_ACTIONS: readonly LiveTaskAction[] = Object.freeze([])
+
+/** Counters start at zero; nothing has been folded yet. */
+const INITIAL_HEALTH = Object.freeze({ folded: 0, ignored: 0, unknown: 0, frames: 0, deltasAccepted: 0, deltasDropped: 0, agents: 0, registry: 0 })
+
+/** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS: readonly LiveToolCall[] = Object.freeze([])
+
+/**
+ * Event types this build recognizes and deliberately leaves out of the fold.
+ *
+ * Session setup, request headers, policy records and receipts are real events
+ * that say nothing about what a task is doing. Naming them is what keeps the
+ * `unknown` counter meaningful: a host that adds a type shows up as a number,
+ * instead of every ordinary session start looking like a surprise.
+ */
+const IGNORED_TYPES = new Set([
+  'session', 'session/title', 'session/title-llm-request', 'system/message',
+  'request/header', 'request/context', 'permission/preset', 'approval/policy',
+  'sandbox/mode', 'subagent/model-selection-policy', 'agent/inbox/spliced',
+])
+
+/**
+ * Event types this build folds deliberately.
+ *
+ * Anything outside both sets is counted as unknown rather than silently
+ * dropped: a host that starts emitting a new type should show up as a number
+ * the panel can display, not as behaviour that quietly stops updating.
+ */
+const KNOWN_TYPES = new Set([
+  'turn/start', 'turn/end', 'step/start', 'step/end', 'tool/call', 'tool/result',
+  'assistant/message', 'assistant/attempt', 'user/message', 'agent/assistant-stream',
+])
 
 /**
  * The state before any observation. Frozen and exported so callers and tests
@@ -46,6 +77,7 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   toolCallsInTurn: 0,
   streamedTextLength: 0,
   streamedAt: null,
+  health: INITIAL_HEALTH,
   lastEvent: null,
   recent: NO_EVENTS,
   actions: NO_ACTIONS,
@@ -311,7 +343,12 @@ function readToolResult(data: Record<string, unknown> | undefined): {
  * @param event - one durable session event.
  * @returns the next state, or the same state for a duplicate or stale event.
  */
-function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
+function foldEvent(
+  state: LiveTaskState,
+  event: LiveEventLike,
+  agentAttached = false,
+  registrySize?: number,
+): LiveTaskState {
   const seq = numberOf(event.seq)
   const time = numberOf(event.time)
   if (seq === undefined || time === undefined || seq <= state.seq) return state
@@ -319,6 +356,21 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
   const envelope = {
     seq,
     updatedAt: state.updatedAt === null ? time : Math.max(state.updatedAt, time),
+    health: {
+      ...state.health,
+      folded: state.health.folded + 1,
+      ...(agentAttached ? { agents: state.health.agents + 1 } : {}),
+      // Negative values are sentinels (unreachable / threw), so they overwrite
+      // rather than lose a `Math.max` against the initial zero.
+      ...(registrySize === undefined
+        ? {}
+        : { registry: registrySize < 0 ? registrySize : Math.max(state.health.registry, registrySize) }),
+      ...(KNOWN_TYPES.has(event.type)
+        ? {}
+        : IGNORED_TYPES.has(event.type) || event.type.startsWith('session-log-')
+          ? { ignored: state.health.ignored + 1 }
+          : { unknown: state.health.unknown + 1 }),
+    },
   }
   const data = recordOf(event.data)
 
@@ -472,19 +524,24 @@ function foldTextDelta(
   state: LiveTaskState,
   delta: Extract<LiveTaskObservation, { kind: 'text-delta' }>,
 ): LiveTaskState {
-  if (!state.running) return state
-  if (delta.turn !== state.turn || delta.step !== state.step) return state
-  if (!Number.isFinite(delta.time)) return state
-  if (state.streamedAt !== null && delta.time < state.streamedAt) return state
+  // Every delta is accounted for: `deltasAccepted` is liveness, `deltasDropped`
+  // is the replay/straggler rate. A plugin that silently discards frames cannot
+  // tell you whether the model went quiet or its own filter ate the stream.
+  const dropped = (): LiveTaskState => ({ ...state, health: { ...state.health, deltasDropped: state.health.deltasDropped + 1 } })
+  if (!state.running) return dropped()
+  if (delta.turn !== state.turn || delta.step !== state.step) return dropped()
+  if (!Number.isFinite(delta.time)) return dropped()
+  if (state.streamedAt !== null && delta.time < state.streamedAt) return dropped()
 
   const length = delta.text.length
   const updatedAt = state.updatedAt === null ? delta.time : Math.max(state.updatedAt, delta.time)
-  if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return state
+  if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return dropped()
   return {
     ...state,
     streamedTextLength: state.streamedTextLength + length,
     streamedAt: delta.time,
     updatedAt,
+    health: { ...state.health, deltasAccepted: state.health.deltasAccepted + 1 },
   }
 }
 
@@ -498,8 +555,13 @@ export function reduceLiveTask(
   state: LiveTaskState,
   observation: LiveTaskObservation,
 ): LiveTaskState {
+  if (observation.kind === 'stream-frame') {
+    // Liveness only: the frame is recorded as received, then normalization
+    // decides whether it carries text this fold can use.
+    return { ...state, health: { ...state.health, frames: state.health.frames + 1 } }
+  }
   return observation.kind === 'event'
-    ? foldEvent(state, observation.event)
+    ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize)
     : foldTextDelta(state, observation)
 }
 

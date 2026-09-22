@@ -60,6 +60,11 @@ const CSS = `
 .lt-badgeOk { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
 .lt-badgeFailed { color: var(--dsw-alias-label-error, #b42318); background: rgb(180 35 24 / 10%); }
 
+/* 模块五：运行状况 */
+.lt-health { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.lt-healthStale { color: var(--dsw-alias-label-error, #b42318); }
+
 /* 共用 */
 .lt-toolName { color: var(--dsw-alias-label-primary); font-weight: 600; font-family: var(--dsw-font-mono, monospace); }
 .lt-callDetail, .lt-tdWhat { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
@@ -100,6 +105,8 @@ export const styles = {
   resultLine: 'lt-resultLine',
   badgeOk: 'lt-badgeOk',
   badgeFailed: 'lt-badgeFailed',
+  health: 'lt-health',
+  healthStale: 'lt-healthStale',
   toolName: 'lt-toolName',
   none: 'lt-none',
   empty: 'lt-empty',

@@ -159,6 +159,10 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const actions = [...state.actions].reverse()
   const failed = actions.filter((action) => action.status === 'failed')
   const shown = failuresOnly ? failed : actions
+  // 最近一次数据到现在的静默秒数：durable 事件与瞬时增量取较新者，这样"模型正在写"
+  // 与"彻底没动静"可以区分开。
+  const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
+  const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const phrases = [...state.recent]
     .reverse()
     .map((summary) => phraseOf(summary, t))
@@ -258,6 +262,31 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           <p className={styles.none}>{phrases.join(' · ')}</p>
         </section>
       )}
+
+      {/* 模块五：运行状况 —— 让面板说出它自己还准不准 */}
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
+        <div className={styles.health}>
+          <span>{`${t('health.folded')} ${state.health.folded}`}</span>
+          <span>{`${t('health.ignored')} ${state.health.ignored}`}</span>
+          <span className={state.health.unknown > 0 ? styles.healthStale : undefined}>
+            {`${t('health.unknown')} ${state.health.unknown}`}
+          </span>
+          <span>{`${t('health.frames')} ${state.health.frames}`}</span>
+          <span className={state.health.registry < 0 ? styles.healthStale : undefined}>
+            {`${t('health.agents')} ${state.health.agents} / ${t('health.registry')} ${
+              state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
+          </span>
+          <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
+          {lastDataAt !== null && (
+            <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
+              {silentSeconds > 60 && state.running
+                ? t('health.stale', { s: silentSeconds })
+                : `${t('health.lastData')} ${t('health.silence', { s: silentSeconds })}`}
+            </span>
+          )}
+        </div>
+      </section>
     </div>
   )
 }

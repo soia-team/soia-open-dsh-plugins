@@ -49,6 +49,21 @@ export const zh = {
   // 模块四：最近动静
   'recent.title': '最近动静',
 
+  // 模块五：运行状况（这个视图自己的健康度）
+  'health.title': '运行状况',
+  'health.folded': '已折叠事件',
+  'health.ignored': '已忽略（会话管理类）',
+  'health.unknown': '未知类型',
+  'health.frames': '收到流式帧',
+  'health.agents': '已接管 agent',
+  'health.registry': '注册表可见',
+  'health.unreachable': '不可达',
+  'health.deltas': '流式增量',
+  'health.deltasValue': '接受 {ok} · 丢弃 {dropped}',
+  'health.lastData': '数据更新',
+  'health.silence': '{s} 秒前',
+  'health.stale': '已 {s} 秒没有新数据',
+
   // 状态词与时间单位
   'status.ok': '完成',
   'status.failed': '失败',
@@ -103,6 +118,20 @@ export const en: Record<LiveTaskKey, string> = {
   'log.result': 'result',
 
   'recent.title': 'Just happened',
+
+  'health.title': 'Panel health',
+  'health.folded': 'Events folded',
+  'health.ignored': 'Ignored (session setup)',
+  'health.unknown': 'Unknown types',
+  'health.frames': 'Stream frames',
+  'health.agents': 'Agents attached',
+  'health.registry': 'Registry size',
+  'health.unreachable': 'unreachable',
+  'health.deltas': 'Stream deltas',
+  'health.deltasValue': '{ok} kept · {dropped} dropped',
+  'health.lastData': 'Last data',
+  'health.silence': '{s}s ago',
+  'health.stale': 'no new data for {s}s',
 
   'status.ok': 'done',
   'status.failed': 'failed',

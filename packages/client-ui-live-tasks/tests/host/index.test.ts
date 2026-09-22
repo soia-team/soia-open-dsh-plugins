@@ -62,6 +62,9 @@ function createFakeContext() {
       return () => true
     },
     logger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+    agents: {
+      list: () => [...agentHandles.keys()].map((sessionId) => ensureAgent(sessionId)),
+    },
     reflect: {
       provide: (serviceName: string, value: unknown) => {
         provided.set(serviceName, value)
@@ -77,12 +80,52 @@ function createFakeContext() {
   }
 
   const emit = (eventName: string, ...args: unknown[]): void => {
+    // A session event implies a live agent, and the store attaches to that
+    // agent when it sees one: materialize the handle first so the attach lands.
+    if (eventName === 'session/event') ensureAgent((args[0] as { id: string }).id)
     for (const listener of listeners.get(eventName) ?? []) {
       (listener as unknown as (...payload: unknown[]) => void)(...args)
     }
   }
 
-  return { ctx: ctx as unknown as Context, emit, provided, registered, listeners }
+  // `agent/assistant-stream` is agent-scoped, so the real plugin subscribes on
+  // each agent's own context. The stub mirrors that: an agent handed to
+  // `agent/created` gets its own listener table, and `emitStream` dispatches
+  // into it the way the host's scope-filtered dispatch would.
+  const agentListeners = new Map<string, Map<string, ((...args: never[]) => void)[]>>()
+  const agentHandles = new Map<string, Record<string, unknown>>()
+
+  /** Materialize (once) the agent handle the host registry would hand out. */
+  const ensureAgent = (sessionId: string): Record<string, unknown> => {
+    const existing = agentHandles.get(sessionId)
+    if (existing !== undefined) return existing
+    const table = new Map<string, ((...args: never[]) => void)[]>()
+    agentListeners.set(sessionId, table)
+    const handle: Record<string, unknown> = {
+      session: { id: sessionId },
+      ctx: {
+        on: (eventName: string, listener: (...args: never[]) => void) => {
+          const listenersForEvent = table.get(eventName) ?? []
+          listenersForEvent.push(listener)
+          table.set(eventName, listenersForEvent)
+          return () => true
+        },
+        effect: (callback: () => unknown) => callback(),
+      },
+    }
+    agentHandles.set(sessionId, handle)
+    return handle
+  }
+
+  /** Dispatch one stream frame to the listener the plugin attached for a session. */
+  const emitStream = (sessionId: string, frame: unknown): void => {
+    ensureAgent(sessionId)
+    for (const listener of agentListeners.get(sessionId)?.get('agent/assistant-stream') ?? []) {
+      (listener as unknown as (payload: unknown) => void)({ frame })
+    }
+  }
+
+  return { ctx: ctx as unknown as Context, emit, emitStream, provided, registered, listeners }
 }
 
 /** Apply the plugin and hand back the store it registered as `ctx.liveTasks`. */
@@ -105,7 +148,7 @@ function foldProjection(state: LiveTaskState, type: string, seq: number, data: u
 describe('ui-live-tasks plugin', () => {
   it('declares the plugin name and the host service it uses', () => {
     expect(name).toBe('ui-live-tasks')
-    expect(inject).toEqual(['sessionProjections'])
+    expect(inject).toEqual(['sessionProjections', 'agents'])
   })
 
   it('registers the liveTasks service and exactly one projection unit when applied', () => {
@@ -122,7 +165,7 @@ describe('ui-live-tasks plugin', () => {
     apply(ctx)
 
     expect([...listeners.keys()].toSorted())
-      .toEqual(['agent/assistant-stream', 'session/disposed', 'session/event'])
+      .toEqual(['session/disposed', 'session/event'])
   })
 
   it('serves the projection key the browser half reads', () => {
@@ -136,7 +179,7 @@ describe('ui-live-tasks plugin', () => {
 
 describe('liveTasks host surface', () => {
   it('folds durable session events into this session state', () => {
-    const { emit, liveTasks } = host()
+    const { emit,  liveTasks } = host()
     emit('session/event', { id: 'session-1' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'session-1' }, event('step/start', 2, { turn: 1, step: 1 }))
     emit('session/event', { id: 'session-1' }, event(
@@ -153,7 +196,7 @@ describe('liveTasks host surface', () => {
   })
 
   it('keeps one state per session', () => {
-    const { emit, liveTasks } = host()
+    const { emit,  liveTasks } = host()
     emit('session/event', { id: 'a' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'b' }, event('turn/start', 1, { turn: 2 }))
 
@@ -170,93 +213,69 @@ describe('liveTasks host surface', () => {
   })
 
   it('counts transient model text for the attempt its start frame announced', () => {
-    const { emit, liveTasks } = host()
+    const { emit, liveTasks, emitStream } = host()
     emit('session/event', { id: 'session-1' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'session-1' }, event('step/start', 2, { turn: 1, step: 1 }))
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 },
-    })
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: {
+    emitStream('session-1', { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 })
+    emitStream('session-1', {
         type: 'chunk',
         attemptId: 'a1',
         revision: 1,
         index: 0,
         time: 3000,
         chunk: { type: 'text-delta', index: 0, text: 'hello' },
-      },
-    })
+      })
 
     expect(liveTasks.read(session('session-1')).streamedTextLength).toBe(5)
   })
 
   it('drops a chunk whose attempt no start frame announced', () => {
-    const { emit, liveTasks } = host()
+    const { emit, liveTasks, emitStream } = host()
     emit('session/event', { id: 'session-1' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'session-1' }, event('step/start', 2, { turn: 1, step: 1 }))
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: {
+    emitStream('session-1', {
         type: 'chunk',
         attemptId: 'never-started',
         revision: 1,
         index: 0,
         time: 3000,
         chunk: { type: 'text-delta', index: 0, text: 'hello' },
-      },
-    })
+      })
 
     expect(liveTasks.read(session('session-1')).streamedTextLength).toBe(0)
   })
 
   it('stops counting once the attempt ends', () => {
-    const { emit, liveTasks } = host()
+    const { emit, liveTasks, emitStream } = host()
     emit('session/event', { id: 'session-1' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'session-1' }, event('step/start', 2, { turn: 1, step: 1 }))
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 },
-    })
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: { type: 'end', attemptId: 'a1', revision: 1, index: 0, outcome: { kind: 'abandoned' } },
-    })
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: {
+    emitStream('session-1', { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 })
+    emitStream('session-1', { type: 'end', attemptId: 'a1', revision: 1, index: 0, outcome: { kind: 'abandoned' } })
+    emitStream('session-1', {
         type: 'chunk',
         attemptId: 'a1',
         revision: 1,
         index: 1,
         time: 3000,
         chunk: { type: 'text-delta', index: 0, text: 'hello' },
-      },
-    })
+      })
 
     expect(liveTasks.read(session('session-1')).streamedTextLength).toBe(0)
   })
 
   it('ignores a non-text model chunk', () => {
-    const { emit, liveTasks } = host()
+    const { emit, liveTasks, emitStream } = host()
     emit('session/event', { id: 'session-1' }, event('turn/start', 1, { turn: 1 }))
     emit('session/event', { id: 'session-1' }, event('step/start', 2, { turn: 1, step: 1 }))
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 },
-    })
-    emit('agent/assistant-stream', {
-      agent: { session: { id: 'session-1' } },
-      frame: {
+    emitStream('session-1', { type: 'start', attemptId: 'a1', revision: 1, turn: 1, step: 1 })
+    emitStream('session-1', {
         type: 'chunk',
         attemptId: 'a1',
         revision: 1,
         index: 0,
         time: 3000,
         chunk: { type: 'finish', reason: { kind: 'stop' } },
-      },
-    })
+      })
 
     expect(liveTasks.read(session('session-1')).streamedTextLength).toBe(0)
   })
@@ -361,6 +380,7 @@ describe('liveTask projection unit', () => {
     expect(Object.keys(view).toSorted()).toEqual([
       'actions',
       'endedReason',
+      'health',
       'lastEvent',
       'lastTool',
       'openTools',
@@ -368,6 +388,7 @@ describe('liveTask projection unit', () => {
       'running',
       'seq',
       'step',
+      'streamedAt',
       'toolCallsInTurn',
       'turn',
       'updatedAt',
