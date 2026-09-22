@@ -380,6 +380,7 @@ describe('liveTask projection unit', () => {
     expect(Object.keys(view).toSorted()).toEqual([
       'actions',
       'endedReason',
+      'failuresTotal',
       'health',
       'lastEvent',
       'lastTool',
@@ -389,8 +390,12 @@ describe('liveTask projection unit', () => {
       'seq',
       'step',
       'streamedAt',
+      'timeline',
       'toolCallsInTurn',
+      'toolCallsTotal',
+      'toolsAvailable',
       'turn',
+      'turns',
       'updatedAt',
     ])
     expect(liveTaskProjectionDefinition.wire.viewSchema.safeParse(view).success).toBe(true)

@@ -1,32 +1,23 @@
 /**
- * The `conversation.view` entry: what this session is doing, in human terms.
+ * The `conversation.view` entry: the session as a timeline.
+ *
+ * ## Why a timeline
+ *
+ * Three earlier versions showed counts, then a table, then modules of cards.
+ * Each asked the reader to assemble the story from parallel lists, and two of
+ * them were rejected on sight for exactly that. A long task is one narrative —
+ * your message, the model's reply, a tool call, its result, the next call — and
+ * the built-in 轨迹 view already renders a session that way, so this panel
+ * borrows the idiom rather than inventing a second one for the same data.
  *
  * ## Architecture
  *
- * The panel is four modules under one header, in the order a reader asks the
- * questions — and the module boundaries are the design, not decoration:
- *
- *   概览 (overview)    a card grid of the facts you scan first: state, position,
- *                       call count, failures
- *   正在跑 (running)   one line per in-flight call: tool, what it was given, how
- *                       long it has been running
- *   动作日志 (log)     the table: one row per finished call — when, which tool,
- *                       what it did, how long it took, what came back — with a
- *                       filter to the failures, which is the question a log is
- *                       usually asked
- *   最近动静 (recent)  up to three plain-language phrases about model activity
- *
- * Each module owns its copy keys (`overview.*`, `running.*`, `log.*`,
- * `recent.*`) and its own empty state, so a module can be read, translated or
- * removed without touching the others.
- *
- * Two earlier versions failed a readability test the author should have run
- * first: one showed counts only, the other showed raw session event types
- * (`step/start`, `session-log-*`). Both are the log's vocabulary, not a
- * reader's. Nothing here prints a protocol type name.
- *
- * Visuals come from the official primitives so the view belongs to the same
- * design system as the built-in views.
+ *   顶部          state, the tool in use, elapsed
+ *   轮次横轴      one segment per conversation turn, width by duration: time runs
+ *                 left to right, and a turn is the unit a reader thinks in
+ *   轮次明细      per turn: which tools ran, what each was given, how it ended;
+ *                 clicking a row opens its arguments and result in full
+ *   运行状况      the panel's own counters, so a stale panel is visible as stale
  *
  * @module soia-dsh-client-ui-live-tasks/client/view
  */
@@ -34,7 +25,7 @@ import { StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useState } from 'react'
 
 import { hasLiveActivity } from '../shared/live-task-state.ts'
-import type { LiveEventSummary, LiveTaskAction, LiveTaskView } from '../shared/types.ts'
+import type { LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
 
@@ -46,11 +37,11 @@ export interface LiveTasksViewProps {
   t: (key: LiveTaskKey, params?: Record<string, string | number>) => string
 }
 
-/** Translator alias, to keep the component signatures short. */
+/** Translator alias, to keep component signatures short. */
 type T = LiveTasksViewProps['t']
 
 /**
- * Re-render once a second so elapsed and relative times stay true.
+ * Re-render once a second so elapsed times stay true.
  * @returns the current epoch milliseconds.
  */
 function useNow(): number {
@@ -73,58 +64,118 @@ function secondsBetween(from: number, to: number): number {
 }
 
 /**
- * Turn one session event into the phrase a person would use for it.
+ * The horizontal axis: one segment per conversation turn.
  *
- * Only the few worth a line are phrased; transport bookkeeping and anything a
- * newer build adds are dropped rather than labelled "other activity", because a
- * line that says nothing is worse than no line.
- * @param summary - the folded observation.
- * @param t - translator.
- * @returns the human phrase, or null when the event is not worth a line.
+ * Width is proportional to the turn's duration, so a turn that took ten minutes
+ * is visibly heavier than one that took two seconds. Segments are buttons: the
+ * axis doubles as the turn selector.
+ * @param props - turn summaries, the selected turn, and the handlers.
+ * @returns the axis strip.
  */
-function phraseOf(summary: LiveEventSummary, t: T): string | null {
-  switch (summary.type) {
-    case 'turn/start': return t('event.turnStart')
-    case 'turn/end': return t('event.turnEnd')
-    case 'user/message': return t('event.userMessage')
-    case 'assistant/message': return t('event.assistantMessage')
-    case 'tool/call': return summary.detail === null ? null : t('event.toolCall', { name: summary.detail })
-    case 'tool/result': return summary.detail === null ? null : t('event.toolResult', { name: summary.detail })
-    default: return null
-  }
-}
-
-/** One card in the overview grid. */
-function Stat({ label, value, failed }: { label: string; value: string; failed?: boolean }): JSX.Element {
+function TurnAxis({ turns, selected, now, t, onSelect }: {
+  turns: LiveTaskView['turns']
+  selected: number | null
+  now: number
+  t: T
+  onSelect: (turn: number) => void
+}): JSX.Element {
+  const durations = turns.map((turn) => Math.max(1, secondsBetween(turn.startedAt, turn.endedAt ?? now)))
+  const total = durations.reduce((sum, value) => sum + value, 0)
   return (
-    <div className={styles.stat}>
-      <span className={styles.statLabel}>{label}</span>
-      <span className={failed === true ? styles.statValueFailed : styles.statValue}>{value}</span>
+    // A plain container with a heading above it: the section title already names
+    // this group, so a redundant ARIA role would only add noise.
+    <div className={styles.axis}>
+      {turns.map((turn, index) => (
+        <button
+          key={turn.turn}
+          type="button"
+          className={turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment}
+          style={{ flexGrow: Math.max(1, Math.round((durations[index] ?? 1) / total * 100)) }}
+          title={`${t('axis.turn', { n: turn.turn })} · ${t('turn.tools', { n: turn.toolCalls })} · ${t('time.seconds', { s: durations[index] ?? 0 })}`}
+          onClick={() => onSelect(turn.turn)}
+        >
+          <span className={styles.axisLabel}>{turn.turn}</span>
+          {turn.failures > 0 && <span className={styles.axisFailures}>{turn.failures}</span>}
+        </button>
+      ))}
     </div>
   )
 }
 
-/** One row of the activity log: when, which tool, what it did, how long, result. */
-function ActionRow({ action, now, t }: { action: LiveTaskAction; now: number; t: T }): JSX.Element {
-  const status = action.status === 'running'
-    ? t('status.running')
-    : action.status === 'failed'
-      ? t('status.failed')
-      : t('status.ok')
+/** One tool row inside a turn, expandable to its arguments and result. */
+function ToolRow({ entry, now, expanded, onToggle, t }: {
+  entry: LiveTimelineEntry
+  now: number
+  expanded: boolean
+  onToggle: () => void
+  t: T
+}): JSX.Element {
+  const running = entry.status === 'running'
+  const took = secondsBetween(entry.startedAt, entry.endedAt ?? now)
   return (
-    <tr className={action.status === 'failed' ? styles.rowFailed : undefined}>
-      <td className={styles.tdTime}>{clockOf(action.startedAt)}</td>
-      <td className={styles.tdTool}>
-        <StateDot state={action.status === 'running' ? 'ongoing' : action.status === 'failed' ? 'error' : 'done'} size={8} />
-        <span className={styles.toolName}>{action.name}</span>
-      </td>
-      <td className={styles.tdWhat} title={action.detail ?? ''}>{action.detail ?? ''}</td>
-      <td className={styles.tdTook}>{t('time.seconds', { s: secondsBetween(action.startedAt, action.endedAt ?? now) })}</td>
-      <td className={styles.tdResult}>
-        <span className={styles.resultLine} title={action.result ?? ''}>{action.result ?? ''}</span>
-        <span className={action.status === 'failed' ? styles.badgeFailed : styles.badgeOk}>{status}</span>
-      </td>
-    </tr>
+    <li className={styles.toolItem}>
+      <button type="button" className={styles.toolButton} onClick={onToggle} aria-expanded={expanded}>
+        <span className={styles.tlTime}>{clockOf(entry.startedAt)}</span>
+        <StateDot state={running ? 'ongoing' : entry.status === 'failed' ? 'error' : 'done'} size={8} />
+        <span className={styles.tlTitle}>{entry.title}</span>
+        <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail ?? ''}</span>
+        <span className={entry.status === 'failed' ? styles.tlTookFailed : styles.tlTook}>
+          {running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}
+          {` ${t('time.seconds', { s: took })}`}
+        </span>
+        <span className={styles.toolHint}>{expanded ? '▾' : t('turn.expand')}</span>
+      </button>
+      {expanded && (
+        <dl className={styles.toolDetail}>
+          <dt>{t('turn.args')}</dt>
+          <dd>{entry.detail ?? '—'}</dd>
+          <dt>{t('turn.result')}</dt>
+          <dd>{entry.result ?? '—'}</dd>
+        </dl>
+      )}
+    </li>
+  )
+}
+
+/** The rows for one turn: its messages and its tool calls, in order. */
+function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }: {
+  turn: LiveTaskView['turns'][number]
+  entries: readonly LiveTimelineEntry[]
+  selected: boolean
+  now: number
+  expandedId: string | null
+  onToggle: (id: string) => void
+  t: T
+}): JSX.Element {
+  const started = clockOf(turn.startedAt)
+  const took = secondsBetween(turn.startedAt, turn.endedAt ?? now)
+  return (
+    <section className={selected ? styles.turnSectionActive : styles.turnSection}>
+      <header className={styles.turnHead}>
+        <StateDot state={turn.endedAt === null ? 'ongoing' : turn.failures > 0 ? 'warning' : 'done'} size={9} />
+        <strong className={styles.turnTitle}>{t('timeline.turnN', { n: turn.turn })}</strong>
+        <span className={styles.turnMeta}>{started}</span>
+        <span className={styles.turnMeta}>{t('time.seconds', { s: took })}</span>
+        {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
+        {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
+      </header>
+      {entries.length === 0
+        ? <p className={styles.none}>{t('turn.empty')}</p>
+        : (
+          <ul className={styles.toolList}>
+            {entries.map((entry) => (
+              <ToolRow
+                key={entry.id}
+                entry={entry}
+                now={now}
+                expanded={expandedId === entry.id}
+                onToggle={() => onToggle(entry.id)}
+                t={t}
+              />
+            ))}
+          </ul>
+        )}
+    </section>
   )
 }
 
@@ -135,7 +186,8 @@ function ActionRow({ action, now, t }: { action: LiveTaskAction; now: number; t:
  */
 export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Element {
   const state = useProjection('liveTask') as LiveTaskView | undefined
-  const [failuresOnly, setFailuresOnly] = useState(false)
+  const [selected, setSelected] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const now = useNow()
 
   if (state === undefined || !hasLiveActivity(state)) {
@@ -156,18 +208,13 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
       : settled
         ? t('phase.ended')
         : t('phase.idle')
-  const actions = [...state.actions].reverse()
-  const failed = actions.filter((action) => action.status === 'failed')
-  const shown = failuresOnly ? failed : actions
-  // 最近一次数据到现在的静默秒数：durable 事件与瞬时增量取较新者，这样"模型正在写"
-  // 与"彻底没动静"可以区分开。
+  const distinctTools = new Set(state.actions.map((action) => action.name)).size
   const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
-  const phrases = [...state.recent]
-    .reverse()
-    .map((summary) => phraseOf(summary, t))
-    .filter((phrase): phrase is string => phrase !== null)
-    .slice(0, 3)
+  const selectedTurn = state.turns.at(-1)?.turn ?? null
+  const shownTurn = selected ?? selectedTurn
+  const entriesOfTurn = (turn: number): readonly LiveTimelineEntry[] =>
+    state.timeline.filter((entry) => entry.turn === turn && entry.kind === 'tool')
 
   return (
     <div className={styles.view}>
@@ -179,11 +226,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         </span>
       </header>
 
-      {/*
-        The tool line: which tool is being used, readable without opening the
-        table. In-flight calls win over the last finished one, because "what is
-        it doing right now" is the question this panel exists to answer.
-      */}
+      {/* Which tool is in use, readable without scanning the timeline. */}
       <p className={styles.toolLine}>
         <span className={styles.toolLineLabel}>
           {inFlight ? t('head.toolRunning') : t('head.toolLast')}
@@ -195,91 +238,39 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         </span>
       </p>
 
+      <p className={styles.summaryLine}>
+        {t('axis.summary', {
+          turns: state.turns.length,
+          calls: state.toolCallsTotal,
+          failures: state.failuresTotal,
+          tools: state.toolsAvailable ?? '—',
+          used: distinctTools,
+        })}
+      </p>
+
       <section className={styles.section}>
-        <h4 className={styles.sectionTitle}>{t('overview.title')}</h4>
-        <div className={styles.stats}>
-          <Stat label={t('overview.status')} value={phase} />
-          <Stat
-            label={t('overview.at')}
-            value={state.turn === null
-              ? '—'
-              : state.step === null
-                ? t('overview.turnOnly', { turn: state.turn })
-                : t('overview.atValue', { turn: state.turn, step: state.step })}
-          />
-          <Stat label={t('overview.calls')} value={String(state.actions.length)} />
-          <Stat label={t('overview.failures')} value={String(failed.length)} {...(failed.length > 0 ? { failed: true } : {})} />
+        <h4 className={styles.sectionTitle}>{t('axis.title')}</h4>
+        <TurnAxis turns={state.turns} selected={shownTurn} now={now} t={t} onSelect={setSelected} />
+      </section>
+
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>{t('timeline.title')}</h4>
+        <div className={styles.turnList}>
+          {[...state.turns].reverse().map((turn) => (
+            <TurnSection
+              key={turn.turn}
+              turn={turn}
+              entries={entriesOfTurn(turn.turn)}
+              selected={turn.turn === shownTurn}
+              now={now}
+              expandedId={expanded}
+              onToggle={(id) => setExpanded(expanded === id ? null : id)}
+              t={t}
+            />
+          ))}
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h4 className={styles.sectionTitle}>{t('running.title')}</h4>
-        {state.openTools.length === 0
-          ? <p className={styles.none}>{t('running.empty')}</p>
-          : (
-            <ul className={styles.list}>
-              {state.openTools.map((call) => (
-                <li key={call.callId} className={styles.call}>
-                  <StateDot state="ongoing" size={8} />
-                  <span className={styles.toolName}>{call.name}</span>
-                  <span className={styles.callDetail} title={call.detail ?? ''}>{call.detail ?? ''}</span>
-                  <span className={styles.callTook}>
-                    {t('running.started', { s: secondsBetween(call.startedAt, now) })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-      </section>
-
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <h4 className={styles.sectionTitle}>{t('log.title')}</h4>
-          <div className={styles.filters}>
-            <button
-              type="button"
-              className={failuresOnly ? styles.filter : styles.filterActive}
-              onClick={() => setFailuresOnly(false)}
-            >
-              {t('log.filterAll', { n: actions.length })}
-            </button>
-            <button
-              type="button"
-              className={failuresOnly ? styles.filterActive : styles.filter}
-              onClick={() => setFailuresOnly(true)}
-            >
-              {t('log.filterFailed', { n: failed.length })}
-            </button>
-          </div>
-        </div>
-        {shown.length === 0
-          ? <p className={styles.none}>{t('log.filterEmpty')}</p>
-          : (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th className={styles.th}>{t('log.time')}</th>
-                  <th className={styles.th}>{t('log.tool')}</th>
-                  <th className={styles.th}>{t('log.did')}</th>
-                  <th className={styles.th}>{t('log.took')}</th>
-                  <th className={styles.th}>{t('log.result')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((action) => <ActionRow key={action.callId} action={action} now={now} t={t} />)}
-              </tbody>
-            </table>
-          )}
-      </section>
-
-      {phrases.length > 0 && (
-        <section className={styles.section}>
-          <h4 className={styles.sectionTitle}>{t('recent.title')}</h4>
-          <p className={styles.none}>{phrases.join(' · ')}</p>
-        </section>
-      )}
-
-      {/* 模块五：运行状况 —— 让面板说出它自己还准不准 */}
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
         <div className={styles.health}>
@@ -294,13 +285,11 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
               state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
           </span>
           <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
-          {lastDataAt !== null && (
-            <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
-              {silentSeconds > 60 && state.running
-                ? t('health.stale', { s: silentSeconds })
-                : `${t('health.lastData')} ${t('health.silence', { s: silentSeconds })}`}
-            </span>
-          )}
+          <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
+            {silentSeconds > 60 && state.running
+              ? t('health.stale', { s: silentSeconds })
+              : `${t('health.lastData')} ${t('health.silence', { s: silentSeconds })}`}
+          </span>
         </div>
       </section>
     </div>

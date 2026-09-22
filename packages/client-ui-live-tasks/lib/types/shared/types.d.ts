@@ -117,6 +117,55 @@ export interface LiveTaskHealth {
     /** Transient deltas dropped as replays, stragglers or out-of-step frames. */
     readonly deltasDropped: number;
 }
+/**
+ * One row of the session timeline.
+ *
+ * The panel's main body is a chronological timeline rather than parallel lists:
+ * a reader following a long task wants the narrative ("message → model → tool →
+ * result → model"), not four views of the same minutes. Kinds mirror what the
+ * session log actually contains, and each row carries everything needed to read
+ * it in place — when, what, what it was given, how it ended.
+ */
+export interface LiveTimelineEntry {
+    /** Stable identity: the tool call id, or a per-kind sequence for other rows. */
+    readonly id: string;
+    /** Conversation turn this row belongs to; null before the first `turn/start`. */
+    readonly turn: number | null;
+    /** What produced this row. */
+    readonly kind: 'turn' | 'user' | 'assistant' | 'tool';
+    /** Epoch milliseconds the row opened at. */
+    readonly startedAt: number;
+    /** Epoch milliseconds it settled at, or null while it is still open. */
+    readonly endedAt: number | null;
+    /** Headline: the tool name, or a human word for the other kinds. */
+    readonly title: string;
+    /** What it was given: the command, path, URL, or the first line of a message. */
+    readonly detail: string | null;
+    /** What came back, first line only. Null while open or when nothing came back. */
+    readonly result: string | null;
+    /** `ok`, `failed`, or `running` while open. */
+    readonly status: 'ok' | 'failed' | 'running';
+}
+/**
+ * One conversation turn, summarised for the timeline's horizontal axis.
+ *
+ * The axis is turn-based rather than clock-based on purpose: turns are the unit
+ * a reader thinks in ("what happened in turn 3"), and a long idle gap between
+ * turns would otherwise dominate the chart.
+ */
+export interface LiveTurnSummary {
+    readonly turn: number;
+    /** Epoch milliseconds of the turn's first observation. */
+    readonly startedAt: number;
+    /** Epoch milliseconds the turn closed at, or null while it is open. */
+    readonly endedAt: number | null;
+    /** Tool calls issued in this turn. */
+    readonly toolCalls: number;
+    /** Of those, how many came back failed. */
+    readonly failures: number;
+    /** Distinct tool names used in this turn, in first-use order. */
+    readonly tools: readonly string[];
+}
 /** One finished (or running) tool call as a human-readable line. */
 export interface LiveTaskAction {
     readonly callId: string;
@@ -159,16 +208,39 @@ export interface LiveTaskView {
     readonly lastTool: LiveToolCall | null;
     /** Tool calls of the open turn still awaiting a result, in issue order. */
     readonly openTools: readonly LiveToolCall[];
-    /** Tool calls folded for the open turn; reset by the next `turn/start`. */
+    /**
+     * Tool calls folded for the open turn; reset by the next `turn/start`.
+     *
+     * Turn scope. Contrast with {@link toolCallsTotal}, which spans the session.
+     * Every count in this view names its scope, because "5 calls" means something
+     * different per turn and per session and the panel used to leave that implicit.
+     */
     readonly toolCallsInTurn: number;
+    /** Tool calls folded since this session was first seen. Never reset. */
+    readonly toolCallsTotal: number;
+    /** Calls that came back failed, over the whole session. Never reset. */
+    readonly failuresTotal: number;
     /** Most recent durable observation, for the "last event" line. */
     readonly lastEvent: LiveEventSummary | null;
     /** Newest-last window of recent observations, so the view can show a trail. */
     readonly recent: readonly LiveEventSummary[];
     /** Called tool names with their outcome summary, newest last. */
     readonly actions: readonly LiveTaskAction[];
+    /** Newest-last session timeline; bounded, so the wire stays a fixed size. */
+    readonly timeline: readonly LiveTimelineEntry[];
+    /** Newest-last turn summaries, for the timeline's horizontal axis. */
+    readonly turns: readonly LiveTurnSummary[];
     /** Fold counters, so the panel can report its own freshness. */
     readonly health: LiveTaskHealth;
+    /**
+     * Tools the host offered the model in this session, or null when the request
+     * header has not been folded yet.
+     *
+     * Read from the session's own request header, so it covers every tool the
+     * model could call — official ones included — not only the tools this
+     * repository ships.
+     */
+    readonly toolsAvailable: number | null;
     /** Unix epoch milliseconds of the newest transient delta, or null if none. */
     readonly streamedAt: number | null;
     /** `TurnEndReason.kind` of the most recent `turn/end`; null before one. */

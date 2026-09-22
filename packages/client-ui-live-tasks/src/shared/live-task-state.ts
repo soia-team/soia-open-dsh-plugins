@@ -23,12 +23,100 @@ import type {
   LiveEventSummary,
   LiveTaskObservation,
   LiveTaskState,
+  LiveTimelineEntry,
+  LiveTurnSummary,
   LiveToolCall,
 } from './types.ts'
 
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
 const NO_ACTIONS: readonly LiveTaskAction[] = Object.freeze([])
+const NO_TIMELINE: readonly LiveTimelineEntry[] = Object.freeze([])
+const NO_TURNS: readonly LiveTurnSummary[] = Object.freeze([])
+
+/**
+ * Record one tool call against its turn's summary, opening the turn if needed.
+ * @param turns - existing summaries, oldest first.
+ * @param turn - the turn the call belongs to.
+ * @param time - when the call started.
+ * @param name - the tool name.
+ * @returns a new bounded array.
+ */
+function addCallToTurn(
+  turns: readonly LiveTurnSummary[],
+  turn: number | null,
+  time: number,
+  name: string,
+): readonly LiveTurnSummary[] {
+  if (turn === null) return turns
+  const existing = turns.find((summary) => summary.turn === turn)
+  if (existing === undefined) {
+    return [...turns, {
+      turn,
+      startedAt: time,
+      endedAt: null,
+      toolCalls: 1,
+      failures: 0,
+      tools: [name],
+    }].slice(-TURN_LIMIT)
+  }
+  return turns.map((summary) => (summary.turn === turn
+    ? {
+        ...summary,
+        toolCalls: summary.toolCalls + 1,
+        tools: summary.tools.includes(name) ? summary.tools : [...summary.tools, name],
+      }
+    : summary))
+}
+
+/** Close a turn's summary and count a failure against it. */
+function settleTurn(
+  turns: readonly LiveTurnSummary[],
+  turn: number | null,
+  time: number,
+  failed: boolean,
+): readonly LiveTurnSummary[] {
+  if (turn === null) return turns
+  return turns.map((summary) => (summary.turn === turn
+    ? { ...summary, endedAt: time, failures: failed ? summary.failures + 1 : summary.failures }
+    : summary))
+}
+
+/**
+ * Append one row, trimming from the front.
+ * @param timeline - existing rows, oldest first.
+ * @param entry - row to append.
+ * @returns a new bounded array.
+ */
+function pushTimeline(
+  timeline: readonly LiveTimelineEntry[],
+  entry: LiveTimelineEntry,
+): readonly LiveTimelineEntry[] {
+  return [...timeline, entry].slice(-TIMELINE_LIMIT)
+}
+
+/** Replace one row in place, keeping its position in the narrative. */
+function settleTimeline(
+  timeline: readonly LiveTimelineEntry[],
+  id: string,
+  patch: Partial<LiveTimelineEntry>,
+): readonly LiveTimelineEntry[] {
+  return timeline.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry))
+}
+
+/** First non-empty line of a message's text blocks, clipped. */
+function firstLineOfMessage(data: Record<string, unknown> | undefined): string | null {
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  for (const block of blocks) {
+    const record = recordOf(block)
+    if (record?.['type'] === 'text' && typeof record['text'] === 'string') {
+      const line = record['text'].split('\n').map((value) => value.trim()).find((value) => value !== '')
+      if (line !== undefined) return clip(line)
+    }
+  }
+  return null
+}
 
 /** Counters start at zero; nothing has been folded yet. */
 const INITIAL_HEALTH = Object.freeze({ folded: 0, ignored: 0, unknown: 0, frames: 0, deltasAccepted: 0, deltasDropped: 0, agents: 0, registry: 0 })
@@ -46,7 +134,7 @@ const NO_TOOLS: readonly LiveToolCall[] = Object.freeze([])
  */
 const IGNORED_TYPES = new Set([
   'session', 'session/title', 'session/title-llm-request', 'system/message',
-  'request/header', 'request/context', 'permission/preset', 'approval/policy',
+  'request/context', 'permission/preset', 'approval/policy',
   'sandbox/mode', 'subagent/model-selection-policy', 'agent/inbox/spliced',
 ])
 
@@ -60,6 +148,9 @@ const IGNORED_TYPES = new Set([
 const KNOWN_TYPES = new Set([
   'turn/start', 'turn/end', 'step/start', 'step/end', 'tool/call', 'tool/result',
   'assistant/message', 'assistant/attempt', 'user/message', 'agent/assistant-stream',
+  // Folded for one derived number (how many tools the model was offered), not
+  // for a task fact: the header is the only place that list exists.
+  'request/header',
 ])
 
 /**
@@ -75,11 +166,16 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   lastTool: null,
   openTools: NO_TOOLS,
   toolCallsInTurn: 0,
+  toolCallsTotal: 0,
+  failuresTotal: 0,
+  toolsAvailable: null,
   streamedTextLength: 0,
   streamedAt: null,
   health: INITIAL_HEALTH,
   lastEvent: null,
   recent: NO_EVENTS,
+  timeline: NO_TIMELINE,
+  turns: NO_TURNS,
   actions: NO_ACTIONS,
   endedReason: null,
 })
@@ -104,6 +200,12 @@ function stringOf(value: unknown): string | undefined {
 /** Display summary of one durable event. */
 /** How many recent observations the view keeps for its trail. */
 export const RECENT_EVENT_LIMIT = 6
+
+/** How many timeline rows the view keeps. */
+export const TIMELINE_LIMIT = 30
+
+/** How many turns the axis keeps. */
+export const TURN_LIMIT = 20
 
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80
@@ -374,9 +476,23 @@ function foldEvent(
   }
   const data = recordOf(event.data)
 
+  // The request header carries the tool list the model was offered. Reading it
+  // here is what lets the panel say "available tools", which spans official and
+  // third-party tools alike rather than only the ones this repository ships.
+  if (event.type === 'request/header') {
+    const tools = recordOf(recordOf(data?.['header'])?.['config'])?.['tools']
+    const count = Array.isArray(tools) ? tools.length : undefined
+    return {
+      ...state,
+      ...envelope,
+      ...(count === undefined ? {} : { toolsAvailable: count }),
+      ...observed(state, event, null),
+    }
+  }
+
   switch (event.type) {
     case 'turn/start': {
-      const turn = numberOf(data?.['turn'])
+      const turn = numberOf(data?.['turn']) ?? null
       return {
         ...state,
         ...envelope,
@@ -384,7 +500,25 @@ function foldEvent(
         step: null,
         running: true,
         openTools: NO_TOOLS,
+        turns: turn === null || state.turns.some((summary) => summary.turn === turn)
+          ? state.turns
+          : [...state.turns, { turn, startedAt: time, endedAt: null, toolCalls: 0, failures: 0, tools: [] }].slice(-TURN_LIMIT),
+        timeline: turn === null
+          ? state.timeline
+          : pushTimeline(state.timeline, {
+              id: `turn-${turn}`,
+              kind: 'turn',
+              turn,
+              startedAt: time,
+              endedAt: null,
+              title: '',
+              detail: null,
+              result: null,
+              status: 'ok',
+            }),
         toolCallsInTurn: 0,
+        // Session-scope counters deliberately survive a new turn: only what
+        // belongs to the turn resets here.
         streamedTextLength: 0,
         streamedAt: null,
         endedReason: null,
@@ -457,6 +591,19 @@ function foldEvent(
         lastTool: call,
         openTools: [...state.openTools, call],
         toolCallsInTurn: state.toolCallsInTurn + 1,
+        toolCallsTotal: state.toolCallsTotal + 1,
+        turns: addCallToTurn(state.turns, call.turn, time, name),
+        timeline: pushTimeline(state.timeline, {
+          id: callId,
+          kind: 'tool',
+          turn: call.turn,
+          startedAt: time,
+          endedAt: null,
+          title: name,
+          detail: call.detail,
+          result: null,
+          status: 'running',
+        }),
         ...observed(state, event, name),
       }
     }
@@ -482,6 +629,15 @@ function foldEvent(
               ...(resultFailed ? { failed: true } : {}),
             }
           : state.lastTool,
+        failuresTotal: resultFailed ? state.failuresTotal + 1 : state.failuresTotal,
+        turns: settleTurn(state.turns, settled?.turn ?? null, time, resultFailed),
+        timeline: callId === undefined
+          ? state.timeline
+          : settleTimeline(state.timeline, callId, {
+              endedAt: time,
+              result: summarizeToolResult(data),
+              status: resultFailed ? 'failed' : 'ok',
+            }),
         actions: settled === undefined
           ? state.actions
           : [
@@ -489,6 +645,25 @@ function foldEvent(
               actionOf(settled, time, data, resultFailed),
             ].slice(-ACTION_LIMIT),
         ...observed(state, event, settled?.name ?? null),
+      }
+    }
+    case 'user/message': {
+      const detail = firstLineOfMessage(data)
+      return {
+        ...state,
+        ...envelope,
+        timeline: pushTimeline(state.timeline, {
+          id: `user-${seq}`,
+          kind: 'user',
+          turn: numberOf(data?.['turn']) ?? state.turn,
+          startedAt: time,
+          endedAt: time,
+          title: '',
+          detail,
+          result: null,
+          status: 'ok',
+        }),
+        ...observed(state, event, null),
       }
     }
     case 'assistant/message':
@@ -500,6 +675,19 @@ function foldEvent(
         ...envelope,
         streamedTextLength: 0,
         streamedAt: null,
+        timeline: event.type === 'assistant/message'
+          ? pushTimeline(state.timeline, {
+              id: `assistant-${seq}`,
+              kind: 'assistant',
+              turn: numberOf(data?.['turn']) ?? state.turn,
+              startedAt: time,
+              endedAt: time,
+              title: '',
+              detail: firstLineOfMessage(data),
+              result: null,
+              status: 'ok',
+            })
+          : state.timeline,
         ...observed(state, event, null),
       }
     }

@@ -665,3 +665,56 @@ describe('live-task derivation', () => {
       expect(state.health.deltasDropped).toBe(0)
     })
   })
+
+  describe('counts name their scope', () => {
+    it('keeps a session total that a new turn does not reset', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: '{}' }),
+        event('turn/end', 3, { turn: 1, reason: { kind: 'completed' } }),
+        event('turn/start', 4, { turn: 2 }),
+        event('tool/call', 5, { callId: 'c2', name: 'read', turn: 2, step: 1, arguments: '{}' }),
+      ])
+
+      // Turn scope resets; session scope does not. The panel used to show only
+      // the capped eight-row window under the label "tool calls", which read as
+      // a session count and was not one.
+      expect(state.toolCallsInTurn).toBe(1)
+      expect(state.toolCallsTotal).toBe(2)
+    })
+
+    it('counts failures for the session, not just for the current window', () => {
+      const failing = event('tool/result', 3, {
+        turn: 1,
+        step: 1,
+        message: { content: [{ type: 'tool-result', isError: true, toolCallId: 'c1', content: [{ type: 'text', text: 'boom' }] }] },
+      })
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, { callId: 'c1', name: 'bash', turn: 1, step: 1, arguments: '{}' }),
+        failing,
+      ])
+
+      expect(state.failuresTotal).toBe(1)
+    })
+  })
+
+  describe('the tools the host offered', () => {
+    it('reads the count out of the request header', () => {
+      // The header is the only place the offered-tool list exists, and it spans
+      // official and third-party tools — not just the ones this repository ships.
+      const state = foldLiveTasks([
+        event('request/header', 1, {
+          header: { config: { tools: [{ name: 'bash' }, { name: 'read' }, { name: 'check_ui_size' }] } },
+        }),
+      ])
+
+      expect(state.toolsAvailable).toBe(3)
+    })
+
+    it('reports absence when the header carries no tool list', () => {
+      const state = foldLiveTasks([event('request/header', 1, { header: { config: {} } })])
+
+      expect(state.toolsAvailable).toBeNull()
+    })
+  })

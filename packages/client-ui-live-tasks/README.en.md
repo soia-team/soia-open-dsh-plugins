@@ -13,7 +13,7 @@ Shows the current session's task state in the Web GUI as it happens: the last to
 
 While a turn is running, a person asks four questions: **what is it doing now**, **what has it done**, **when did it do it**, and **how did that turn out**. All four facts are already in the session log; none of them is laid out anywhere.
 
-This package folds `session/event` and `agent/assistant-stream` into a small state object (`LiveTaskState`) and registers one read-only view tab, 「任务」, beside the built-in conversation and trajectory tabs (`conversation.view`, `order: 20`):
+This package folds `session/event` and `agent/assistant-stream` into a small state object (`LiveTaskState`) and registers one read-only view tab, 「活动」, beside the built-in conversation and trajectory tabs (`conversation.view`, `order: 20`). The tab is named Activity rather than Tasks because a to-do plugin already owns the latter, and this is a live activity timeline.
 
 The panel is organised as **modules**, each answering one question:
 
@@ -139,6 +139,7 @@ None; the package neither assembles nor sends a provider request.
 
 - **`ctx.liveTasks` has no consumer.** It exists because `agent/assistant-stream` is an in-process frame the projection wire cannot carry, so a host-side landing spot was needed; no second package reads it. It is a surface prepared for diagnostics and a future host consumer, not a verified capability.
 - **The panel cannot show streaming text progress.** See "What the panel does not show". Showing it would need a wire that carries transient frames to the browser, and the projection registry is by contract driven only by committed events.
+- **The "tools offered" number is usually `—`.** It comes from the tool list in the request header, and that event is not always visible in the session event stream (measured: not visible here), so the panel reports unknown rather than guessing. The honest substitute is "D used" on the same line, which comes from calls that actually happened.
 - **The activity log is invisible in a brand-new session.** With no activity the tab does not render at all (measured: a fresh session's view strip has no 「任务」), so `view.empty` is unreachable in practice and covered by unit tests only.
 - **The projection key is process-wide, not a per-session capability signal.** Once any preset registers `liveTask`, every session's snapshot carries the key; the panel reads the value, not the key's presence (the official `dsh-session-projection` README lists this as a limitation of the registry itself).
 - **Latest state only, no history.** The fold keeps "now": the next `turn/start` resets the previous turn's tool calls, and the activity log is a window of the last eight calls rather than an audit record.
