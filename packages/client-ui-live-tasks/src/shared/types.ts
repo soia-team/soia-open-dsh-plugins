@@ -149,6 +149,16 @@ export interface LiveTimelineEntry {
   readonly detail: string | null
   /** What came back, first line only. Null while open or when nothing came back. */
   readonly result: string | null
+  /**
+   * Full arguments for the expanded row, clipped.
+   *
+   * The collapsed row shows one clipped line; opening it should show what was
+   * actually passed. The bound keeps the wire a fixed size however long a turn
+   * runs — thirty rows of unbounded JSON would not be a projection any more.
+   */
+  readonly argsFull: string | null
+  /** Full result text for the expanded row, clipped the same way. */
+  readonly resultFull: string | null
   /** `ok`, `failed`, or `running` while open. */
   readonly status: 'ok' | 'failed' | 'running'
 }

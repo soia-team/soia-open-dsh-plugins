@@ -12,11 +12,14 @@
  *
  * ## Architecture
  *
- *   顶部          state, the tool in use, elapsed
- *   轮次横轴      one segment per conversation turn, width by duration: time runs
- *                 left to right, and a turn is the unit a reader thinks in
- *   轮次明细      per turn: which tools ran, what each was given, how it ended;
- *                 clicking a row opens its arguments and result in full
+ * It deliberately mirrors the built-in 轨迹 view, because two views over one
+ * session should not teach two visual languages:
+ *
+ *   工具栏        搜索 / 展开全部 / 只看失败 — the same controls over the same data
+ *   轮次横轴      one segment per turn, width by duration, in a strip that
+ *                 scrolls sideways when a session has more turns than width
+ *   轮次明细      per turn: which tools ran, with the payload inline; clicking a
+ *                 row opens its full arguments and result, like a 轨迹 row
  *   运行状况      the panel's own counters, so a stale panel is visible as stale
  *
  * @module soia-dsh-client-ui-live-tasks/client/view
@@ -80,24 +83,28 @@ function TurnAxis({ turns, selected, now, t, onSelect }: {
   onSelect: (turn: number) => void
 }): JSX.Element {
   const durations = turns.map((turn) => Math.max(1, secondsBetween(turn.startedAt, turn.endedAt ?? now)))
-  const total = durations.reduce((sum, value) => sum + value, 0)
+  // Pixel widths, not flex: the strip has to be able to exceed the viewport so it
+  // can scroll sideways, which flex-grow cannot express.
+  const widths = durations.map((seconds) => Math.min(420, Math.max(56, seconds * 6)))
   return (
     // A plain container with a heading above it: the section title already names
     // this group, so a redundant ARIA role would only add noise.
-    <div className={styles.axis}>
+    <div className={styles.axisScroll}>
+      <div className={styles.axis}>
       {turns.map((turn, index) => (
         <button
           key={turn.turn}
           type="button"
           className={turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment}
-          style={{ flexGrow: Math.max(1, Math.round((durations[index] ?? 1) / total * 100)) }}
+          style={{ width: widths[index] ?? 56 }}
           title={`${t('axis.turn', { n: turn.turn })} · ${t('turn.tools', { n: turn.toolCalls })} · ${t('time.seconds', { s: durations[index] ?? 0 })}`}
           onClick={() => onSelect(turn.turn)}
         >
-          <span className={styles.axisLabel}>{turn.turn}</span>
+          <span className={styles.axisLabel}>{t('axis.turn', { n: turn.turn })}</span>
           {turn.failures > 0 && <span className={styles.axisFailures}>{turn.failures}</span>}
         </button>
       ))}
+      </div>
     </div>
   )
 }
@@ -112,26 +119,38 @@ function ToolRow({ entry, now, expanded, onToggle, t }: {
 }): JSX.Element {
   const running = entry.status === 'running'
   const took = secondsBetween(entry.startedAt, entry.endedAt ?? now)
+  const kindBadge = entry.kind === 'user'
+    ? t('timeline.user')
+    : entry.kind === 'assistant'
+      ? t('timeline.assistant')
+      : null
   return (
     <li className={styles.toolItem}>
       <button type="button" className={styles.toolButton} onClick={onToggle} aria-expanded={expanded}>
         <span className={styles.tlTime}>{clockOf(entry.startedAt)}</span>
         <StateDot state={running ? 'ongoing' : entry.status === 'failed' ? 'error' : 'done'} size={8} />
-        <span className={styles.tlTitle}>{entry.title}</span>
+        {kindBadge === null
+          ? <span className={styles.tlTitle}>{entry.title}</span>
+          : <span className={styles.tlBadge}>{kindBadge}</span>}
         <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail ?? ''}</span>
         <span className={entry.status === 'failed' ? styles.tlTookFailed : styles.tlTook}>
-          {running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}
-          {` ${t('time.seconds', { s: took })}`}
+          {entry.kind !== 'tool'
+            ? ''
+            : `${running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
         </span>
         <span className={styles.toolHint}>{expanded ? '▾' : t('turn.expand')}</span>
       </button>
       {expanded && (
-        <dl className={styles.toolDetail}>
-          <dt>{t('turn.args')}</dt>
-          <dd>{entry.detail ?? '—'}</dd>
-          <dt>{t('turn.result')}</dt>
-          <dd>{entry.result ?? '—'}</dd>
-        </dl>
+        <div className={styles.toolDetail}>
+          <div className={styles.detailBlock}>
+            <span className={styles.detailLabel}>{t('turn.args')}</span>
+            <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
+          </div>
+          <div className={styles.detailBlock}>
+            <span className={styles.detailLabel}>{t('turn.result')}</span>
+            <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
+          </div>
+        </div>
       )}
     </li>
   )
@@ -168,7 +187,7 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }: 
                 key={entry.id}
                 entry={entry}
                 now={now}
-                expanded={expandedId === entry.id}
+                expanded={expandedId === '__all__' || expandedId === entry.id}
                 onToggle={() => onToggle(entry.id)}
                 t={t}
               />
@@ -188,6 +207,9 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const state = useProjection('liveTask') as LiveTaskView | undefined
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandAll, setExpandAll] = useState(false)
+  const [failedOnly, setFailedOnly] = useState(false)
+  const [query, setQuery] = useState('')
   const now = useNow()
 
   if (state === undefined || !hasLiveActivity(state)) {
@@ -213,8 +235,17 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const selectedTurn = state.turns.at(-1)?.turn ?? null
   const shownTurn = selected ?? selectedTurn
+  const needle = query.trim().toLowerCase()
+  // Every row of the turn, not only its tool calls: a turn reads as one story —
+  // your message, the model's reply, the calls in between — which is exactly how
+  // the built-in 轨迹 view presents it.
   const entriesOfTurn = (turn: number): readonly LiveTimelineEntry[] =>
-    state.timeline.filter((entry) => entry.turn === turn && entry.kind === 'tool')
+    state.timeline.filter((entry) => entry.turn === turn && entry.kind !== 'turn')
+      .filter((entry) => !failedOnly || entry.status === 'failed')
+      .filter((entry) => needle === ''
+        || entry.title.toLowerCase().includes(needle)
+        || (entry.detail ?? '').toLowerCase().includes(needle)
+        || (entry.result ?? '').toLowerCase().includes(needle))
 
   return (
     <div className={styles.view}>
@@ -248,6 +279,23 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         })}
       </p>
 
+      <div className={styles.bar}>
+        <input
+          className={styles.search}
+          type="search"
+          value={query}
+          placeholder={t('bar.search')}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <button type="button" className={failedOnly ? styles.barOn : styles.barButton} onClick={() => setFailedOnly(!failedOnly)}>
+          {t('bar.failedOnly')}
+        </button>
+        <button type="button" className={styles.barButton} onClick={() => setExpandAll(!expandAll)}>
+          {expandAll ? t('bar.collapseAll') : t('bar.expandAll')}
+        </button>
+        <span className={styles.barHint}>{t('bar.scrollHint')}</span>
+      </div>
+
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('axis.title')}</h4>
         <TurnAxis turns={state.turns} selected={shownTurn} now={now} t={t} onSelect={setSelected} />
@@ -263,7 +311,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
               entries={entriesOfTurn(turn.turn)}
               selected={turn.turn === shownTurn}
               now={now}
-              expandedId={expanded}
+              expandedId={expandAll ? '__all__' : expanded}
               onToggle={(id) => setExpanded(expanded === id ? null : id)}
               t={t}
             />

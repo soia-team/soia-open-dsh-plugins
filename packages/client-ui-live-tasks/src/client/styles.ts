@@ -20,7 +20,22 @@ const CSS = `
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
 .lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
 
-/* 轮次横轴：宽度按该轮耗时分配，时间从左到右 */
+/* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
+.lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; background: var(--dsw-alias-bg-base, #fff); }
+.lt-search { flex: 1 1 220px; min-width: 140px; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 16%)); background: transparent;
+  color: var(--dsw-alias-label-primary); font-size: 12px; }
+.lt-barButton, .lt-barOn { height: 26px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
+  font-size: 12px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
+  color: var(--dsw-alias-label-secondary); }
+.lt-barOn { background: rgb(64 120 255 / 18%); color: var(--dsw-alias-label-primary); font-weight: 600; }
+.lt-barHint { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+
+/* 轮次横轴：宽度按该轮耗时分配（像素），超出宽度时横向滚动 */
+.lt-axisScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.lt-axisScroll::-webkit-scrollbar { height: 8px; }
+.lt-axisScroll::-webkit-scrollbar-thumb { background: var(--dsw-alias-separator, rgb(0 0 0 / 18%)); border-radius: 4px; }
 .lt-axis { display: flex; gap: 2px; min-height: 26px; align-items: stretch; }
 .lt-axisSegment, .lt-axisSegmentActive { position: relative; display: flex; align-items: center; justify-content: center;
   min-width: 30px; padding: 3px 6px; border: 0; border-radius: 5px; cursor: pointer;
@@ -45,11 +60,12 @@ const CSS = `
   text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
 .lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
-.lt-toolDetail { display: grid; grid-template-columns: 56px 1fr; gap: 2px 10px; margin: 2px 0 6px 88px;
-  padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%));
-  font-size: 12px; line-height: 18px; }
-.lt-toolDetail dt { color: var(--dsw-alias-label-tertiary); }
-.lt-toolDetail dd { margin: 0; word-break: break-word; font-family: var(--dsw-font-mono, monospace);
+.lt-toolDetail { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px 88px;
+  padding: 8px 10px; border-radius: 8px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-detailBlock { display: flex; flex-direction: column; gap: 3px; }
+.lt-detailLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.lt-detailPre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+  font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
 .lt-summaryLine { margin: -6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
 
@@ -186,6 +202,15 @@ export const styles = {
   resultLine: 'lt-resultLine',
   badgeOk: 'lt-badgeOk',
   badgeFailed: 'lt-badgeFailed',
+  bar: 'lt-bar',
+  search: 'lt-search',
+  barButton: 'lt-barButton',
+  barOn: 'lt-barOn',
+  barHint: 'lt-barHint',
+  axisScroll: 'lt-axisScroll',
+  detailBlock: 'lt-detailBlock',
+  detailLabel: 'lt-detailLabel',
+  detailPre: 'lt-detailPre',
   axis: 'lt-axis',
   axisSegment: 'lt-axisSegment',
   axisSegmentActive: 'lt-axisSegmentActive',

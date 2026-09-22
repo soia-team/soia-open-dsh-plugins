@@ -85,7 +85,22 @@ const CSS = `
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
 .lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
 
-/* 轮次横轴：宽度按该轮耗时分配，时间从左到右 */
+/* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
+.lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; background: var(--dsw-alias-bg-base, #fff); }
+.lt-search { flex: 1 1 220px; min-width: 140px; height: 26px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 16%)); background: transparent;
+  color: var(--dsw-alias-label-primary); font-size: 12px; }
+.lt-barButton, .lt-barOn { height: 26px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
+  font-size: 12px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
+  color: var(--dsw-alias-label-secondary); }
+.lt-barOn { background: rgb(64 120 255 / 18%); color: var(--dsw-alias-label-primary); font-weight: 600; }
+.lt-barHint { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+
+/* 轮次横轴：宽度按该轮耗时分配（像素），超出宽度时横向滚动 */
+.lt-axisScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.lt-axisScroll::-webkit-scrollbar { height: 8px; }
+.lt-axisScroll::-webkit-scrollbar-thumb { background: var(--dsw-alias-separator, rgb(0 0 0 / 18%)); border-radius: 4px; }
 .lt-axis { display: flex; gap: 2px; min-height: 26px; align-items: stretch; }
 .lt-axisSegment, .lt-axisSegmentActive { position: relative; display: flex; align-items: center; justify-content: center;
   min-width: 30px; padding: 3px 6px; border: 0; border-radius: 5px; cursor: pointer;
@@ -110,11 +125,12 @@ const CSS = `
   text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
 .lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
-.lt-toolDetail { display: grid; grid-template-columns: 56px 1fr; gap: 2px 10px; margin: 2px 0 6px 88px;
-  padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%));
-  font-size: 12px; line-height: 18px; }
-.lt-toolDetail dt { color: var(--dsw-alias-label-tertiary); }
-.lt-toolDetail dd { margin: 0; word-break: break-word; font-family: var(--dsw-font-mono, monospace);
+.lt-toolDetail { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px 88px;
+  padding: 8px 10px; border-radius: 8px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-detailBlock { display: flex; flex-direction: column; gap: 3px; }
+.lt-detailLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.lt-detailPre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all;
+  font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
 .lt-summaryLine { margin: -6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
 
@@ -250,6 +266,15 @@ const styles = {
 	resultLine: "lt-resultLine",
 	badgeOk: "lt-badgeOk",
 	badgeFailed: "lt-badgeFailed",
+	bar: "lt-bar",
+	search: "lt-search",
+	barButton: "lt-barButton",
+	barOn: "lt-barOn",
+	barHint: "lt-barHint",
+	axisScroll: "lt-axisScroll",
+	detailBlock: "lt-detailBlock",
+	detailLabel: "lt-detailLabel",
+	detailPre: "lt-detailPre",
 	axis: "lt-axis",
 	axisSegment: "lt-axisSegment",
 	axisSegmentActive: "lt-axisSegmentActive",
@@ -356,11 +381,14 @@ function LiveTasksHeaderAction({ useProjection, t }) {
 *
 * ## Architecture
 *
-*   顶部          state, the tool in use, elapsed
-*   轮次横轴      one segment per conversation turn, width by duration: time runs
-*                 left to right, and a turn is the unit a reader thinks in
-*   轮次明细      per turn: which tools ran, what each was given, how it ended;
-*                 clicking a row opens its arguments and result in full
+* It deliberately mirrors the built-in 轨迹 view, because two views over one
+* session should not teach two visual languages:
+*
+*   工具栏        搜索 / 展开全部 / 只看失败 — the same controls over the same data
+*   轮次横轴      one segment per turn, width by duration, in a strip that
+*                 scrolls sideways when a session has more turns than width
+*   轮次明细      per turn: which tools ran, with the payload inline; clicking a
+*                 row opens its full arguments and result, like a 轨迹 row
 *   运行状况      the panel's own counters, so a stale panel is visible as stale
 *
 * @module soia-dsh-client-ui-live-tasks/client/view
@@ -396,29 +424,33 @@ function secondsBetween(from, to) {
 */
 function TurnAxis({ turns, selected, now, t, onSelect }) {
 	const durations = turns.map((turn) => Math.max(1, secondsBetween(turn.startedAt, turn.endedAt ?? now)));
-	const total = durations.reduce((sum, value) => sum + value, 0);
+	const widths = durations.map((seconds) => Math.min(420, Math.max(56, seconds * 6)));
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: styles.axis,
-		children: turns.map((turn, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-			type: "button",
-			className: turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment,
-			style: { flexGrow: Math.max(1, Math.round((durations[index] ?? 1) / total * 100)) },
-			title: `${t("axis.turn", { n: turn.turn })} · ${t("turn.tools", { n: turn.toolCalls })} · ${t("time.seconds", { s: durations[index] ?? 0 })}`,
-			onClick: () => onSelect(turn.turn),
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.axisLabel,
-				children: turn.turn
-			}), turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.axisFailures,
-				children: turn.failures
-			})]
-		}, turn.turn))
+		className: styles.axisScroll,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: styles.axis,
+			children: turns.map((turn, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment,
+				style: { width: widths[index] ?? 56 },
+				title: `${t("axis.turn", { n: turn.turn })} · ${t("turn.tools", { n: turn.toolCalls })} · ${t("time.seconds", { s: durations[index] ?? 0 })}`,
+				onClick: () => onSelect(turn.turn),
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.axisLabel,
+					children: t("axis.turn", { n: turn.turn })
+				}), turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.axisFailures,
+					children: turn.failures
+				})]
+			}, turn.turn))
+		})
 	});
 }
 /** One tool row inside a turn, expandable to its arguments and result. */
 function ToolRow({ entry, now, expanded, onToggle, t }) {
 	const running = entry.status === "running";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
+	const kindBadge = entry.kind === "user" ? t("timeline.user") : entry.kind === "assistant" ? t("timeline.assistant") : null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
 		className: styles.toolItem,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
@@ -435,32 +467,48 @@ function ToolRow({ entry, now, expanded, onToggle, t }) {
 					state: running ? "ongoing" : entry.status === "failed" ? "error" : "done",
 					size: 8
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				kindBadge === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.tlTitle,
 					children: entry.title
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.tlBadge,
+					children: kindBadge
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.tlDetail,
 					title: entry.detail ?? "",
 					children: entry.detail ?? ""
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: entry.status === "failed" ? styles.tlTookFailed : styles.tlTook,
-					children: [running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok"), ` ${t("time.seconds", { s: took })}`]
+					children: entry.kind !== "tool" ? "" : `${running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.toolHint,
 					children: expanded ? "▾" : t("turn.expand")
 				})
 			]
-		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.toolDetail,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("turn.args") }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.detail ?? "—" }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("turn.result") }),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.result ?? "—" })
-			]
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("turn.args")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+					className: styles.detailPre,
+					children: entry.argsFull ?? entry.detail ?? t("detail.none")
+				})]
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.detailBlock,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.detailLabel,
+					children: t("turn.result")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+					className: styles.detailPre,
+					children: entry.resultFull ?? entry.result ?? t("detail.none")
+				})]
+			})]
 		})]
 	});
 }
@@ -506,7 +554,7 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }) 
 			children: entries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
 				entry,
 				now,
-				expanded: expandedId === entry.id,
+				expanded: expandedId === "__all__" || expandedId === entry.id,
 				onToggle: () => onToggle(entry.id),
 				t
 			}, entry.id))
@@ -522,6 +570,9 @@ function LiveTasksView({ useProjection, t }) {
 	const state = useProjection("liveTask");
 	const [selected, setSelected] = (0, react.useState)(null);
 	const [expanded, setExpanded] = (0, react.useState)(null);
+	const [expandAll, setExpandAll] = (0, react.useState)(false);
+	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
+	const [query, setQuery] = (0, react.useState)("");
 	const now = useNow();
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
@@ -535,7 +586,8 @@ function LiveTasksView({ useProjection, t }) {
 	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
 	const selectedTurn = state.turns.at(-1)?.turn ?? null;
 	const shownTurn = selected ?? selectedTurn;
-	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind === "tool");
+	const needle = query.trim().toLowerCase();
+	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle));
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
 		children: [
@@ -573,6 +625,34 @@ function LiveTasksView({ useProjection, t }) {
 					used: distinctTools
 				})
 			}),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.bar,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+						className: styles.search,
+						type: "search",
+						value: query,
+						placeholder: t("bar.search"),
+						onChange: (event) => setQuery(event.target.value)
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: failedOnly ? styles.barOn : styles.barButton,
+						onClick: () => setFailedOnly(!failedOnly),
+						children: t("bar.failedOnly")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: styles.barButton,
+						onClick: () => setExpandAll(!expandAll),
+						children: expandAll ? t("bar.collapseAll") : t("bar.expandAll")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.barHint,
+						children: t("bar.scrollHint")
+					})
+				]
+			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 				className: styles.section,
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
@@ -598,7 +678,7 @@ function LiveTasksView({ useProjection, t }) {
 						entries: entriesOfTurn(turn.turn),
 						selected: turn.turn === shownTurn,
 						now,
-						expandedId: expanded,
+						expandedId: expandAll ? "__all__" : expanded,
 						onToggle: (id) => setExpanded(expanded === id ? null : id),
 						t
 					}, turn.turn))
@@ -661,6 +741,12 @@ const zh = {
 	"head.toolRunning": "正在用的工具",
 	"head.toolLast": "最近用的工具",
 	"head.toolNone": "还没有用过工具",
+	"bar.search": "搜索工具或命令",
+	"bar.expandAll": "展开全部",
+	"bar.collapseAll": "收起全部",
+	"bar.failedOnly": "只看失败",
+	"bar.scrollHint": "横向可滚动",
+	"detail.none": "（没有可显示的内容）",
 	"axis.title": "轮次横轴（时间向右）",
 	"axis.turn": "第 {n} 轮",
 	"axis.summary": "本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）",
@@ -737,6 +823,12 @@ const en = {
 	"head.toolRunning": "Tool in use",
 	"head.toolLast": "Last tool used",
 	"head.toolNone": "No tool used yet",
+	"bar.search": "Filter by tool or command",
+	"bar.expandAll": "Expand all",
+	"bar.collapseAll": "Collapse all",
+	"bar.failedOnly": "Failures only",
+	"bar.scrollHint": "scrolls sideways",
+	"detail.none": "(nothing to show)",
 	"axis.title": "Turns as time (left to right)",
 	"axis.turn": "turn {n}",
 	"axis.summary": "{turns} turns · {calls} calls · {failures} failed · {tools} tools offered ({used} used)",

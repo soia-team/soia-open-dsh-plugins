@@ -202,7 +202,10 @@ function stringOf(value: unknown): string | undefined {
 export const RECENT_EVENT_LIMIT = 6
 
 /** How many timeline rows the view keeps. */
-export const TIMELINE_LIMIT = 30
+export const TIMELINE_LIMIT = 20
+
+/** Longest detail payload carried for an expanded row. */
+const DETAIL_PAYLOAD_LIMIT = 600
 
 /** How many turns the axis keeps. */
 export const TURN_LIMIT = 20
@@ -357,6 +360,26 @@ function summarizeResultLine(line: string): string {
  * @param data - the `tool/result` payload.
  * @returns one clipped line, or null when the result carried no text.
  */
+/**
+ * The whole text of a tool result, for the expanded row.
+ * @param data - the `tool/result` payload.
+ * @returns concatenated text blocks, or null when the result carried none.
+ */
+function fullToolResult(data: Record<string, unknown> | undefined): string | null {
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  let text = ''
+  for (const block of blocks) {
+    const record = recordOf(block)
+    const inner = Array.isArray(record?.['content']) ? record['content'] as unknown[] : []
+    for (const part of inner) {
+      const candidate = recordOf(part)
+      if (candidate?.['type'] === 'text' && typeof candidate['text'] === 'string') text += candidate['text']
+    }
+  }
+  return text === '' ? null : text
+}
+
 export function summarizeToolResult(data: Record<string, unknown> | undefined): string | null {
   const message = recordOf(data?.['message'])
   const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
@@ -372,6 +395,26 @@ export function summarizeToolResult(data: Record<string, unknown> | undefined): 
   const line = text.split('\n').map((value) => value.trim()).find((value) => value !== '')
   if (line === undefined) return null
   return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT)
+}
+
+/**
+ * Prepare a payload for the expanded row: pretty-print JSON when it parses,
+ * otherwise pass the text through, clipped.
+ * @param value - raw text or JSON string.
+ * @returns the expandable form, or null when there is nothing to show.
+ */
+function expandable(value: string | null): string | null {
+  if (value === null || value.trim() === '') return null
+  const text = value.trim().startsWith('{') || value.trim().startsWith('[')
+    ? (() => {
+        try {
+          return JSON.stringify(JSON.parse(value), null, 2)
+        } catch {
+          return value
+        }
+      })()
+    : value
+  return text.length <= DETAIL_PAYLOAD_LIMIT ? text : `${text.slice(0, DETAIL_PAYLOAD_LIMIT)}…`
 }
 
 /** Collapse whitespace and clip to the wire budget. */
@@ -513,6 +556,8 @@ function foldEvent(
               endedAt: null,
               title: '',
               detail: null,
+              argsFull: null,
+              resultFull: null,
               result: null,
               status: 'ok',
             }),
@@ -602,6 +647,8 @@ function foldEvent(
           title: name,
           detail: call.detail,
           result: null,
+          argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null),
+          resultFull: null,
           status: 'running',
         }),
         ...observed(state, event, name),
@@ -636,6 +683,7 @@ function foldEvent(
           : settleTimeline(state.timeline, callId, {
               endedAt: time,
               result: summarizeToolResult(data),
+              resultFull: expandable(fullToolResult(data)),
               status: resultFailed ? 'failed' : 'ok',
             }),
         actions: settled === undefined
@@ -661,6 +709,8 @@ function foldEvent(
           title: '',
           detail,
           result: null,
+          argsFull: null,
+          resultFull: expandable(fullToolResult(data)),
           status: 'ok',
         }),
         ...observed(state, event, null),
@@ -685,6 +735,8 @@ function foldEvent(
               title: '',
               detail: firstLineOfMessage(data),
               result: null,
+              argsFull: null,
+              resultFull: expandable(fullToolResult(data)),
               status: 'ok',
             })
           : state.timeline,
