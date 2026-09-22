@@ -48,6 +48,7 @@ const liveTurnSummarySchema = z.object({
 const liveTimelineEntrySchema = z.object({
   id: z.string(),
   turn: z.number().int().nullable(),
+  step: z.number().int().nullable(),
   kind: z.enum(['turn', 'user', 'assistant', 'tool']),
   startedAt: z.number(),
   endedAt: z.number().nullable(),

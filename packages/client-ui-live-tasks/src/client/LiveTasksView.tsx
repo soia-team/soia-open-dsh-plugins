@@ -79,14 +79,19 @@ function secondsBetween(from: number, to: number): number {
  * @param props - the rows to plot, the turns to mark, and the interaction state.
  * @returns the chart.
  */
-function LaneChart({ entries, turns, now, selected, t, onSelect }: {
+function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange }: {
   entries: readonly LiveTimelineEntry[]
   turns: LiveTaskView['turns']
   now: number
   selected: number | null
+  range: { from: number, to: number } | null
   t: T
   onSelect: (turn: number) => void
+  onRange: (range: { from: number, to: number } | null) => void
 }): JSX.Element {
+  // Drag selection lives in chart percentages while dragging and in epoch
+  // milliseconds once committed, so a re-render during the drag cannot move it.
+  const [drag, setDrag] = useState<{ startPct: number, endPct: number } | null>(null)
   // Turn rows are boundaries, not spans: they carry no end time, so plotting one
   // would draw a bar from the turn's start to now across the whole chart.
   const plotted = entries.filter((entry) => entry.turn !== null && entry.kind !== 'turn')
@@ -108,7 +113,47 @@ function LaneChart({ entries, turns, now, selected, t, onSelect }: {
         <span>{t('lane.model')}</span>
         <span>{t('lane.tools')}</span>
       </div>
-      <div className={styles.chartTrack}>
+      <div
+        className={styles.chartTrack}
+        onPointerDown={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          const pct = ((event.clientX - rect.left) / rect.width) * 100
+          setDrag({ startPct: pct, endPct: pct })
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          if (drag === null) return
+          const rect = event.currentTarget.getBoundingClientRect()
+          const pct = ((event.clientX - rect.left) / rect.width) * 100
+          setDrag({ startPct: drag.startPct, endPct: pct })
+        }}
+        onPointerUp={() => {
+          if (drag === null) return
+          const lo = Math.min(drag.startPct, drag.endPct)
+          const hi = Math.max(drag.startPct, drag.endPct)
+          // A click, not a drag: clear the selection instead of selecting a sliver.
+          onRange(hi - lo < 1.5 ? null : { from: from + (lo / 100) * span, to: from + (hi / 100) * span })
+          setDrag(null)
+        }}
+      >
+        {range !== null && (
+          <div
+            className={styles.chartSelection}
+            style={{ left: `${at(range.from)}%`, width: `${Math.max(0.2, at(range.to) - at(range.from))}%` }}
+            aria-hidden="true"
+          />
+        )}
+        {drag !== null && (
+          <div
+            className={styles.chartSelection}
+            data-dragging="true"
+            style={{
+              left: `${Math.min(drag.startPct, drag.endPct)}%`,
+              width: `${Math.max(0.2, Math.abs(drag.endPct - drag.startPct))}%`,
+            }}
+            aria-hidden="true"
+          />
+        )}
         <div className={styles.chartLanes}>
           {plotted.map((entry) => (
             <button
@@ -178,6 +223,25 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
       {expanded && (
         <div className={styles.toolDetail}>
           <div className={styles.detailBlock}>
+            <span className={styles.detailLabel}>{t('detail.overview')}</span>
+            <dl className={styles.detailGrid}>
+              <dt>{t('timeline.tool')}</dt>
+              <dd>{entry.kind === 'tool'
+                ? entry.title
+                : entry.kind === 'user'
+                  ? t('timeline.user')
+                  : entry.kind === 'context'
+                    ? t('lane.context')
+                    : t('timeline.assistant')}</dd>
+              <dt>{t('overview.status')}</dt>
+              <dd>{running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}</dd>
+              <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
+              <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
+              {entry.turn !== null && <><dt>{t('overview.at')}</dt>
+                <dd>{entry.step === null ? `#${entry.turn}` : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd></>}
+            </dl>
+          </div>
+          <div className={styles.detailBlock}>
             <span className={styles.detailLabel}>{t('turn.args')}</span>
             <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
           </div>
@@ -189,6 +253,25 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
       )}
     </li>
   )
+}
+
+/**
+ * Group a turn's rows by step, the way the trajectory view does.
+ *
+ * Rows keep their order inside a step; a row without a step number (a message
+ * between steps) is emitted before the first group that follows it, so nothing
+ * is dropped or reordered.
+ * @param entries - the turn's rows in order.
+ * @returns groups of rows, each labelled with its step or null.
+ */
+function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | null, rows: LiveTimelineEntry[] }[] {
+  const groups: { step: number | null, rows: LiveTimelineEntry[] }[] = []
+  for (const entry of entries) {
+    const last = groups.at(-1)
+    if (last !== undefined && last.step === entry.step) last.rows.push(entry)
+    else groups.push({ step: entry.step, rows: [entry] })
+  }
+  return groups
 }
 
 /** The rows for one turn: its messages and its tool calls, in order. */
@@ -219,22 +302,27 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
         ? null
         : entries.length === 0
         ? <p className={styles.none}>{t('turn.empty')}</p>
-        : (
-          <ul className={styles.toolList}>
-            {entries.map((entry) => (
-              <ToolRow
-                key={entry.id}
-                entry={entry}
-                now={now}
-                showClock={showClock}
-                turnStart={turn.startedAt}
-                expanded={expandedId === '__all__' || expandedId === entry.id}
-                onToggle={() => onToggle(entry.id)}
-                t={t}
-              />
-            ))}
-          </ul>
-        )}
+        : groupByStep(entries).map((group, index) => (
+          <div key={`${group.step ?? 'none'}-${index}`} className={styles.stepGroup}>
+            {group.step !== null && (
+              <p className={styles.stepLabel}>{t('turn.stepN', { n: group.step })}</p>
+            )}
+            <ul className={styles.toolList}>
+              {group.rows.map((entry) => (
+                <ToolRow
+                  key={entry.id}
+                  entry={entry}
+                  now={now}
+                  showClock={showClock}
+                  turnStart={turn.startedAt}
+                  expanded={expandedId === '__all__' || expandedId === entry.id}
+                  onToggle={() => onToggle(entry.id)}
+                  t={t}
+                />
+              ))}
+            </ul>
+          </div>
+        ))}
     </section>
   )
 }
@@ -253,6 +341,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const [query, setQuery] = useState('')
   const [showClock, setShowClock] = useState(true)
   const [turnsOpen, setTurnsOpen] = useState(true)
+  const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
 
   if (state === undefined || !hasLiveActivity(state)) {
@@ -289,6 +378,9 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         || entry.title.toLowerCase().includes(needle)
         || (entry.detail ?? '').toLowerCase().includes(needle)
         || (entry.result ?? '').toLowerCase().includes(needle))
+      // A dragged range is a filter, exactly as in the trajectory view.
+      .filter((entry) => range === null
+        || ((entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to))
 
   return (
     <div className={styles.view}>
@@ -342,6 +434,11 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         <button type="button" className={styles.barButton} onClick={() => setTurnsOpen(!turnsOpen)}>
           {turnsOpen ? t('bar.collapseTurns') : t('bar.expandTurns')}
         </button>
+        {range !== null && (
+          <button type="button" className={styles.barOn} onClick={() => setRange(null)}>
+            {t('bar.clearRange')}
+          </button>
+        )}
       </div>
 
       <section className={styles.section}>
@@ -351,8 +448,10 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           turns={state.turns}
           now={now}
           selected={shownTurn}
+          range={range}
           t={t}
           onSelect={setSelected}
+          onRange={setRange}
         />
       </section>
 

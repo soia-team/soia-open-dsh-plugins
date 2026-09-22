@@ -552,6 +552,7 @@ function foldEvent(
               id: `turn-${turn}`,
               kind: 'turn',
               turn,
+              step: null,
               startedAt: time,
               endedAt: null,
               title: '',
@@ -642,6 +643,7 @@ function foldEvent(
           id: callId,
           kind: 'tool',
           turn: call.turn,
+          step: call.step,
           startedAt: time,
           endedAt: null,
           title: name,
@@ -697,13 +699,19 @@ function foldEvent(
     }
     case 'user/message': {
       const detail = firstLineOfMessage(data)
+      // Injected context arrives as a user message whose source is a plugin or a
+      // snapshot; only a message without such a source is the reader's own.
+      const source = recordOf(recordOf(data?.['message'])?.['source'])
+      const injected = source !== undefined && stringOf(source['kind']) !== undefined
+        && source['kind'] !== 'user'
       return {
         ...state,
         ...envelope,
         timeline: pushTimeline(state.timeline, {
           id: `user-${seq}`,
-          kind: 'user',
+          kind: injected ? 'context' : 'user',
           turn: numberOf(data?.['turn']) ?? state.turn,
+          step: numberOf(data?.['step']) ?? null,
           startedAt: time,
           endedAt: time,
           title: '',
@@ -730,6 +738,7 @@ function foldEvent(
               id: `assistant-${seq}`,
               kind: 'assistant',
               turn: numberOf(data?.['turn']) ?? state.turn,
+              step: numberOf(data?.['step']) ?? null,
               startedAt: time,
               endedAt: time,
               title: '',

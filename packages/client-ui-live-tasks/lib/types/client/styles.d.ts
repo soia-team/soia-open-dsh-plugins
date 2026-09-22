@@ -40,6 +40,9 @@ export declare const styles: {
     readonly barOn: 'lt-barOn';
     readonly barHint: 'lt-barHint';
     readonly axisScroll: 'lt-axisScroll';
+    readonly stepGroup: 'lt-stepGroup';
+    readonly stepLabel: 'lt-stepLabel';
+    readonly detailGrid: 'lt-detailGrid';
     readonly detailBlock: 'lt-detailBlock';
     readonly detailLabel: 'lt-detailLabel';
     readonly detailPre: 'lt-detailPre';
@@ -50,6 +53,7 @@ export declare const styles: {
     readonly chartLanes: 'lt-chartLanes';
     readonly chartBoundaries: 'lt-chartBoundaries';
     readonly chartBoundary: 'lt-chartBoundary';
+    readonly chartSelection: 'lt-chartSelection';
     readonly span: 'lt-span';
     readonly axis: 'lt-axis';
     readonly axisSegment: 'lt-axisSegment';

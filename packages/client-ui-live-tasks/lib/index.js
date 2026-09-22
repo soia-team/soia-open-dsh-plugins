@@ -5623,6 +5623,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					id: `turn-${turn}`,
 					kind: "turn",
 					turn,
+					step: null,
 					startedAt: time,
 					endedAt: null,
 					title: "",
@@ -5707,6 +5708,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					id: callId,
 					kind: "tool",
 					turn: call.turn,
+					step: call.step,
 					startedAt: time,
 					endedAt: null,
 					title: name,
@@ -5748,13 +5750,16 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 		}
 		case "user/message": {
 			const detail = firstLineOfMessage(data);
+			const source = recordOf(recordOf(data?.["message"])?.["source"]);
+			const injected = source !== void 0 && stringOf(source["kind"]) !== void 0 && source["kind"] !== "user";
 			return {
 				...state,
 				...envelope,
 				timeline: pushTimeline(state.timeline, {
 					id: `user-${seq}`,
-					kind: "user",
+					kind: injected ? "context" : "user",
 					turn: numberOf(data?.["turn"]) ?? state.turn,
+					step: numberOf(data?.["step"]) ?? null,
 					startedAt: time,
 					endedAt: time,
 					title: "",
@@ -5777,6 +5782,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				id: `assistant-${seq}`,
 				kind: "assistant",
 				turn: numberOf(data?.["turn"]) ?? state.turn,
+				step: numberOf(data?.["step"]) ?? null,
 				startedAt: time,
 				endedAt: time,
 				title: "",
@@ -5886,6 +5892,7 @@ const liveTurnSummarySchema = object({
 const liveTimelineEntrySchema = object({
 	id: string(),
 	turn: number().int().nullable(),
+	step: number().int().nullable(),
 	kind: _enum([
 		"turn",
 		"user",
