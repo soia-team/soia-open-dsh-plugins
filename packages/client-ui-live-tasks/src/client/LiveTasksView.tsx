@@ -179,6 +179,22 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         </span>
       </header>
 
+      {/*
+        The tool line: which tool is being used, readable without opening the
+        table. In-flight calls win over the last finished one, because "what is
+        it doing right now" is the question this panel exists to answer.
+      */}
+      <p className={styles.toolLine}>
+        <span className={styles.toolLineLabel}>
+          {inFlight ? t('head.toolRunning') : t('head.toolLast')}
+        </span>
+        <span className={styles.toolLineValue}>
+          {inFlight
+            ? state.openTools.map((call) => call.name).join(', ')
+            : state.actions.at(-1)?.name ?? t('head.toolNone')}
+        </span>
+      </p>
+
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('overview.title')}</h4>
         <div className={styles.stats}>

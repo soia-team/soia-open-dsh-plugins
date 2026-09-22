@@ -20,6 +20,12 @@ const CSS = `
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
 .lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
 
+/* 顶部工具行：不展开表格也能看到"现在用哪个工具" */
+.lt-toolLine { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 0; }
+.lt-toolLineLabel { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
+.lt-toolLineValue { font-size: 13px; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
+  color: var(--dsw-alias-label-primary); }
+
 /* 模块一：概览卡网格 */
 .lt-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; }
 .lt-stat { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 10px;
@@ -79,6 +85,9 @@ export const styles = {
   view: 'lt-view',
   head: 'lt-head',
   elapsed: 'lt-elapsed',
+  toolLine: 'lt-toolLine',
+  toolLineLabel: 'lt-toolLineLabel',
+  toolLineValue: 'lt-toolLineValue',
   section: 'lt-section',
   sectionHead: 'lt-sectionHead',
   sectionTitle: 'lt-sectionTitle',

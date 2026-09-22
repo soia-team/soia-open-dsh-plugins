@@ -3,6 +3,9 @@ export declare const styles: {
     readonly view: 'lt-view';
     readonly head: 'lt-head';
     readonly elapsed: 'lt-elapsed';
+    readonly toolLine: 'lt-toolLine';
+    readonly toolLineLabel: 'lt-toolLineLabel';
+    readonly toolLineValue: 'lt-toolLineValue';
     readonly section: 'lt-section';
     readonly sectionHead: 'lt-sectionHead';
     readonly sectionTitle: 'lt-sectionTitle';

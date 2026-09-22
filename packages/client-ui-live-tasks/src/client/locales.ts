@@ -21,6 +21,9 @@ export const zh = {
   'view.empty': '本会话还没有动作。',
 
   // 模块一：概览
+  'head.toolRunning': '正在用的工具',
+  'head.toolLast': '最近用的工具',
+  'head.toolNone': '还没有用过工具',
   'overview.title': '概览',
   'overview.status': '状态',
   'overview.at': '位置',
@@ -94,6 +97,9 @@ export const en: Record<LiveTaskKey, string> = {
   'view.tab': 'Tasks',
   'view.empty': 'This session has no actions yet.',
 
+  'head.toolRunning': 'Tool in use',
+  'head.toolLast': 'Last tool used',
+  'head.toolNone': 'No tool used yet',
   'overview.title': 'Overview',
   'overview.status': 'State',
   'overview.at': 'Position',
