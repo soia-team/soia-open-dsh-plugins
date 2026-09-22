@@ -20,6 +20,76 @@ const CSS = `
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
 .lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
 
+/* 轮次横轴：宽度按该轮耗时分配，时间从左到右 */
+.lt-axis { display: flex; gap: 2px; min-height: 26px; align-items: stretch; }
+.lt-axisSegment, .lt-axisSegmentActive { position: relative; display: flex; align-items: center; justify-content: center;
+  min-width: 30px; padding: 3px 6px; border: 0; border-radius: 5px; cursor: pointer;
+  font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums;
+  background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 6%)); color: var(--dsw-alias-label-secondary); }
+.lt-axisSegmentActive { background: rgb(64 120 255 / 18%); color: var(--dsw-alias-label-primary); font-weight: 600; }
+.lt-axisLabel { pointer-events: none; }
+.lt-axisFailures { position: absolute; top: 1px; right: 3px; color: var(--dsw-alias-label-error, #b42318);
+  font-size: 10px; font-weight: 700; }
+
+/* 轮次明细：每轮一段，行可点开看参数与结果 */
+.lt-turnList { display: flex; flex-direction: column; gap: 10px; }
+.lt-turnSection { border-left: 2px solid var(--dsw-alias-separator, rgb(0 0 0 / 8%)); padding: 2px 0 2px 10px; }
+.lt-turnSectionActive { border-left: 2px solid rgb(64 120 255 / 55%); padding: 2px 0 2px 10px; }
+.lt-turnHead { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.lt-turnTitle { color: var(--dsw-alias-label-primary); }
+.lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
+.lt-toolItem { display: flex; flex-direction: column; }
+.lt-toolButton { display: grid; grid-template-columns: 62px 12px minmax(90px, max-content) 1fr auto auto; align-items: baseline;
+  gap: 8px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
+  text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+.lt-toolButton:hover { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
+.lt-toolHint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }
+.lt-toolDetail { display: grid; grid-template-columns: 56px 1fr; gap: 2px 10px; margin: 2px 0 6px 88px;
+  padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%));
+  font-size: 12px; line-height: 18px; }
+.lt-toolDetail dt { color: var(--dsw-alias-label-tertiary); }
+.lt-toolDetail dd { margin: 0; word-break: break-word; font-family: var(--dsw-font-mono, monospace);
+  color: var(--dsw-alias-label-primary); }
+.lt-summaryLine { margin: -6px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
+
+/* 时间线：一条导轨 + 每行一个事件，视觉语言与内置「轨迹」一致 */
+.lt-timeline { margin: 0; padding: 0; list-style: none; }
+.lt-tlRow, .lt-tlTurn { display: grid; align-items: baseline; gap: 8px; font-size: 12.5px; line-height: 20px; }
+.lt-tlRow { grid-template-columns: 18px 62px 40px 1fr auto; padding: 3px 0; }
+.lt-tlTurn { grid-template-columns: 18px 1fr; padding: 10px 0 4px; }
+.lt-tlRail { position: relative; display: flex; align-items: center; justify-content: center; align-self: stretch; }
+.lt-tlRail::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+  background: var(--dsw-alias-separator, rgb(0 0 0 / 10%)); transform: translateX(-50%); }
+.lt-tlRow:first-child .lt-tlRail::before { top: 50%; }
+.lt-tlRow:last-child .lt-tlRail::before { bottom: 50%; }
+.lt-tlRail > * { position: relative; z-index: 1; background: var(--dsw-alias-bg-base, #fff); border-radius: 50%; }
+.lt-tlTurnDot { position: relative; z-index: 1; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary); }
+.lt-tlTurnLabel { font-weight: 600; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.lt-tlTime { color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); white-space: nowrap; }
+.lt-tlBadge, .lt-tlBadgeTool { display: inline-block; padding: 0 5px; border-radius: 5px; font-size: 11px;
+  line-height: 16px; text-align: center; }
+.lt-tlBadge { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
+.lt-tlBadgeTool { color: var(--dsw-alias-label-secondary); background: rgb(64 120 255 / 10%); }
+.lt-tlBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.lt-tlTitle { flex: none; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
+  color: var(--dsw-alias-label-primary); }
+.lt-tlDetail, .lt-tlResult { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-family: var(--dsw-font-mono, monospace); }
+.lt-tlDetail { color: var(--dsw-alias-label-secondary); max-width: 42%; }
+.lt-tlArrow { flex: none; color: var(--dsw-alias-label-tertiary); }
+.lt-tlResult { color: var(--dsw-alias-label-primary); }
+.lt-tlTook, .lt-tlTookFailed { white-space: nowrap; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.lt-tlTook { color: var(--dsw-alias-label-tertiary); }
+.lt-tlTookFailed { color: var(--dsw-alias-label-error, #b42318); }
+
+/* 会话头指示器：在 对话/轨迹 页也能看到当前工具 */
+.lt-headerChip { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 2px 8px;
+  border: 0; border-radius: 999px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
+  color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; cursor: default; }
+.lt-headerChipLabel { font-family: var(--dsw-font-mono, monospace); }
+
 /* 顶部工具行：不展开表格也能看到"现在用哪个工具" */
 .lt-toolLine { display: flex; align-items: baseline; gap: 8px; margin: -4px 0 0; }
 .lt-toolLineLabel { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
@@ -85,6 +155,8 @@ export const styles = {
   view: 'lt-view',
   head: 'lt-head',
   elapsed: 'lt-elapsed',
+  headerChip: 'lt-headerChip',
+  headerChipLabel: 'lt-headerChipLabel',
   toolLine: 'lt-toolLine',
   toolLineLabel: 'lt-toolLineLabel',
   toolLineValue: 'lt-toolLineValue',
@@ -114,6 +186,39 @@ export const styles = {
   resultLine: 'lt-resultLine',
   badgeOk: 'lt-badgeOk',
   badgeFailed: 'lt-badgeFailed',
+  axis: 'lt-axis',
+  axisSegment: 'lt-axisSegment',
+  axisSegmentActive: 'lt-axisSegmentActive',
+  axisLabel: 'lt-axisLabel',
+  axisFailures: 'lt-axisFailures',
+  turnList: 'lt-turnList',
+  turnSection: 'lt-turnSection',
+  turnSectionActive: 'lt-turnSectionActive',
+  turnHead: 'lt-turnHead',
+  turnTitle: 'lt-turnTitle',
+  turnMeta: 'lt-turnMeta',
+  toolList: 'lt-toolList',
+  toolItem: 'lt-toolItem',
+  toolButton: 'lt-toolButton',
+  toolHint: 'lt-toolHint',
+  toolDetail: 'lt-toolDetail',
+  summaryLine: 'lt-summaryLine',
+  timeline: 'lt-timeline',
+  tlRow: 'lt-tlRow',
+  tlTurn: 'lt-tlTurn',
+  tlRail: 'lt-tlRail',
+  tlTurnDot: 'lt-tlTurnDot',
+  tlTurnLabel: 'lt-tlTurnLabel',
+  tlTime: 'lt-tlTime',
+  tlBadge: 'lt-tlBadge',
+  tlBadgeTool: 'lt-tlBadgeTool',
+  tlBody: 'lt-tlBody',
+  tlTitle: 'lt-tlTitle',
+  tlDetail: 'lt-tlDetail',
+  tlArrow: 'lt-tlArrow',
+  tlResult: 'lt-tlResult',
+  tlTook: 'lt-tlTook',
+  tlTookFailed: 'lt-tlTookFailed',
   health: 'lt-health',
   healthStale: 'lt-healthStale',
   toolName: 'lt-toolName',

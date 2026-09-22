@@ -26,6 +26,10 @@ export declare const INITIAL_LIVE_TASK_STATE: LiveTaskState;
 /** Display summary of one durable event. */
 /** How many recent observations the view keeps for its trail. */
 export declare const RECENT_EVENT_LIMIT = 6;
+/** How many timeline rows the view keeps. */
+export declare const TIMELINE_LIMIT = 30;
+/** How many turns the axis keeps. */
+export declare const TURN_LIMIT = 20;
 /** How many finished calls the activity log keeps. */
 export declare const ACTION_LIMIT = 8;
 /**

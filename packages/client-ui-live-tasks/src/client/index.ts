@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 import type { LiveTaskKey } from './locales.ts'
+import { LiveTasksHeaderAction } from './LiveTasksHeaderAction.tsx'
 import { LiveTasksView } from './LiveTasksView.tsx'
 import { en, NS, zh } from './locales.ts'
 
@@ -72,4 +73,13 @@ export function apply(ctx: ClientContext): void {
     label: () => t('view.tab'),
     locale: NS,
   }, LiveTasksView))
+  // A second, smaller surface: the running tool in the session header, readable
+  // from the conversation view as well. The full panel is one tab away; the name
+  // of the tool should not require going there.
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'live-tasks',
+    order: 30,
+    locale: NS,
+  }, LiveTasksHeaderAction))
 }
