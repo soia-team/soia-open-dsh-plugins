@@ -27,6 +27,16 @@ export declare const zh: {
     readonly 'bar.scrollHint': '横向可滚动';
     readonly 'detail.none': '（没有可显示的内容）';
     readonly 'detail.content': '内容';
+    readonly 'detail.timing': '计时';
+    readonly 'detail.close': '关闭详情';
+    readonly 'timing.ended': '结束时间';
+    readonly 'turn.windowOnly': '更早的明细未保留（仅保留最近 20 行）';
+    readonly 'detail.schema': 'Schema';
+    readonly 'detail.schemaUnavailable': 'Schema 不可用';
+    readonly 'timing.ms': '毫秒';
+    readonly 'timing.source': '计时来源';
+    readonly 'timing.sourceSession': '会话时间戳';
+    readonly 'timeline.toolCallsOnly': '（仅工具调用）';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';
@@ -37,7 +47,7 @@ export declare const zh: {
     readonly 'axis.turn': '第 {n} 轮';
     readonly 'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）';
     readonly 'turn.stepN': '第 {n} 步';
-    readonly 'detail.overview': '概览';
+    readonly 'detail.overview': '概述';
     readonly 'timing.duration': '时长';
     readonly 'timing.started': '开始时间';
     readonly 'turn.tools': '{n} 个工具';

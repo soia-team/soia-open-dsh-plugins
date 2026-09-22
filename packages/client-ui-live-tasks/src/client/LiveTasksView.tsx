@@ -28,7 +28,7 @@ import { StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Fragment, useEffect, useState } from 'react'
 
 import { hasLiveActivity } from '../shared/live-task-state.ts'
-import type { LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
+import type { LiveSpan, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
 
@@ -70,6 +70,54 @@ function compact(value: number): string {
   return `${(value / 1_000_000).toFixed(2)}M`
 }
 
+
+/**
+ * Render a tool's arguments the way the trajectory view does: the first pair as
+ * `key: "value"`, muted and monospaced, inside parentheses — not my summarizer's
+ * `a @ b` which no other view in the product speaks.
+ * @param entry - the row to read.
+ * @returns the inline argument text, or null when there is nothing to show.
+ */
+function argsInline(entry: LiveTimelineEntry): string | null {
+  if (entry.kind !== 'tool') return null
+  if (entry.argsFull !== null) {
+    try {
+      const parsed: unknown = JSON.parse(entry.argsFull)
+      if (parsed !== null && typeof parsed === 'object') {
+        const first = Object.entries(parsed as Record<string, unknown>)[0]
+        if (first !== undefined) {
+          const [key, value] = first
+          const rendered = typeof value === 'string' ? value : JSON.stringify(value)
+          return `${key}: ${rendered}`
+        }
+      }
+    } catch {
+      // Not JSON (some tools take a raw string): fall through to the summary.
+    }
+  }
+  return entry.detail
+}
+
+/**
+ * `YYYY-MM-DD HH:MM:SS.mmm`, local time — the precision the trajectory view's
+ * timing panel shows; second resolution hides the very differences timing exists
+ * to reveal.
+ * @param time - epoch milliseconds.
+ * @returns the stamp.
+ */
+function stampOf(time: number): string {
+  const date = new Date(time)
+  const pad = (value: number, width = 2): string => String(value).padStart(width, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    + `.${pad(date.getMilliseconds(), 3)}`
+}
+
+/** Elapsed milliseconds as a group-separated integer. */
+function millisBetween(from: number, to: number): string {
+  return new Intl.NumberFormat('zh-CN').format(Math.max(0, to - from))
+}
+
 /** Wall-clock `HH:MM:SS` in the reader's own timezone. */
 function clockOf(at: number): string {
   return new Date(at).toLocaleTimeString(undefined, { hour12: false })
@@ -93,8 +141,8 @@ function secondsBetween(from: number, to: number): number {
  * @param props - the rows to plot, the turns to mark, and the interaction state.
  * @returns the chart.
  */
-function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange }: {
-  entries: readonly LiveTimelineEntry[]
+function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }: {
+  spans: readonly LiveSpan[]
   turns: LiveTaskView['turns']
   now: number
   selected: number | null
@@ -106,11 +154,12 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
   // Drag selection lives in chart percentages while dragging and in epoch
   // milliseconds once committed, so a re-render during the drag cannot move it.
   const [drag, setDrag] = useState<{ startPct: number, endPct: number } | null>(null)
-  // Turn rows are boundaries, not spans: they carry no end time, so plotting one
-  // would draw a bar from the turn's start to now across the whole chart.
-  const plotted = entries.filter((entry) => entry.turn !== null && entry.kind !== 'turn')
-  const starts = plotted.map((entry) => entry.startedAt)
-  const ends = plotted.map((entry) => entry.endedAt ?? now)
+  // The chart reads the dense segment list, not the twenty-row window: a strip
+  // drawn from the retained rows looks empty beside the trajectory view's, which
+  // plots every record.
+  const plotted = spans
+  const starts = plotted.map((segment) => segment.startedAt)
+  const ends = plotted.map((segment) => segment.endedAt ?? now)
   const from = starts.length === 0 ? now - 1000 : Math.min(...starts)
   const to = Math.max(now, ...(ends.length === 0 ? [now] : ends))
   const span = Math.max(1000, to - from)
@@ -118,7 +167,7 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
   const laneOf = (kind: LiveTimelineEntry['kind']): number =>
     kind === 'assistant' ? 1 : kind === 'tool' ? 2 : 0
 
-  const minWidth = Math.max(560, plotted.length * 26)
+  const minWidth = 560
   return (
     <div className={styles.chartScroll}>
     <div className={styles.chart} style={{ minWidth: `${minWidth}px` }}>
@@ -169,22 +218,22 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
           />
         )}
         <div className={styles.chartLanes}>
-          {plotted.map((entry) => (
+          {plotted.map((segment) => (
             <button
-              key={entry.id}
+              key={segment.id}
               type="button"
               className={styles.span}
-              data-kind={entry.kind}
-              data-error={entry.status === 'failed'}
-              data-selected={selected === null || selected === entry.turn}
+              data-kind={segment.kind}
+              data-error={segment.status === 'failed'}
+              data-selected={selected === null || selected === segment.turn}
               style={{
-                top: `${laneOf(entry.kind) * 14}px`,
-                left: `${at(entry.startedAt)}%`,
-                width: `max(2px, ${Math.max(0.2, at(entry.endedAt ?? now) - at(entry.startedAt))}%)`,
+                top: `${laneOf(segment.kind) * 14}px`,
+                left: `${at(segment.startedAt)}%`,
+                width: `max(2px, ${Math.max(0.2, at(segment.endedAt ?? now) - at(segment.startedAt))}%)`,
               }}
-              title={`${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`}
-              aria-label={`${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`}
-              onClick={() => entry.turn !== null && onSelect(entry.turn)}
+              title={`${segment.kind} · ${clockOf(segment.startedAt)}`}
+              aria-label={`${segment.kind} · ${clockOf(segment.startedAt)}`}
+              onClick={() => onSelect(segment.turn)}
             />
           ))}
         </div>
@@ -249,8 +298,19 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
             <span className={styles.tlTime}>{clock}</span>
             <span className={styles.tlTitle}>{entry.kind === 'tool' ? entry.title : ''}</span>
             {entry.entryId !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
-            {entry.detail !== null && (
-              <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail}</span>
+            {entry.kind === 'tool' && argsInline(entry) !== null && (
+              <span className={styles.tlArgs} title={argsInline(entry) ?? ''}>
+                {`（${argsInline(entry)}）`}
+              </span>
+            )}
+            {entry.kind !== 'tool' && (
+              /* An assistant turn that only made tool calls has no text of its
+                 own; saying nothing there reads as a rendering bug. */
+              <span className={styles.tlDetail} title={entry.detail ?? ''}>
+                {entry.detail === null || entry.detail === ''
+                  ? t('timeline.toolCallsOnly')
+                  : entry.detail}
+              </span>
             )}
             {entry.result !== null && (
               <>
@@ -266,64 +326,6 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
           </button>
         </td>
       </tr>
-      {expanded && (
-        <tr className={styles.detailRow}>
-          <td className={styles.eventCell} aria-hidden="true" />
-          <td className={styles.detailCell}>
-            <div className={styles.toolDetail}>
-              <div className={styles.detailBlock}>
-                <span className={styles.detailLabel}>{t('detail.overview')}</span>
-                <dl className={styles.detailGrid}>
-                  <dt>{t('detail.name')}</dt>
-                  <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
-                  {entry.entryId !== null && (
-                    <>
-                      <dt>{t('detail.entryId')}</dt>
-                      <dd className={styles.detailMono}>{entry.entryId}</dd>
-                    </>
-                  )}
-                  {entry.kind === 'tool' && (
-                    <>
-                      <dt>{t('overview.status')}</dt>
-                      <dd>{running ? t('status.running') : failed ? t('status.failed') : t('status.ok')}</dd>
-                      <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
-                    </>
-                  )}
-                  <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
-                  {entry.turn !== null && (
-                    <>
-                      <dt>{t('overview.at')}</dt>
-                      <dd>{entry.step === null
-                        ? `#${entry.turn}`
-                        : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
-                    </>
-                  )}
-                </dl>
-              </div>
-              {entry.kind === 'tool'
-                ? (
-                    <>
-                      <div className={styles.detailBlock}>
-                        <span className={styles.detailLabel}>{t('turn.args')}</span>
-                        <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
-                      </div>
-                      <div className={styles.detailBlock}>
-                        <span className={styles.detailLabel}>{t('turn.result')}</span>
-                        <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
-                      </div>
-                    </>
-                  )
-                : (
-                    /* A message row has one body, not an argument and a result. */
-                    <div className={styles.detailBlock}>
-                      <span className={styles.detailLabel}>{t('detail.content')}</span>
-                      <pre className={styles.detailPre}>{entry.detail ?? t('detail.none')}</pre>
-                    </div>
-                  )}
-            </div>
-          </td>
-        </tr>
-      )}
     </>
   )
 }
@@ -391,7 +393,15 @@ function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, 
         ? (
             <tr>
               <td className={styles.eventCell} aria-hidden="true" />
-              <td className={styles.contentCell}><span className={styles.none}>{t('turn.empty')}</span></td>
+              <td className={styles.contentCell}>
+                {/* A turn can have calls that the bounded timeline no longer
+                    carries: saying "no tool calls" there would be false (a turn
+                    with 103 calls once read as empty). The counter decides which
+                    sentence is true. */}
+                <span className={styles.none}>
+                  {turn.toolCalls > 0 ? t('turn.windowOnly') : t('turn.empty')}
+                </span>
+              </td>
             </tr>
           )
         : groupByStep(entries).map((group, index) => (
@@ -424,6 +434,128 @@ function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, 
   )
 }
 
+
+/**
+ * The row detail as a right-hand drawer, the way the trajectory view shows one.
+ *
+ * Tabs, a 42px header and a scrolling body — an inline block under the row pushed
+ * every later row down and could not be compared side by side with the row it
+ * described.
+ */
+function DetailDrawer({ entry, now, onClose, t }: {
+  entry: LiveTimelineEntry
+  now: number
+  onClose: () => void
+  t: T
+}): JSX.Element {
+  const [tab, setTab] = useState<'overview' | 'args' | 'result' | 'schema' | 'timing'>('overview')
+  const running = entry.status === 'running'
+  const failed = entry.status === 'failed'
+  const kind = entry.kind === 'tool'
+    ? t('timeline.tool')
+    : entry.kind === 'user'
+      ? t('timeline.user')
+      : entry.kind === 'context'
+        ? t('lane.context')
+        : t('timeline.assistant')
+  const tabs: readonly { id: typeof tab, label: string, body: JSX.Element }[] = [
+    {
+      id: 'overview',
+      label: t('detail.overview'),
+      body: (
+        <dl className={styles.detailGrid}>
+          <dt>{t('detail.name')}</dt>
+          <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
+          {entry.entryId !== null && (
+            <>
+              <dt>{t('detail.entryId')}</dt>
+              <dd className={styles.detailMono}>{entry.entryId}</dd>
+            </>
+          )}
+          {entry.kind === 'tool' && (
+            <>
+              <dt>{t('overview.status')}</dt>
+              <dd>{running ? t('status.running') : failed ? t('status.failed') : t('status.ok')}</dd>
+            </>
+          )}
+          {entry.turn !== null && (
+            <>
+              <dt>{t('overview.at')}</dt>
+              <dd>{entry.step === null
+                ? `#${entry.turn}`
+                : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
+            </>
+          )}
+        </dl>
+      ),
+    },
+    {
+      id: 'args',
+      label: t('turn.args'),
+      body: <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>,
+    },
+    {
+      id: 'result',
+      label: t('turn.result'),
+      body: <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>,
+    },
+    {
+      id: 'schema',
+      label: t('detail.schema'),
+      // The session record carries no per-call schema; the trajectory view shows
+      // the same honest sentence instead of inventing one.
+      body: <p className={styles.none}>{t('detail.schemaUnavailable')}</p>,
+    },
+    {
+      id: 'timing',
+      label: t('detail.timing'),
+      body: (
+        <dl className={styles.detailGrid}>
+          <dt>{t('timing.started')}</dt><dd className={styles.detailMono}>{stampOf(entry.startedAt)}</dd>
+          <dt>{t('timing.duration')}</dt>
+          <dd>{millisBetween(entry.startedAt, entry.endedAt ?? now)} {t('timing.ms')}</dd>
+          <dt>{t('timing.ended')}</dt>
+          <dd className={styles.detailMono}>
+            {entry.endedAt === null ? t('status.running') : stampOf(entry.endedAt)}
+          </dd>
+          <dt>{t('timing.source')}</dt><dd>{t('timing.sourceSession')}</dd>
+        </dl>
+      ),
+    },
+  ]
+  const active = tabs.find((item) => item.id === tab) ?? tabs[0]
+
+  return (
+    <aside className={styles.details}>
+      <header className={styles.detailsHeader}>
+        <span className={styles.detailsTitle}>
+          <span className={styles.kindTag} data-kind={entry.kind} data-failed={failed}>{kind}</span>
+          <strong className={styles.detailsName}>{entry.kind === 'tool' ? entry.title : kind}</strong>
+        </span>
+        <span className={styles.detailsLocation}>{entry.entryId ?? ''}</span>
+        <button type="button" className={styles.detailsClose} onClick={onClose} aria-label={t('detail.close')}>
+          ×
+        </button>
+      </header>
+      <div className={styles.detailTabs} role="tablist">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={item.id === tab}
+            className={item.id === tab ? styles.detailTabActive : styles.detailTab}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.detailBody}>{active?.body}</div>
+    </aside>
+  )
+}
+
 /**
  * Render the live task view for the current session.
  * @param props - projection hook and translator from the slot kit.
@@ -448,6 +580,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         turnsTotal: projected.turnsTotal ?? projected.turns.length,
         usage: projected.usage
           ?? { reported: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 },
+        spans: projected.spans ?? [],
       }
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -502,8 +635,14 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
       .filter((entry) => range === null
         || ((entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to))
 
+  const detailEntry = expandAll
+    ? null
+    : state.timeline.find((entry) => entry.id === expanded) ?? null
+
   return (
     <div className={styles.view}>
+      <div className={styles.panes}>
+        <div className={styles.paneMain}>
       <header className={styles.head}>
         <StateDot state={inFlight || state.running ? 'ongoing' : settled ? 'done' : 'idle'} />
         <Tag tone={settled ? 'success' : 'info'}>{phase}</Tag>
@@ -593,7 +732,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
             : t('axis.title')}
         </h4>
         <LaneChart
-          entries={state.timeline}
+          spans={state.spans}
           turns={state.turns}
           now={now}
           selected={shownTurn}
@@ -660,6 +799,16 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           </span>
         </div>
       </section>
+        </div>
+        {detailEntry !== null && (
+          <DetailDrawer
+            entry={detailEntry}
+            now={now}
+            onClose={() => setExpanded(null)}
+            t={t}
+          />
+        )}
+      </div>
     </div>
   )
 }

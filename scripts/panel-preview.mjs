@@ -46,7 +46,7 @@ const reactDom = readFileSync(join(root, 'node_modules/react-dom/umd/react-dom.p
 // not send: the browser half and the host half are versioned separately, and a
 // refresh can pair a new client with the host that is still running. That pairing
 // blanked the panel once; this mode keeps it from happening again unnoticed.
-const staleFields = ['usage', 'turnsTotal']
+const staleFields = ['usage', 'turnsTotal', 'spans']
 
 const fixture = {
   turnsTotal: 64,
@@ -115,8 +115,13 @@ const DICTIONARY = {
   'head.toolRunning': '正在用的工具', 'head.toolLast': '最近用的工具', 'head.toolNone': '还没有用过工具',
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
-  'detail.overview': '概览', 'detail.none': '（没有可显示的内容）',
+  'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
   'detail.name': '名称', 'detail.entryId': '插件 ID', 'detail.content': '内容',
+  'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
+  'turn.windowOnly': '更早的明细未保留（仅保留最近 20 行）',
+  'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
+  'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
+  'timeline.toolCallsOnly': '（仅工具调用）',
   'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）',
   'usage.unknown': '本会话还没有用量报告',
   'usage.turn': '{t} tok',
@@ -135,6 +140,23 @@ const DICTIONARY = {
   'event.turnStart': '开始处理', 'event.turnEnd': '处理结束', 'event.userMessage': '收到你的消息',
   'event.assistantMessage': '模型回复', 'event.toolCall': '调用 {name}', 'event.toolResult': '{name} 返回',
 }
+
+// The lane chart plots the dense segment list, not the row window — generate a
+// plausible sixty so the preview shows the strip's real density (the trajectory
+// view plots every record, and a strip of twenty rows reads as empty beside it).
+fixture.spans = Array.from({ length: 60 }, (_, index) => {
+  const kinds = ['user', 'assistant', 'tool', 'context']
+  const kind = kinds[index % kinds.length] ?? 'tool'
+  const startedAt = Date.now() - 70_000 + index * 1_100
+  return {
+    id: `span-${index}`,
+    turn: index < 30 ? 1 : 2,
+    kind,
+    status: index === 47 ? 'failed' : 'ok',
+    startedAt,
+    endedAt: startedAt + (kind === 'tool' ? 400 : 150),
+  }
+})
 
 const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <style>body{margin:0;font-family:-apple-system,"PingFang SC",system-ui;background:#fff}
@@ -226,7 +248,10 @@ const playwrightEntry = process.env['PLAYWRIGHT_CORE']
   ?? join(root, 'node_modules/.pnpm/playwright-core@1.63.0/node_modules/playwright-core/index.mjs')
 const { chromium } = await import(playwrightEntry)
 const browser = await chromium.launch({ executablePath: process.env['CHROME_PATH'] ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true })
-const view = await browser.newPage({ viewport: { width: 1200, height: 900 } })
+// Two pixels per CSS pixel and a shot of the panel element only: full-page
+// screenshots of a dense table at 1x came back as unreadable thumbnails, which
+// was the complaint. The panel is the subject; nothing else is in frame.
+const view = await browser.newPage({ viewport: { width: panelWidth + 40, height: 960 }, deviceScaleFactor: 2 })
 const errors = []
 view.on('pageerror', (error) => errors.push(String(error)))
 await view.goto(`file://${pagePath}`)
@@ -235,23 +260,40 @@ await view.waitForTimeout(900)
 // reader judges the panel by.
 await view.locator('[class*="lt-rowButton"]').nth(5).click()
 await view.waitForTimeout(250)
+// The highlighted target format lives on the timing tab; open it so the
+// screenshot and the millisecond assertion see the same thing.
+await view.getByRole('tab', { name: '计时' }).click().catch(() => {})
+await view.waitForTimeout(150)
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
 // A missing translation renders as its raw key, which is exactly how the first
 // version of this harness hid a 46px chip slot behind overflowing text. Detect it
 // rather than let it look like a layout bug.
+// Visual facts, asserted rather than eyeballed: the strip must be dense, the
+// drawer must open with the trajectory view's five tabs, its timing must carry
+// milliseconds, and a tool row must show its arguments in the quoted inline form.
+const visuals = await view.evaluate(() => ({
+  spans: globalThis.document.querySelectorAll('[class*="lt-span"]').length,
+  tabs: [...globalThis.document.querySelectorAll('[role="tab"]')].map((node) => node.textContent ?? ''),
+  drawer: globalThis.document.querySelector('[class*="lt-details"]') !== null,
+  stamp: (globalThis.document.querySelector('[class*="lt-detailBody"]')?.textContent ?? '').match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}/)?.[0] ?? null,
+  argsInline: globalThis.document.querySelectorAll('[class*="lt-tlArgs"]').length,
+  html: '',
+}))
+
 const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
   .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
   .filter((text) => /^[a-z][A-Za-z]*\.[A-Za-z.]+$/.test(text)))
 const rows = await view.locator('[class*="lt-rowButton"]').count()
 const chips = await view.locator('[class*="lt-kindTag"]').count()
-await view.screenshot({ path: out, fullPage: true })
+await view.locator('#root').screenshot({ path: out })
 await browser.close()
 
 if (!keep) rmSync(scratch, { recursive: true, force: true })
 else console.log(`panel-preview: kept ${pagePath}`)
 
 console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → ${out}`)
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline}`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)

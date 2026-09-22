@@ -18,6 +18,7 @@
  * `(turn, step)`.
  */
 import type {
+  LiveSpan,
   LiveTaskAction,
   LiveEventLike,
   LiveEventSummary,
@@ -33,6 +34,7 @@ const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
 const NO_ACTIONS: readonly LiveTaskAction[] = Object.freeze([])
 const NO_TIMELINE: readonly LiveTimelineEntry[] = Object.freeze([])
 const NO_TURNS: readonly LiveTurnSummary[] = Object.freeze([])
+const NO_SPANS: readonly LiveSpan[] = Object.freeze([])
 
 /**
  * Record one tool call against its turn's summary, opening the turn if needed.
@@ -128,6 +130,46 @@ const INITIAL_USAGE = Object.freeze({ reported: 0, input: 0, output: 0, cacheRea
  * @param key - field name.
  * @returns the number, or 0 when the provider did not report it.
  */
+/**
+ * Fold one row into both the row window and the lane segments.
+ *
+ * They are bounded separately: rows keep the wire small (twenty), the chart needs
+ * density (four hundred) or the strip reads as empty next to the trajectory view.
+ * @param state - state before the row.
+ * @param entry - the row just folded.
+ * @returns the new `timeline` and `spans`.
+ */
+function foldTimeline(
+  state: LiveTaskState,
+  entry: LiveTimelineEntry,
+): Pick<LiveTaskState, 'timeline' | 'spans'> {
+  return { timeline: pushTimeline(state.timeline, entry), spans: pushSpan(state.spans, entry) }
+}
+
+/**
+ * Record one lane segment alongside a timeline row.
+ * @param spans - the current segment list.
+ * @param entry - the row just folded.
+ * @returns the new list, newest-last and bounded.
+ */
+function pushSpan(
+  spans: readonly LiveSpan[],
+  entry: LiveTimelineEntry,
+): readonly LiveSpan[] {
+  if (entry.kind === 'turn') return spans
+  return [
+    ...spans,
+    {
+      id: entry.id,
+      turn: entry.turn ?? 0,
+      kind: entry.kind,
+      status: entry.status,
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+    },
+  ].slice(-SPAN_LIMIT)
+}
+
 function usageField(usage: Record<string, unknown> | undefined, key: string): number {
   if (usage === undefined) return 0
   const value = usage[key]
@@ -192,6 +234,7 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   lastEvent: null,
   recent: NO_EVENTS,
   timeline: NO_TIMELINE,
+  spans: NO_SPANS,
   turns: NO_TURNS,
   turnsTotal: 0,
   actions: NO_ACTIONS,
@@ -234,6 +277,9 @@ export function entryIdOfTool(toolName: string): string | null {
   if (trimmed === '') return null
   return `tool-${trimmed.replaceAll('_', '-')}`
 }
+
+/** How many lane segments the view keeps (the chart wants density, not rows). */
+const SPAN_LIMIT = 400
 
 /** How many timeline rows the view keeps. */
 export const TIMELINE_LIMIT = 20
@@ -677,7 +723,7 @@ function foldEvent(
         toolCallsInTurn: state.toolCallsInTurn + 1,
         toolCallsTotal: state.toolCallsTotal + 1,
         turns: addCallToTurn(state.turns, call.turn, time, name),
-        timeline: pushTimeline(state.timeline, {
+        ...foldTimeline(state, {
           id: callId,
           kind: 'tool',
           turn: call.turn,
@@ -746,7 +792,7 @@ function foldEvent(
       return {
         ...state,
         ...envelope,
-        timeline: pushTimeline(state.timeline, {
+        ...foldTimeline(state, {
           id: `user-${seq}`,
           kind: injected ? 'context' : 'user',
           turn: numberOf(data?.['turn']) ?? state.turn,
@@ -792,8 +838,8 @@ function foldEvent(
               ? { ...summary, tokens: summary.tokens + spent }
               : summary))
           : state.turns,
-        timeline: event.type === 'assistant/message'
-          ? pushTimeline(state.timeline, {
+        ...(event.type === 'assistant/message'
+          ? foldTimeline(state, {
               id: `assistant-${seq}`,
               kind: 'assistant',
               turn: numberOf(data?.['turn']) ?? state.turn,
@@ -808,7 +854,7 @@ function foldEvent(
               resultFull: expandable(fullToolResult(data)),
               status: 'ok',
             })
-          : state.timeline,
+          : { timeline: state.timeline, spans: state.spans }),
         ...observed(state, event, null),
       }
     }

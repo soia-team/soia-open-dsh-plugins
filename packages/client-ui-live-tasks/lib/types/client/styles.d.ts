@@ -78,6 +78,18 @@ export declare const styles: {
     readonly detailRow: 'lt-detailRow';
     readonly detailCell: 'lt-detailCell';
     readonly turnBody: 'lt-turnBody';
+    readonly panes: 'lt-panes';
+    readonly paneMain: 'lt-paneMain';
+    readonly details: 'lt-details';
+    readonly detailsHeader: 'lt-detailsHeader';
+    readonly detailsTitle: 'lt-detailsTitle';
+    readonly detailsName: 'lt-detailsName';
+    readonly detailsLocation: 'lt-detailsLocation';
+    readonly detailsClose: 'lt-detailsClose';
+    readonly detailTabs: 'lt-detailTabs';
+    readonly detailTab: 'lt-detailTab';
+    readonly detailTabActive: 'lt-detailTabActive';
+    readonly detailBody: 'lt-detailBody';
     readonly scroll: 'lt-scroll';
     readonly rowsInner: 'lt-rowsInner';
     readonly toolItem: 'lt-toolItem';
@@ -103,6 +115,7 @@ export declare const styles: {
     readonly tlBody: 'lt-tlBody';
     readonly tlTitle: 'lt-tlTitle';
     readonly tlEntryId: 'lt-tlEntryId';
+    readonly tlArgs: 'lt-tlArgs';
     readonly detailMono: 'lt-detailMono';
     readonly tlDetail: 'lt-tlDetail';
     readonly tlArrow: 'lt-tlArrow';

@@ -55,6 +55,15 @@ const liveTurnSummarySchema = z.object({
   tokens: z.number().nonnegative(),
 }).strict()
 
+const liveSpanSchema = z.object({
+  id: z.string(),
+  turn: z.number().int(),
+  kind: z.enum(['user', 'assistant', 'tool', 'context']),
+  status: z.enum(['ok', 'failed', 'running']),
+  startedAt: z.number(),
+  endedAt: z.number().nullable(),
+}).strict()
+
 const liveTimelineEntrySchema = z.object({
   id: z.string(),
   turn: z.number().int().nullable(),
@@ -124,6 +133,7 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
   timeline: z.array(liveTimelineEntrySchema),
+  spans: z.array(liveSpanSchema),
   turns: z.array(liveTurnSummarySchema),
   turnsTotal: z.number().int().nonnegative(),
   usage: liveTaskUsageSchema,
@@ -156,6 +166,7 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
   timeline: z.array(liveTimelineEntrySchema),
+  spans: z.array(liveSpanSchema),
   turns: z.array(liveTurnSummarySchema),
   turnsTotal: z.number().int().nonnegative(),
   usage: liveTaskUsageSchema,
@@ -201,6 +212,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     timeline: state.timeline,
     turns: state.turns,
     turnsTotal: state.turnsTotal,
+    spans: state.spans,
     usage: state.usage,
     health: state.health,
     streamedAt: state.streamedAt,
