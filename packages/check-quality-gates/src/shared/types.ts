@@ -44,6 +44,15 @@ export interface RequiredGate {
 }
 
 /**
+/**
+ * Why a call could not produce a gate list.
+ *
+ * @remarks
+ * Kept a closed set so callers branch on identity rather than on prose.
+ */
+export type GateFailureCode = 'config_not_found' | 'config_unreadable' | 'config_invalid'
+
+/**
  * Complete result of one call. A config problem is reported in `error` with an
  * otherwise well-formed report — the tool never throws for caller data.
  */
@@ -60,4 +69,13 @@ export interface GateReport {
   unmatched: string[]
   /** Readable one-line reason no gate list could be produced, or null on success. */
   error: string | null
+  /**
+   * Machine-readable reason for `error`, or null when the call succeeded.
+   *
+   * The other tools in this repository answer failures with a `code`, and a
+   * caller that has to pattern-match an English sentence to tell "no config
+   * found" from "config unreadable" is guessing. The codes are:
+   * `config_not_found`, `config_unreadable`, `config_invalid`.
+   */
+  code: GateFailureCode | null
 }

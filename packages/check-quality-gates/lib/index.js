@@ -556,7 +556,8 @@ function buildGateReport(input) {
 		source: input.source,
 		enforcement: "none",
 		unmatched: [...changedFiles],
-		error
+		error,
+		code: input.code ?? "config_invalid"
 	};
 	const gates = input.gates ?? [];
 	return {
@@ -565,7 +566,8 @@ function buildGateReport(input) {
 		source: input.source,
 		enforcement: "none",
 		unmatched: selectUnmatchedFiles(changedFiles, gates),
-		error: null
+		error: null,
+		code: null
 	};
 }
 /**
@@ -629,12 +631,14 @@ function resolveGateReport(input) {
 	if (source === void 0) return buildGateReport({
 		changedFiles: input.changedFiles,
 		source: GATE_CONFIG_NOT_FOUND,
-		error: gateConfigNotFoundMessage(cwd)
+		error: gateConfigNotFoundMessage(cwd),
+		code: "config_not_found"
 	});
 	if (!isFile(source)) return buildGateReport({
 		changedFiles: input.changedFiles,
 		source: GATE_CONFIG_NOT_FOUND,
-		error: `No gate config found at ${source}.`
+		error: `No gate config found at ${source}.`,
+		code: "config_not_found"
 	});
 	let text;
 	try {
@@ -643,7 +647,8 @@ function resolveGateReport(input) {
 		return buildGateReport({
 			changedFiles: input.changedFiles,
 			source,
-			error: `Could not read gate config at ${source}: ${reason(error)}.`
+			error: `Could not read gate config at ${source}: ${reason(error)}.`,
+			code: "config_unreadable"
 		});
 	}
 	try {
@@ -657,7 +662,8 @@ function resolveGateReport(input) {
 		return buildGateReport({
 			changedFiles: input.changedFiles,
 			source,
-			error: `Invalid gate config at ${source}: ${detail}.`
+			error: `Invalid gate config at ${source}: ${detail}.`,
+			code: "config_invalid"
 		});
 	}
 }
@@ -748,6 +754,17 @@ function apply(ctx) {
 					},
 					error: {
 						oneOf: [{ type: "string" }, { type: "null" }],
+						required: true
+					},
+					code: {
+						oneOf: [{
+							type: "string",
+							enum: [
+								"config_not_found",
+								"config_unreadable",
+								"config_invalid"
+							]
+						}, { type: "null" }],
 						required: true
 					}
 				}

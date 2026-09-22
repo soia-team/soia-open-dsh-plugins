@@ -66,6 +66,7 @@ export function resolveGateReport(input: {
       changedFiles: input.changedFiles,
       source: GATE_CONFIG_NOT_FOUND,
       error: gateConfigNotFoundMessage(cwd),
+      code: 'config_not_found',
     })
   }
   if (!isFile(source)) {
@@ -73,6 +74,7 @@ export function resolveGateReport(input: {
       changedFiles: input.changedFiles,
       source: GATE_CONFIG_NOT_FOUND,
       error: `No gate config found at ${source}.`,
+      code: 'config_not_found',
     })
   }
 
@@ -84,6 +86,7 @@ export function resolveGateReport(input: {
       changedFiles: input.changedFiles,
       source,
       error: `Could not read gate config at ${source}: ${reason(error)}.`,
+      code: 'config_unreadable',
     })
   }
 
@@ -95,6 +98,7 @@ export function resolveGateReport(input: {
       changedFiles: input.changedFiles,
       source,
       error: `Invalid gate config at ${source}: ${detail}.`,
+      code: 'config_invalid',
     })
   }
 }
