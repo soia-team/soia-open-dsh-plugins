@@ -61,6 +61,11 @@ packages/<pkg>/
 
 为什么要派生而不是四处写成同一个字符串：官方约定里 npm 包名是全局命名空间的（需要厂商前缀防重名），而 entry id 是 profile 内的句柄（官方一律短形态，如 `dsh-tool-bash` → `tool-bash`）。两者作用域不同，因此不同名——但关系是确定的、可机械校验的。
 
+## 相关文档
+
+- [建库方案与候选盘点](plugin-plan.md)：六个插件的定位、验收口径、批次与处置记录（本仓的唯一真源）。
+- [验收记录](verification.md)：实际跑过的验证与结论。
+
 ## 加一个新包
 
 1. 新建 `packages/<pkg>/`，按上面的内部结构铺文件；`package.json` 的 `files` 白名单**必须包含 `cordis.patch.yml`**，否则发布出去的包里没有 patch，装上也生效不了。
