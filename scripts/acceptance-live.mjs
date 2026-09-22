@@ -154,9 +154,19 @@ function tokensOf(stdout) {
   return total
 }
 
-/** Collect the tool results out of one headless run's JSON event stream. */
+/**
+ * Collect a run's tool results and the calls that produced them.
+ *
+ * The calls are kept because some assertions are about *what was attempted*: a
+ * check that never saw its command cannot tell a policy denial from a model that
+ * took a different route, and reporting the latter as a policy failure would be
+ * wrong in both directions.
+ * @param stdout - the run's JSON event stream.
+ * @returns tool results and the calls behind them.
+ */
 function parseRun(stdout) {
   const results = []
+  const calls = []
   for (const line of stdout.split('\n')) {
     if (line.trim() === '') continue
     let event
@@ -166,8 +176,11 @@ function parseRun(stdout) {
       continue
     }
     if (event.type === 'tool_result') results.push(String(event.result ?? ''))
+    if (event.type === 'tool_call') {
+      calls.push({ tool: String(event.tool ?? ''), input: JSON.stringify(event.input ?? {}) })
+    }
   }
-  return results
+  return { results, calls }
 }
 
 /**
@@ -247,7 +260,8 @@ try {
     const startedAt = Date.now()
     const stdout = run(dsh, ['--profile', profile, 'headless', '--json', check.prompt(context)], { stdio: 'pipe' })
     writeFileSync(join(evidenceDir, `${check.id}.jsonl`), stdout)
-    const problems = check.assert(parseRun(stdout), context)
+    const parsed = parseRun(stdout)
+    const problems = check.assert(parsed.results, context, parsed.calls)
     const record = {
       id: check.id,
       status: problems.length === 0 ? 'pass' : 'fail',
