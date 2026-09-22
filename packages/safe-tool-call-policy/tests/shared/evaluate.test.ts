@@ -58,7 +58,11 @@ const CASES: readonly { readonly id: string, readonly tool: string, readonly hit
     id: 'git-danger',
     tool: 'bash',
     hit: 'git commit -m "wip"',
-    allow: 'git commit --only src/index.ts -m "msg"',
+    // The live acceptance run caught this exact command being asked: the rule's
+    // first branch matched `git stash` without looking at the subcommand, so a
+    // read-only `git stash list` inside an inspection command tripped it.
+    allow: 'git rev-parse --show-toplevel 2>&1; echo "--- branch ---"; git branch --show-current; '
+      + 'git status --short; git diff --cached --name-status; git stash list',
   },
   {
     id: 'high-impact-action',
@@ -200,5 +204,28 @@ describe('policy defects', () => {
 
     expect(decision.action).toBe('allow')
     expect(decision.notes).toHaveLength(1)
+  })
+
+  it('flags a silenced search but not an everyday stderr redirect', () => {
+    // Second false positive found by the live acceptance run: a listener probe
+    // with a `||` fallback was asked because `2>/dev/null` appeared before a
+    // pipe character. `||` is an explicit fallback, not a discarded error.
+    const probe = 'echo "--- is 8899 listening?"; (lsof -nP -iTCP:8899 -sTCP:LISTEN 2>/dev/null '
+      + '|| echo "(no lsof result)"); curl -s http://127.0.0.1:8899/x | head -1'
+    expect(evaluateCall({ tool: 'bash', text: probe }, RULES).ruleId).toBeUndefined()
+
+    // The documented failure mode is still caught: a search whose errors were
+    // thrown away, piped into something that would read "nothing" as "not found".
+    expect(evaluateCall({ tool: 'bash', text: 'grep -rn TODO src 2>/dev/null | head -20' }, RULES).ruleId)
+      .toBe('failure-as-evidence')
+  })
+
+  it('separates reading the stash from writing it', () => {
+    const rules = RULES
+    expect(evaluateCall({ tool: 'bash', text: 'git stash list' }, rules).ruleId).toBeUndefined()
+    expect(evaluateCall({ tool: 'bash', text: 'git stash show -p stash@{0}' }, rules).ruleId).toBeUndefined()
+    expect(evaluateCall({ tool: 'bash', text: 'git stash push -m wip' }, rules).ruleId).toBe('git-danger')
+    expect(evaluateCall({ tool: 'bash', text: 'git stash' }, rules).ruleId).toBe('git-danger')
+    expect(evaluateCall({ tool: 'bash', text: 'git stash pop' }, rules).ruleId).toBe('git-danger')
   })
 })

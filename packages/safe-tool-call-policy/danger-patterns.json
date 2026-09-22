@@ -20,7 +20,7 @@
   {
     "id": "failure-as-evidence",
     "tool": "bash",
-    "pattern": "--include[\\s=]+(?!['\"])[^\\s]*\\*|\\bugrep\\b|2>\\s*/dev/null[^\\n|]*\\|",
+    "pattern": "--include[\\s=]+(?!['\\\"])[^\\s]*\\*|\\bugrep\\b|\\b(?:grep|egrep|fgrep|rg|find)\\b[^\\n;|]*2>\\s*/dev/null[^\\n|]*\\|(?!\\|)",
     "action": "ask",
     "reason": "This command can report a false negative as if it were evidence: an unquoted --include glob is expanded by the shell before the search runs, ugrep reads a different pattern dialect than grep, or a redirect on the first pipeline stage discards that stage's errors.",
     "remedy": "Quote the glob, keep the plain grep dialect, and let the first stage's stderr reach the result, so a failed search is visible as a failure rather than as 'not found'.",
@@ -29,7 +29,7 @@
   {
     "id": "git-danger",
     "tool": "bash",
-    "pattern": "\\bgit\\s+stash\\b|\\bgit\\s+checkout\\b(?!\\s+-\\S*[bB]\\b)|\\bgit\\s+add\\s+(?:-\\S+\\s+)*(?:-A|--all|\\.)(?=\\s|$)|\\bgit\\s+commit\\b(?![^\\n]*--only\\b)",
+    "pattern": "\\bgit\\s+stash\\b(?!\\s+(?:list|show)\\b)|\\bgit\\s+checkout\\b(?!\\s+-\\S*[bB]\\b)|\\bgit\\s+add\\s+(?:-\\S+\\s+)*(?:-A|--all|\\.)(?=\\s|$)|\\bgit\\s+commit\\b(?![^\\n]*--only\\b)",
     "action": "ask",
     "reason": "This git command mutates shared checkout state — stash, checkout, add -A, or a commit that stages whatever is already in the index — so it can pick up another worker's in-progress changes.",
     "remedy": "Do the same operation against explicit paths (git commit --only <pathspec>) or in a separate worktree, and leave the shared index untouched.",
