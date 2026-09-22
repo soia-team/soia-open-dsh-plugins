@@ -1,11 +1,14 @@
 /**
  * Dictionaries of the `liveTasks` namespace.
  *
- * Simplified Chinese is the key-set source of truth; English carries the
- * identical key set, so neither direction can leave a key unresolved. Only
- * human-facing panel copy lives here — the package adds nothing model-visible,
- * and a protocol token such as a tool name or a `TurnEndReason.kind` is
- * rendered verbatim rather than translated.
+ * Simplified Chinese is the key-set source of truth; English is typed as
+ * `Record<LiveTaskKey, string>` so a missing or extra key is a compile error in
+ * either direction.
+ *
+ * This namespace exists because the view talks to a person, and a person reads
+ * "正在跑 / 干了什么 / 结果" rather than a session log's vocabulary. Tool names
+ * and event types are the one thing deliberately left untranslated: they are
+ * protocol identifiers, and paraphrasing them would hide which tool ran.
  */
 
 /** Dictionary namespace owned by this plugin. */
@@ -13,65 +16,69 @@ export const NS = 'liveTasks'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'section.running': '正在跑',
-  'section.recent': '最近事件',
-  'tool.none': '当前没有在跑的调用',
-  'time.runningFor': '已运行 {s} 秒',
-  'time.agoSeconds': '{s} 秒前',
-  'time.agoMinutes': '{m} 分前',
-  'time.justNow': '刚刚',
   'view.tab': '任务',
-  'view.title': '会话任务状态',
-  'view.empty': '本会话当前没有进行中的任务。',
-  'panel.empty': '本次会话还没有事件。',
-  'row.phase': '状态',
-  'row.turn': '回合',
-  'row.step': '步骤',
-  'row.lastTool': '最后工具调用',
-  'row.toolCalls': '本轮工具调用数',
-  'row.lastEvent': '最后事件',
-  'row.endedReason': '结束原因',
-  'phase.running': '运行中',
-  'phase.tool': '等待工具结果',
+  'view.title': '本会话在做什么',
+  'view.empty': '本会话还没有动作。',
+  'section.running': '正在跑',
+  'section.actions': '干过什么',
+  'section.recent': '最近动静',
+  'col.tool': '工具',
+  'col.did': '干了什么',
+  'col.result': '结果',
+  'status.ok': '完成',
+  'status.failed': '失败',
+  'status.running': '进行中',
+  'time.at': '时间',
+  'time.durationSeconds': '{s} 秒',
+  'time.runningFor': '已运行 {s} 秒',
+  'tool.none': '现在没有在跑的动作',
+  'phase.running': '正在干活',
+  'phase.tool': '等工具返回',
   'phase.idle': '空闲',
   'phase.ended': '已结束',
-  'tool.open': '进行中',
-  'tool.failed': '失败',
-  'tool.done': '已完成',
-  'value.none': '无',
-  'value.openCount': '{count} 个进行中',
+  'event.turnStart': '开始处理',
+  'event.turnEnd': '处理结束',
+  'event.stepStart': '开始第 {n} 步',
+  'event.stepEnd': '第 {n} 步结束',
+  'event.userMessage': '收到你的消息',
+  'event.assistantMessage': '模型回复',
+  'event.toolCall': '调用 {name}',
+  'event.toolResult': '{name} 返回',
+  'event.other': '其他活动',
 } as const
+
+/** Key set of the Chinese dictionary. */
+export type LiveTaskKey = keyof typeof zh
 
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<LiveTaskKey, string> = {
-  'section.running': 'In flight',
-  'section.recent': 'Recent events',
-  'tool.none': 'No call in flight',
-  'time.runningFor': 'running for {s}s',
-  'time.agoSeconds': '{s}s ago',
-  'time.agoMinutes': '{m}m ago',
-  'time.justNow': 'just now',
   'view.tab': 'Tasks',
-  'view.title': 'Session task state',
-  'view.empty': 'This session has no task in progress.',
-  'panel.empty': 'This session has no events yet.',
-  'row.phase': 'State',
-  'row.turn': 'Turn',
-  'row.step': 'Step',
-  'row.lastTool': 'Last tool call',
-  'row.toolCalls': 'Tool calls this turn',
-  'row.lastEvent': 'Last event',
-  'row.endedReason': 'Ended',
-  'phase.running': 'running',
-  'phase.tool': 'waiting for a tool result',
+  'view.title': 'What this session is doing',
+  'view.empty': 'This session has no actions yet.',
+  'section.running': 'Running now',
+  'section.actions': 'What it did',
+  'section.recent': 'Recent activity',
+  'col.tool': 'tool',
+  'col.did': 'what it did',
+  'col.result': 'result',
+  'status.ok': 'done',
+  'status.failed': 'failed',
+  'status.running': 'running',
+  'time.at': 'time',
+  'time.durationSeconds': '{s}s',
+  'time.runningFor': 'running for {s}s',
+  'tool.none': 'Nothing is running right now',
+  'phase.running': 'working',
+  'phase.tool': 'waiting for a tool',
   'phase.idle': 'idle',
-  'phase.ended': 'ended',
-  'tool.open': 'in flight',
-  'tool.failed': 'failed',
-  'tool.done': 'settled',
-  'value.none': 'none',
-  'value.openCount': '{count} in flight',
+  'phase.ended': 'finished',
+  'event.turnStart': 'started working',
+  'event.turnEnd': 'finished working',
+  'event.stepStart': 'step {n} started',
+  'event.stepEnd': 'step {n} finished',
+  'event.userMessage': 'your message arrived',
+  'event.assistantMessage': 'model replied',
+  'event.toolCall': 'called {name}',
+  'event.toolResult': '{name} returned',
+  'event.other': 'other activity',
 }
-
-/** Key domain of the `liveTasks` namespace (`zh` is the source of truth). */
-export type LiveTaskKey = keyof typeof zh

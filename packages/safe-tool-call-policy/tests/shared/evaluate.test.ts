@@ -148,11 +148,23 @@ describe('verdict precedence', () => {
   })
 
   it('breaks an equal verdict by rule order', () => {
+    // Two rules of equal severity over the same text: the first one wins, which
+    // is what makes the shipped order meaningful.
+    const pair: readonly PolicyRule[] = [
+      { id: 'first', tool: 'bash', pattern: 'shared-token', action: 'ask', reason: 'r', remedy: 'y', source: 'test' },
+      { id: 'second', tool: 'bash', pattern: 'shared-token', action: 'ask', reason: 'r', remedy: 'y', source: 'test' },
+    ]
+    const decision = evaluateCall({ tool: 'bash', text: 'echo shared-token' }, pair)
+
+    expect(decision.matched).toEqual(['first', 'second'])
+    expect(decision.ruleId).toBe('first')
+  })
+
+  it('lets the worktree rule own worktree removal instead of the broad-impact rule', () => {
     const decision = evaluateCall({ tool: 'bash', text: 'git worktree remove --force .worktrees/x' }, RULES)
 
-    expect(decision.matched).toEqual(['high-impact-action', 'destructive-cleanup'])
+    expect(decision.matched).toEqual(['destructive-cleanup'])
     expect(decision.action).toBe('ask')
-    expect(decision.ruleId).toBe('high-impact-action')
   })
 
   it('allows an empty text, which is what an unsupported tool reduces to', () => {

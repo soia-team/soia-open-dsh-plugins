@@ -26,6 +26,8 @@ export declare const INITIAL_LIVE_TASK_STATE: LiveTaskState;
 /** Display summary of one durable event. */
 /** How many recent observations the view keeps for its trail. */
 export declare const RECENT_EVENT_LIMIT = 6;
+/** How many finished calls the activity log keeps. */
+export declare const ACTION_LIMIT = 8;
 /**
  * Turn a tool call's arguments into one display line.
  *
@@ -38,6 +40,15 @@ export declare const RECENT_EVENT_LIMIT = 6;
  * @returns one clipped line, or null when nothing readable was carried.
  */
 export declare function summarizeToolArguments(data: Record<string, unknown> | undefined): string | null;
+/**
+ * First non-empty line of a tool result, clipped.
+ *
+ * A tool's answer can be kilobytes; the activity log needs only enough to say
+ * "it came back with something" — a failing call is reported by its error line.
+ * @param data - the `tool/result` payload.
+ * @returns one clipped line, or null when the result carried no text.
+ */
+export declare function summarizeToolResult(data: Record<string, unknown> | undefined): string | null;
 /**
  * Fold one normalized observation into the live-task state.
  * @param state - state before this observation.

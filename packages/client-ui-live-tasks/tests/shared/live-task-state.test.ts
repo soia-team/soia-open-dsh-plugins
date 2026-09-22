@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   RECENT_EVENT_LIMIT,
+  summarizeToolResult,
   INITIAL_LIVE_TASK_STATE,
   foldLiveTasks,
   hasLiveActivity,
@@ -154,7 +155,7 @@ describe('live-task derivation', () => {
     it('tracks the call as in flight', () => {
       const state = foldLiveTasks(openStepWithTool())
 
-      expect(state.lastTool).toEqual({
+      expect(state.lastTool).toMatchObject({
         callId: 'call-1',
         name: 'bash',
         turn: 1,
@@ -162,6 +163,8 @@ describe('live-task derivation', () => {
         open: true,
         // No `arguments` on this fixture: absence is reported, not invented.
         detail: null,
+        // The activity log needs a start instant to render "when" and "how long".
+        startedAt: 3000,
       })
       expect(state.openTools).toHaveLength(1)
       expect(state.toolCallsInTurn).toBe(1)
@@ -507,5 +510,40 @@ describe('live-task derivation', () => {
 
       expect(state.lastEvent?.type).toBe('session-log-deepseek/delivery-accepted')
       expect(state.recent.map((entry) => entry.type)).toEqual(['turn/start'])
+    })
+  })
+
+  describe('lines a person can read', () => {
+    it('joins what and where for a measuring call', () => {
+      const state = foldLiveTasks([
+        event('turn/start', 1, { turn: 1 }),
+        event('tool/call', 2, {
+          callId: 'c1',
+          name: 'check_ui_size',
+          turn: 1,
+          step: 1,
+          arguments: JSON.stringify({ selector: '#card', url: 'http://127.0.0.1:8899/second-case.html', expected: { width: 320 } }),
+        }),
+      ])
+      expect(state.lastTool?.detail).toBe('#card @ http://127.0.0.1:8899/second-case.html')
+    })
+
+    it('summarizes a JSON result as key=value instead of raw braces', () => {
+      const summary = summarizeToolResult({
+        message: {
+          content: [{
+            type: 'tool-result',
+            content: [{ type: 'text', text: '{"status":"ok","selector":"#card","width":320,"nested":{"a":1}}' }],
+          }],
+        },
+      })
+      expect(summary).toBe('status=ok, selector=#card, width=320')
+    })
+
+    it('keeps prose results as they are', () => {
+      const summary = summarizeToolResult({
+        message: { content: [{ type: 'tool-result', content: [{ type: 'text', text: 'done\nsecond line' }] }] },
+      })
+      expect(summary).toBe('done')
     })
   })

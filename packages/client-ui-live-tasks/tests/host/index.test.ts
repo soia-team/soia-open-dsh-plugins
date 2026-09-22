@@ -359,6 +359,7 @@ describe('liveTask projection unit', () => {
     const view = liveTaskProjectionDefinition.wire.view(state) as unknown as Record<string, unknown>
 
     expect(Object.keys(view).toSorted()).toEqual([
+      'actions',
       'endedReason',
       'lastEvent',
       'lastTool',

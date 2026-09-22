@@ -58,6 +58,16 @@ export interface LiveToolCall {
   readonly detail: string | null
   /** Set when the settled result carried `isError`; absent while open or on success. */
   readonly failed?: boolean
+  /** Epoch milliseconds of the `tool/call` that opened this record. */
+  readonly startedAt: number
+  /** Epoch milliseconds of the matching `tool/result`; absent while open. */
+  readonly endedAt?: number
+  /**
+   * First non-empty line of the tool's answer, clipped — a human needs to see
+   * whether the call came back with something, not the whole payload. Null while
+   * the call is still open or when the answer carried no text.
+   */
+  readonly result?: string | null
 }
 
 /** Short, display-ready summary of the most recent durable observation. */
@@ -68,6 +78,20 @@ export interface LiveEventSummary {
   readonly time: number
   /** Tool name for tool events; null when the type alone is the whole story. */
   readonly detail: string | null
+}
+
+/** One finished (or running) tool call as a human-readable line. */
+export interface LiveTaskAction {
+  readonly callId: string
+  readonly name: string
+  /** Argument summary: the command, path or URL the call was given. */
+  readonly detail: string | null
+  readonly startedAt: number
+  readonly endedAt: number | null
+  /** `ok`, `failed`, or `running` while the result has not arrived. */
+  readonly status: 'ok' | 'failed' | 'running'
+  /** First line of the answer, clipped; null while running or when empty. */
+  readonly result: string | null
 }
 
 /**
@@ -105,6 +129,8 @@ export interface LiveTaskView {
   readonly lastEvent: LiveEventSummary | null
   /** Newest-last window of recent observations, so the view can show a trail. */
   readonly recent: readonly LiveEventSummary[]
+  /** Called tool names with their outcome summary, newest last. */
+  readonly actions: readonly LiveTaskAction[]
   /** `TurnEndReason.kind` of the most recent `turn/end`; null before one. */
   readonly endedReason: string | null
 }

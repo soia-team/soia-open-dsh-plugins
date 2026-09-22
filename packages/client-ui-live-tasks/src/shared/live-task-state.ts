@@ -18,6 +18,7 @@
  * `(turn, step)`.
  */
 import type {
+  LiveTaskAction,
   LiveEventLike,
   LiveEventSummary,
   LiveTaskObservation,
@@ -27,6 +28,7 @@ import type {
 
 /** One frozen array reused for every state without open tool calls. */
 const NO_EVENTS: readonly LiveEventSummary[] = Object.freeze([])
+const NO_ACTIONS: readonly LiveTaskAction[] = Object.freeze([])
 const NO_TOOLS: readonly LiveToolCall[] = Object.freeze([])
 
 /**
@@ -46,6 +48,7 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   streamedAt: null,
   lastEvent: null,
   recent: NO_EVENTS,
+  actions: NO_ACTIONS,
   endedReason: null,
 })
 
@@ -73,8 +76,14 @@ export const RECENT_EVENT_LIMIT = 6
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80
 
-/** Argument keys worth showing, most specific first, keyed by what they mean. */
-const DETAIL_KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'selector', 'task', 'prompt']
+/** How many finished calls the activity log keeps. */
+export const ACTION_LIMIT = 8
+
+/** Longest result line carried to the client. */
+const RESULT_LIMIT = 60
+
+/** Argument keys worth showing, in the order a reader wants them. */
+const DETAIL_KEYS = ['command', 'file_path', 'path', 'selector', 'url', 'pattern', 'query', 'task', 'prompt']
 
 /**
  * Turn a tool call's arguments into one display line.
@@ -99,12 +108,90 @@ export function summarizeToolArguments(data: Record<string, unknown> | undefined
   }
   if (typeof parsed !== 'object' || parsed === null) return null
   const args = parsed as Record<string, unknown>
+  // Up to two fields: "what" plus "where". A measuring call reads best as
+  // `#card @ http://…`, where either half alone leaves the reader guessing.
+  const parts: string[] = []
   for (const key of DETAIL_KEYS) {
     const value = args[key]
-    if (typeof value === 'string' && value.trim() !== '') return clip(value)
+    if (typeof value === 'string' && value.trim() !== '') parts.push(value)
+    if (parts.length === 2) break
   }
+  if (parts.length > 0) return clip(parts.join(' @ '))
   const firstString = Object.values(args).find((value) => typeof value === 'string' && value.trim() !== '')
   return typeof firstString === 'string' ? clip(firstString) : null
+}
+
+/**
+ * Turn a call and its result into one activity-log line.
+ * @param call - the call record as it was opened.
+ * @param endedAt - epoch milliseconds of the matching result.
+ * @param data - the `tool/result` payload.
+ * @returns the human-readable action record.
+ */
+function actionOf(call: LiveToolCall, endedAt: number, data: Record<string, unknown> | undefined): LiveTaskAction {
+  const result = summarizeToolResult(data)
+  return {
+    callId: call.callId,
+    name: call.name,
+    detail: call.detail,
+    startedAt: call.startedAt,
+    endedAt,
+    status: call.failed === true ? 'failed' : 'ok',
+    result,
+  }
+}
+
+/**
+ * Make one result line readable.
+ *
+ * Tools answer with JSON far more often than with prose, and a raw object reads
+ * as noise in a log. Scalar fields are shown as `key=value` pairs instead; a
+ * payload whose interesting field is nested keeps its first line, because a
+ * half-rendered object would be worse than an honest one.
+ * @param line - the first non-empty line of the result.
+ * @returns a compact human-readable form of that line.
+ */
+function summarizeResultLine(line: string): string {
+  if (!line.startsWith('{')) return line
+  try {
+    const parsed: unknown = JSON.parse(line)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return line
+    const pairs: string[] = []
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        pairs.push(`${key}=${String(value)}`)
+      }
+      if (pairs.length === 4) break
+    }
+    return pairs.length === 0 ? line : pairs.join(', ')
+  } catch {
+    return line
+  }
+}
+
+/**
+ * First non-empty line of a tool result, clipped.
+ *
+ * A tool's answer can be kilobytes; the activity log needs only enough to say
+ * "it came back with something" — a failing call is reported by its error line.
+ * @param data - the `tool/result` payload.
+ * @returns one clipped line, or null when the result carried no text.
+ */
+export function summarizeToolResult(data: Record<string, unknown> | undefined): string | null {
+  const message = recordOf(data?.['message'])
+  const blocks = Array.isArray(message?.['content']) ? message['content'] as unknown[] : []
+  let text = ''
+  for (const block of blocks) {
+    const record = recordOf(block)
+    const inner = Array.isArray(record?.['content']) ? record['content'] as unknown[] : []
+    for (const part of inner) {
+      const candidate = recordOf(part)
+      if (candidate?.['type'] === 'text' && typeof candidate['text'] === 'string') text += candidate['text']
+    }
+  }
+  const line = text.split('\n').map((value) => value.trim()).find((value) => value !== '')
+  if (line === undefined) return null
+  return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT)
 }
 
 /** Collapse whitespace and clip to the wire budget. */
@@ -264,6 +351,7 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
         step: numberOf(data?.['step']) ?? state.step,
         open: true,
         detail: summarizeToolArguments(data),
+        startedAt: time,
       }
       return {
         ...state,
@@ -287,8 +375,20 @@ function foldEvent(state: LiveTaskState, event: LiveEventLike): LiveTaskState {
           : state.openTools.filter((call) => call.callId !== callId),
         lastTool: state.lastTool !== null && callId !== undefined
           && state.lastTool.callId === callId
-          ? { ...state.lastTool, open: false, ...(failed === true ? { failed: true } : {}) }
+          ? {
+              ...state.lastTool,
+              open: false,
+              endedAt: time,
+              result: summarizeToolResult(data),
+              ...(failed === true ? { failed: true } : {}),
+            }
           : state.lastTool,
+        actions: settled === undefined
+          ? state.actions
+          : [
+              ...state.actions.filter((action) => action.callId !== settled.callId),
+              actionOf(settled, time, data),
+            ].slice(-ACTION_LIMIT),
         ...observed(state, event, settled?.name ?? null),
       }
     }
