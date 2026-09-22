@@ -103,9 +103,17 @@ describe('shipped rule set', () => {
     }
   })
 
-  it('hard-codes no machine path: home roots are matched as ~ or $HOME only', () => {
+  it('hard-codes no machine-specific path', () => {
+    // The constraint is portability, not the absence of `/Users`: a rule cannot
+    // know whose machine it runs on, so a home root has to be matched by shape
+    // (`~`, `$HOME`, `/Users/<anyone>/.<app>`) rather than by a literal path.
+    // Measured: a model wrote the expanded form and the earlier rule let a
+    // deletion of an app data root through, so matching only `~`/`$HOME` was a
+    // false negative rather than a virtue.
     for (const rule of RULES) {
-      expect(JSON.stringify(rule), rule.id).not.toMatch(/\/(?:Users|home)\//)
+      const text = JSON.stringify(rule)
+      expect(text, rule.id).not.toMatch(/\/(?:Users|home)\/[A-Za-z0-9._-]+\/\.?[A-Za-z0-9._-]+\b(?![\w.*+?^${}()|[\]\\-])/)
+      expect(text, rule.id).not.toMatch(/\/Users\/zp\b|\/home\/zp\b/)
     }
   })
 })

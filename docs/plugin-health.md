@@ -75,6 +75,8 @@ SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs   # 结论正确性（�
 | `destructive-cleanup`（ask） | 16 | worktree 强删（真阳性） |
 | `high-impact-action`（ask） | 15 | 部分来自 heredoc 正文 |
 
+**回放还抓到一个漏报（已修）**：`data-root-write` 只认 `~` / `$HOME` 写法，模型把路径展开成 `/Users/<user>/.myapp/cache` 时**直接放行**——而展开形式正是 shell 实际执行的东西。已补"展开后的家目录点目录"分支（`/Users/<any>/.app`、`/home/<any>/.app`），并把两种写法与"项目内的点目录不应命中"都固化成语料用例。这条是**验收历史的逐项通过率**暴露的：单跑一次会以为规则正常。
+
 **两类需要收窄的误报（证据在手，尚未改）**：
 
 1. **引号与 heredoc 正文里的文本被当成命令**。样本里 `cat > /tmp/x.mjs <<'EOF' … 'git commit' …` 被判成 git 危险：那段文本是被**写入文件**的，不是执行的。要收窄就得区分"会被执行的内容"（`bash -c "…"`、heredoc 管道给 shell）与"只被写入的内容"，不能一刀切删引号。
