@@ -67,52 +67,85 @@ function secondsBetween(from: number, to: number): number {
 }
 
 /**
- * The horizontal axis: one segment per conversation turn.
+ * The session's three lanes over time, drawn the way the built-in 轨迹 view draws
+ * them: absolute spans positioned by CSS custom properties inside a track, with
+ * 0.5px turn boundaries, and one colour per lane (context gets its own tint, as
+ * it does there).
  *
- * Width is proportional to the turn's duration, so a turn that took ten minutes
- * is visibly heavier than one that took two seconds. Segments are buttons: the
- * axis doubles as the turn selector.
- * @param props - turn summaries, the selected turn, and the handlers.
- * @returns the axis strip.
+ * The lanes answer a question a list cannot: where the time went. A turn that is
+ * all tools, a turn that is all model, and a long context injection are three
+ * different shapes at a glance.
+ *
+ * @param props - the rows to plot, the turns to mark, and the interaction state.
+ * @returns the chart.
  */
-function TurnAxis({ turns, selected, now, t, onSelect }: {
+function LaneChart({ entries, turns, now, selected, t, onSelect }: {
+  entries: readonly LiveTimelineEntry[]
   turns: LiveTaskView['turns']
-  selected: number | null
   now: number
+  selected: number | null
   t: T
   onSelect: (turn: number) => void
 }): JSX.Element {
-  const durations = turns.map((turn) => Math.max(1, secondsBetween(turn.startedAt, turn.endedAt ?? now)))
-  // Pixel widths, not flex: the strip has to be able to exceed the viewport so it
-  // can scroll sideways, which flex-grow cannot express.
-  const widths = durations.map((seconds) => Math.min(420, Math.max(56, seconds * 6)))
+  // Turn rows are boundaries, not spans: they carry no end time, so plotting one
+  // would draw a bar from the turn's start to now across the whole chart.
+  const plotted = entries.filter((entry) => entry.turn !== null && entry.kind !== 'turn')
+  const starts = plotted.map((entry) => entry.startedAt)
+  const ends = plotted.map((entry) => entry.endedAt ?? now)
+  const from = starts.length === 0 ? now - 1000 : Math.min(...starts)
+  const to = Math.max(now, ...(ends.length === 0 ? [now] : ends))
+  const span = Math.max(1000, to - from)
+  const at = (time: number): number => ((time - from) / span) * 100
+  const laneOf = (kind: LiveTimelineEntry['kind']): number =>
+    kind === 'assistant' ? 1 : kind === 'tool' ? 2 : 0
+
+  const minWidth = Math.max(560, plotted.length * 26)
   return (
-    // A plain container with a heading above it: the section title already names
-    // this group, so a redundant ARIA role would only add noise.
-    <div className={styles.axisScroll}>
-      <div className={styles.axis}>
-      {turns.map((turn, index) => (
-        <button
-          key={turn.turn}
-          type="button"
-          className={turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment}
-          style={{ width: widths[index] ?? 56 }}
-          title={`${t('axis.turn', { n: turn.turn })} · ${t('turn.tools', { n: turn.toolCalls })} · ${t('time.seconds', { s: durations[index] ?? 0 })}`}
-          onClick={() => onSelect(turn.turn)}
-        >
-          <span className={styles.axisLabel}>{t('axis.turn', { n: turn.turn })}</span>
-          {turn.failures > 0 && <span className={styles.axisFailures}>{turn.failures}</span>}
-        </button>
-      ))}
+    <div className={styles.chartScroll}>
+    <div className={styles.chart} style={{ minWidth: `${minWidth}px` }}>
+      <div className={styles.chartLabels} aria-hidden="true">
+        <span>{t('lane.input')}</span>
+        <span>{t('lane.model')}</span>
+        <span>{t('lane.tools')}</span>
       </div>
+      <div className={styles.chartTrack}>
+        <div className={styles.chartLanes}>
+          {plotted.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={styles.span}
+              data-kind={entry.kind}
+              data-error={entry.status === 'failed'}
+              data-selected={selected === null || selected === entry.turn}
+              style={{
+                top: `${laneOf(entry.kind) * 14}px`,
+                left: `${at(entry.startedAt)}%`,
+                width: `max(2px, ${Math.max(0.2, at(entry.endedAt ?? now) - at(entry.startedAt))}%)`,
+              }}
+              title={`${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`}
+              aria-label={`${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`}
+              onClick={() => entry.turn !== null && onSelect(entry.turn)}
+            />
+          ))}
+        </div>
+        <div className={styles.chartBoundaries} aria-hidden="true">
+          {turns.map((turn) => (
+            <span key={turn.turn} className={styles.chartBoundary} style={{ left: `${at(turn.startedAt)}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
     </div>
   )
 }
 
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, expanded, onToggle, t }: {
+function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
   entry: LiveTimelineEntry
   now: number
+  showClock: boolean
+  turnStart: number
   expanded: boolean
   onToggle: () => void
   t: T
@@ -127,7 +160,9 @@ function ToolRow({ entry, now, expanded, onToggle, t }: {
   return (
     <li className={styles.toolItem}>
       <button type="button" className={styles.toolButton} onClick={onToggle} aria-expanded={expanded}>
-        <span className={styles.tlTime}>{clockOf(entry.startedAt)}</span>
+        <span className={styles.tlTime}>
+          {showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`}
+        </span>
         <StateDot state={running ? 'ongoing' : entry.status === 'failed' ? 'error' : 'done'} size={8} />
         {kindBadge === null
           ? <span className={styles.tlTitle}>{entry.title}</span>
@@ -157,11 +192,13 @@ function ToolRow({ entry, now, expanded, onToggle, t }: {
 }
 
 /** The rows for one turn: its messages and its tool calls, in order. */
-function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }: {
+function TurnSection({ turn, entries, selected, now, showClock, open, expandedId, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
   selected: boolean
   now: number
+  showClock: boolean
+  open: boolean
   expandedId: string | null
   onToggle: (id: string) => void
   t: T
@@ -178,7 +215,9 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }: 
         {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
         {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
       </header>
-      {entries.length === 0
+      {!open
+        ? null
+        : entries.length === 0
         ? <p className={styles.none}>{t('turn.empty')}</p>
         : (
           <ul className={styles.toolList}>
@@ -187,6 +226,8 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }: 
                 key={entry.id}
                 entry={entry}
                 now={now}
+                showClock={showClock}
+                turnStart={turn.startedAt}
                 expanded={expandedId === '__all__' || expandedId === entry.id}
                 onToggle={() => onToggle(entry.id)}
                 t={t}
@@ -210,6 +251,8 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const [expandAll, setExpandAll] = useState(false)
   const [failedOnly, setFailedOnly] = useState(false)
   const [query, setQuery] = useState('')
+  const [showClock, setShowClock] = useState(true)
+  const [turnsOpen, setTurnsOpen] = useState(true)
   const now = useNow()
 
   if (state === undefined || !hasLiveActivity(state)) {
@@ -293,12 +336,24 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         <button type="button" className={styles.barButton} onClick={() => setExpandAll(!expandAll)}>
           {expandAll ? t('bar.collapseAll') : t('bar.expandAll')}
         </button>
-        <span className={styles.barHint}>{t('bar.scrollHint')}</span>
+        <button type="button" className={showClock ? styles.barOn : styles.barButton} onClick={() => setShowClock(!showClock)}>
+          {showClock ? t('bar.clock') : t('bar.duration')}
+        </button>
+        <button type="button" className={styles.barButton} onClick={() => setTurnsOpen(!turnsOpen)}>
+          {turnsOpen ? t('bar.collapseTurns') : t('bar.expandTurns')}
+        </button>
       </div>
 
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('axis.title')}</h4>
-        <TurnAxis turns={state.turns} selected={shownTurn} now={now} t={t} onSelect={setSelected} />
+        <LaneChart
+          entries={state.timeline}
+          turns={state.turns}
+          now={now}
+          selected={shownTurn}
+          t={t}
+          onSelect={setSelected}
+        />
       </section>
 
       <section className={styles.section}>
@@ -311,6 +366,8 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
               entries={entriesOfTurn(turn.turn)}
               selected={turn.turn === shownTurn}
               now={now}
+              showClock={showClock}
+              open={turnsOpen}
               expandedId={expandAll ? '__all__' : expanded}
               onToggle={(id) => setExpanded(expanded === id ? null : id)}
               t={t}

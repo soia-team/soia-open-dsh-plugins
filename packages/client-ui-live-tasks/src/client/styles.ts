@@ -32,6 +32,27 @@ const CSS = `
 .lt-barOn { background: rgb(64 120 255 / 18%); color: var(--dsw-alias-label-primary); font-weight: 600; }
 .lt-barHint { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 
+/* 三泳道时间图：布局规格照内置「轨迹」（44px 标签列 / 50px 高 / span 8px / 泳道间距 14px） */
+.lt-chartScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.lt-chart { display: grid; grid-template-columns: 44px minmax(0, 1fr); height: 50px; overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 2%)); border-radius: 8px; }
+.lt-chartLabels { position: relative; border-right: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1; }
+.lt-chartLabels span { position: absolute; right: 3px; height: 8px; display: flex; align-items: center; }
+.lt-chartLabels span:nth-child(1) { top: 7px; }
+.lt-chartLabels span:nth-child(2) { top: 21px; }
+.lt-chartLabels span:nth-child(3) { top: 35px; }
+.lt-chartTrack { position: relative; overflow: hidden; }
+.lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
+.lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
+.lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
+.lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
+  cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
+.lt-span[data-kind='user'] { background: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-span[data-kind='context'] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 68%, var(--dsw-alias-label-secondary)); }
+.lt-span[data-error='true'] { background: var(--dsw-alias-state-error-primary, #b42318); opacity: 1; }
+.lt-span[data-selected='false'] { opacity: .2; }
+
 /* 轮次横轴：宽度按该轮耗时分配（像素），超出宽度时横向滚动 */
 .lt-axisScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .lt-axisScroll::-webkit-scrollbar { height: 8px; }
@@ -211,6 +232,14 @@ export const styles = {
   detailBlock: 'lt-detailBlock',
   detailLabel: 'lt-detailLabel',
   detailPre: 'lt-detailPre',
+  chartScroll: 'lt-chartScroll',
+  chart: 'lt-chart',
+  chartLabels: 'lt-chartLabels',
+  chartTrack: 'lt-chartTrack',
+  chartLanes: 'lt-chartLanes',
+  chartBoundaries: 'lt-chartBoundaries',
+  chartBoundary: 'lt-chartBoundary',
+  span: 'lt-span',
   axis: 'lt-axis',
   axisSegment: 'lt-axisSegment',
   axisSegmentActive: 'lt-axisSegmentActive',

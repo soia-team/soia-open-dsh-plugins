@@ -35,6 +35,15 @@ export declare const zh: {
     readonly 'turn.args': '参数';
     readonly 'turn.result': '结果';
     readonly 'turn.empty': '这一轮没有工具调用';
+    readonly 'lane.input': '输入';
+    readonly 'lane.model': '模型';
+    readonly 'lane.tools': '工具';
+    readonly 'lane.you': '你';
+    readonly 'lane.context': '上下文';
+    readonly 'bar.duration': '时长';
+    readonly 'bar.clock': '实际时间';
+    readonly 'bar.collapseTurns': '收起轮次';
+    readonly 'bar.expandTurns': '展开轮次';
     readonly 'timeline.title': '时间线';
     readonly 'timeline.user': '你';
     readonly 'timeline.assistant': '模型';

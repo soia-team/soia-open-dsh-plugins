@@ -97,6 +97,27 @@ const CSS = `
 .lt-barOn { background: rgb(64 120 255 / 18%); color: var(--dsw-alias-label-primary); font-weight: 600; }
 .lt-barHint { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 
+/* 三泳道时间图：布局规格照内置「轨迹」（44px 标签列 / 50px 高 / span 8px / 泳道间距 14px） */
+.lt-chartScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.lt-chart { display: grid; grid-template-columns: 44px minmax(0, 1fr); height: 50px; overflow: hidden;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 2%)); border-radius: 8px; }
+.lt-chartLabels { position: relative; border-right: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 1; }
+.lt-chartLabels span { position: absolute; right: 3px; height: 8px; display: flex; align-items: center; }
+.lt-chartLabels span:nth-child(1) { top: 7px; }
+.lt-chartLabels span:nth-child(2) { top: 21px; }
+.lt-chartLabels span:nth-child(3) { top: 35px; }
+.lt-chartTrack { position: relative; overflow: hidden; }
+.lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
+.lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
+.lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
+.lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
+  cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
+.lt-span[data-kind='user'] { background: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-span[data-kind='context'] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 68%, var(--dsw-alias-label-secondary)); }
+.lt-span[data-error='true'] { background: var(--dsw-alias-state-error-primary, #b42318); opacity: 1; }
+.lt-span[data-selected='false'] { opacity: .2; }
+
 /* 轮次横轴：宽度按该轮耗时分配（像素），超出宽度时横向滚动 */
 .lt-axisScroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .lt-axisScroll::-webkit-scrollbar { height: 8px; }
@@ -275,6 +296,14 @@ const styles = {
 	detailBlock: "lt-detailBlock",
 	detailLabel: "lt-detailLabel",
 	detailPre: "lt-detailPre",
+	chartScroll: "lt-chartScroll",
+	chart: "lt-chart",
+	chartLabels: "lt-chartLabels",
+	chartTrack: "lt-chartTrack",
+	chartLanes: "lt-chartLanes",
+	chartBoundaries: "lt-chartBoundaries",
+	chartBoundary: "lt-chartBoundary",
+	span: "lt-span",
 	axis: "lt-axis",
 	axisSegment: "lt-axisSegment",
 	axisSegmentActive: "lt-axisSegmentActive",
@@ -414,40 +443,74 @@ function secondsBetween(from, to) {
 	return Math.max(0, Math.round((to - from) / 1e3));
 }
 /**
-* The horizontal axis: one segment per conversation turn.
+* The session's three lanes over time, drawn the way the built-in 轨迹 view draws
+* them: absolute spans positioned by CSS custom properties inside a track, with
+* 0.5px turn boundaries, and one colour per lane (context gets its own tint, as
+* it does there).
 *
-* Width is proportional to the turn's duration, so a turn that took ten minutes
-* is visibly heavier than one that took two seconds. Segments are buttons: the
-* axis doubles as the turn selector.
-* @param props - turn summaries, the selected turn, and the handlers.
-* @returns the axis strip.
+* The lanes answer a question a list cannot: where the time went. A turn that is
+* all tools, a turn that is all model, and a long context injection are three
+* different shapes at a glance.
+*
+* @param props - the rows to plot, the turns to mark, and the interaction state.
+* @returns the chart.
 */
-function TurnAxis({ turns, selected, now, t, onSelect }) {
-	const durations = turns.map((turn) => Math.max(1, secondsBetween(turn.startedAt, turn.endedAt ?? now)));
-	const widths = durations.map((seconds) => Math.min(420, Math.max(56, seconds * 6)));
+function LaneChart({ entries, turns, now, selected, t, onSelect }) {
+	const plotted = entries.filter((entry) => entry.turn !== null && entry.kind !== "turn");
+	const starts = plotted.map((entry) => entry.startedAt);
+	const ends = plotted.map((entry) => entry.endedAt ?? now);
+	const from = starts.length === 0 ? now - 1e3 : Math.min(...starts);
+	const to = Math.max(now, ...ends.length === 0 ? [now] : ends);
+	const span = Math.max(1e3, to - from);
+	const at = (time) => (time - from) / span * 100;
+	const laneOf = (kind) => kind === "assistant" ? 1 : kind === "tool" ? 2 : 0;
+	const minWidth = Math.max(560, plotted.length * 26);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-		className: styles.axisScroll,
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: styles.axis,
-			children: turns.map((turn, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-				type: "button",
-				className: turn.turn === selected ? styles.axisSegmentActive : styles.axisSegment,
-				style: { width: widths[index] ?? 56 },
-				title: `${t("axis.turn", { n: turn.turn })} · ${t("turn.tools", { n: turn.toolCalls })} · ${t("time.seconds", { s: durations[index] ?? 0 })}`,
-				onClick: () => onSelect(turn.turn),
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.axisLabel,
-					children: t("axis.turn", { n: turn.turn })
-				}), turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.axisFailures,
-					children: turn.failures
+		className: styles.chartScroll,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: styles.chart,
+			style: { minWidth: `${minWidth}px` },
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.chartLabels,
+				"aria-hidden": "true",
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("lane.input") }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("lane.model") }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("lane.tools") })
+				]
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.chartTrack,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.chartLanes,
+					children: plotted.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: styles.span,
+						"data-kind": entry.kind,
+						"data-error": entry.status === "failed",
+						"data-selected": selected === null || selected === entry.turn,
+						style: {
+							top: `${laneOf(entry.kind) * 14}px`,
+							left: `${at(entry.startedAt)}%`,
+							width: `max(2px, ${Math.max(.2, at(entry.endedAt ?? now) - at(entry.startedAt))}%)`
+						},
+						title: `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
+						"aria-label": `${entry.title || entry.kind} · ${clockOf(entry.startedAt)}`,
+						onClick: () => entry.turn !== null && onSelect(entry.turn)
+					}, entry.id))
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.chartBoundaries,
+					"aria-hidden": "true",
+					children: turns.map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.chartBoundary,
+						style: { left: `${at(turn.startedAt)}%` }
+					}, turn.turn))
 				})]
-			}, turn.turn))
+			})]
 		})
 	});
 }
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, expanded, onToggle, t }) {
+function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
 	const running = entry.status === "running";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
 	const kindBadge = entry.kind === "user" ? t("timeline.user") : entry.kind === "assistant" ? t("timeline.assistant") : null;
@@ -461,7 +524,7 @@ function ToolRow({ entry, now, expanded, onToggle, t }) {
 			children: [
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.tlTime,
-					children: clockOf(entry.startedAt)
+					children: showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, {
 					state: running ? "ongoing" : entry.status === "failed" ? "error" : "done",
@@ -513,7 +576,7 @@ function ToolRow({ entry, now, expanded, onToggle, t }) {
 	});
 }
 /** The rows for one turn: its messages and its tool calls, in order. */
-function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }) {
+function TurnSection({ turn, entries, selected, now, showClock, open, expandedId, onToggle, t }) {
 	const started = clockOf(turn.startedAt);
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -546,7 +609,7 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }) 
 					children: t("turn.failed", { n: turn.failures })
 				})
 			]
-		}), entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+		}), !open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 			className: styles.none,
 			children: t("turn.empty")
 		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
@@ -554,6 +617,8 @@ function TurnSection({ turn, entries, selected, now, expandedId, onToggle, t }) 
 			children: entries.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
 				entry,
 				now,
+				showClock,
+				turnStart: turn.startedAt,
 				expanded: expandedId === "__all__" || expandedId === entry.id,
 				onToggle: () => onToggle(entry.id),
 				t
@@ -573,6 +638,8 @@ function LiveTasksView({ useProjection, t }) {
 	const [expandAll, setExpandAll] = (0, react.useState)(false);
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
+	const [showClock, setShowClock] = (0, react.useState)(true);
+	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const now = useNow();
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
@@ -647,9 +714,17 @@ function LiveTasksView({ useProjection, t }) {
 						onClick: () => setExpandAll(!expandAll),
 						children: expandAll ? t("bar.collapseAll") : t("bar.expandAll")
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.barHint,
-						children: t("bar.scrollHint")
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: showClock ? styles.barOn : styles.barButton,
+						onClick: () => setShowClock(!showClock),
+						children: showClock ? t("bar.clock") : t("bar.duration")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: styles.barButton,
+						onClick: () => setTurnsOpen(!turnsOpen),
+						children: turnsOpen ? t("bar.collapseTurns") : t("bar.expandTurns")
 					})
 				]
 			}),
@@ -658,10 +733,11 @@ function LiveTasksView({ useProjection, t }) {
 				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
 					className: styles.sectionTitle,
 					children: t("axis.title")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnAxis, {
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LaneChart, {
+					entries: state.timeline,
 					turns: state.turns,
-					selected: shownTurn,
 					now,
+					selected: shownTurn,
 					t,
 					onSelect: setSelected
 				})]
@@ -678,6 +754,8 @@ function LiveTasksView({ useProjection, t }) {
 						entries: entriesOfTurn(turn.turn),
 						selected: turn.turn === shownTurn,
 						now,
+						showClock,
+						open: turnsOpen,
 						expandedId: expandAll ? "__all__" : expanded,
 						onToggle: (id) => setExpanded(expanded === id ? null : id),
 						t
@@ -756,6 +834,15 @@ const zh = {
 	"turn.args": "参数",
 	"turn.result": "结果",
 	"turn.empty": "这一轮没有工具调用",
+	"lane.input": "输入",
+	"lane.model": "模型",
+	"lane.tools": "工具",
+	"lane.you": "你",
+	"lane.context": "上下文",
+	"bar.duration": "时长",
+	"bar.clock": "实际时间",
+	"bar.collapseTurns": "收起轮次",
+	"bar.expandTurns": "展开轮次",
 	"timeline.title": "时间线",
 	"timeline.user": "你",
 	"timeline.assistant": "模型",
@@ -838,6 +925,15 @@ const en = {
 	"turn.args": "arguments",
 	"turn.result": "result",
 	"turn.empty": "no tool calls in this turn",
+	"lane.input": "input",
+	"lane.model": "model",
+	"lane.tools": "tools",
+	"lane.you": "you",
+	"lane.context": "context",
+	"bar.duration": "duration",
+	"bar.clock": "wall clock",
+	"bar.collapseTurns": "Collapse turns",
+	"bar.expandTurns": "Expand turns",
 	"timeline.title": "Timeline",
 	"timeline.user": "you",
 	"timeline.assistant": "model",
