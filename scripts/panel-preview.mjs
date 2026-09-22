@@ -28,6 +28,9 @@ const outIndex = args.indexOf('--out')
 const out = outIndex === -1 ? join(tmpdir(), 'panel-preview.png') : args[outIndex + 1]
 const keep = args.includes('--keep')
 
+const staleHost = args.includes('--stale-host')
+const widthIndex = args.indexOf('--width')
+const panelWidth = widthIndex === -1 ? 1180 : Number(args[widthIndex + 1])
 const scratch = mkdtempSync(join(tmpdir(), 'panel-preview-'))
 const artifact = readFileSync(join(root, 'packages/client-ui-live-tasks/lib/client.js'), 'utf8')
 const react = readFileSync(join(root, 'node_modules/react/umd/react.production.min.js'), 'utf8')
@@ -39,6 +42,12 @@ const reactDom = readFileSync(join(root, 'node_modules/react-dom/umd/react-dom.p
  * Deliberately includes the awkward cases: a running call, a failed call, an
  * injected context row, a step-less message and a long payload that must clip.
  */
+// `--stale-host` drops the fields a newer client knows and an older host does
+// not send: the browser half and the host half are versioned separately, and a
+// refresh can pair a new client with the host that is still running. That pairing
+// blanked the panel once; this mode keeps it from happening again unnoticed.
+const staleFields = ['usage', 'turnsTotal']
+
 const fixture = {
   turnsTotal: 64,
   usage: { reported: 12, input: 1_240_000, output: 38_000, cacheRead: 1_120_000, reasoning: 4_200, total: 1_402_000 },
@@ -107,7 +116,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概览', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'detail.entryId': '插件 ID（入口）', 'detail.content': '内容',
+  'detail.name': '名称', 'detail.entryId': '插件 ID', 'detail.content': '内容',
   'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）',
   'usage.unknown': '本会话还没有用量报告',
   'usage.turn': '{t} tok',
@@ -129,7 +138,7 @@ const DICTIONARY = {
 
 const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <style>body{margin:0;font-family:-apple-system,"PingFang SC",system-ui;background:#fff}
-#root{width:1180px}
+#root{width:${panelWidth}px}
 :root{--dsw-alias-bg-base:#fff;--dsw-alias-bg-base-secondary:rgb(0 0 0 / 4%);
 --dsw-alias-bg-layer-1:#fff;--dsw-alias-bg-layer-2:rgb(0 0 0 / 3%);
 --dsw-alias-label-primary:#0f1115;--dsw-alias-label-secondary:#4a4f57;--dsw-alias-label-tertiary:#81858c;
@@ -202,6 +211,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 window.__mounted = true
 </script></body></html>`
 
+for (const field of staleFields) {
+  if (staleHost) delete fixture[field]
+}
+if (staleHost) for (const entry of fixture.timeline) delete entry.entryId
+if (staleHost) for (const turn of fixture.turns) delete turn.tokens
+
 const pagePath = join(scratch, 'preview.html')
 writeFileSync(pagePath, page)
 
@@ -218,7 +233,7 @@ await view.goto(`file://${pagePath}`)
 await view.waitForTimeout(900)
 // Open one row so the screenshot shows the detail layout, which is the part a
 // reader judges the panel by.
-await view.locator('[class*="lt-toolButton"]').nth(5).click()
+await view.locator('[class*="lt-rowButton"]').nth(5).click()
 await view.waitForTimeout(250)
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
@@ -228,7 +243,7 @@ const mounted = await view.evaluate(() => globalThis.__mounted === true)
 const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
   .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
   .filter((text) => /^[a-z][A-Za-z]*\.[A-Za-z.]+$/.test(text)))
-const rows = await view.locator('[class*="lt-toolButton"]').count()
+const rows = await view.locator('[class*="lt-rowButton"]').count()
 const chips = await view.locator('[class*="lt-kindTag"]').count()
 await view.screenshot({ path: out, fullPage: true })
 await browser.close()

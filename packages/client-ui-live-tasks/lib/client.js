@@ -90,14 +90,22 @@ const CSS = `
 /* One place for the row grid: the rows, their header and the detail indentation
    all read these, so a column change cannot leave them out of line. */
 .lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px;
-  --lt-col-time: 68px; --lt-col-kind: 46px; --lt-col-took: 64px; --lt-gap: 6px; }
+  --lt-col-time: 84px; --lt-col-kind: 44px; --lt-col-took: 64px; --lt-gap: 8px;
+  /* Narrow windows narrow the columns instead of squeezing the payload, and the
+     row keeps a floor so the timeline scrolls sideways rather than clipping. */
+  container: lt-panel / inline-size; }
+@container lt-panel (width <= 620px) {
+  .lt-view { --lt-col-time: 50px; --lt-col-kind: 20px; }
+  .lt-kindTag { padding: 0; justify-content: center; }
+}
 .lt-head { display: flex; align-items: center; gap: 8px; }
 .lt-elapsed { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
 
 /* 模块：统一的标题层级与间距，让每块自成一段 */
 .lt-section { display: flex; flex-direction: column; gap: 8px; }
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
-.lt-sectionTitle { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--dsw-alias-label-tertiary); }
+.lt-sectionTitle { margin: 0; font: var(--dsw-font-xs-strong-13, 600 13px/18px inherit);
+  color: var(--dsw-alias-label-secondary); user-select: none; }
 
 /* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
 .lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
@@ -159,7 +167,7 @@ const CSS = `
 .lt-turnSectionActive { border-left-color: var(--soia-turn-accent, color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 45%, transparent)); }
 .lt-turnRail { position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
   background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, transparent)); }
-.lt-turnHead { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.lt-turnHead { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 12px; }
 /* 轮次标签：与轨迹的 turnLabel 同规格（胶囊、字距、accent 背景） */
 .lt-turnLabel, .lt-turnLabelActive { padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 650;
   letter-spacing: .035em; }
@@ -167,13 +175,69 @@ const CSS = `
 .lt-turnLabelActive { color: var(--dsw-alias-label-primary);
   background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff)); }
 .lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
-.lt-toolList { display: flex; flex-direction: column; gap: 1px; margin: 4px 0 0; padding: 0; list-style: none; }
+/* The timeline scrolls as one pane, both ways: vertical for length, horizontal
+   for a narrow window, where the rows keep a floor width instead of clipping. */
+.lt-scroll { min-width: 0; max-height: 62vh; overflow: auto; }
+
+/* ── Table structure, copied from the trajectory view ────────────────────────
+   Same two-column table, same 30px rows, same half-pixel separators, same hover
+   and selection tokens, same container-query widths. The panel is meant to look
+   like a sibling of that view, so its numbers are taken from it rather than
+   invented here. */
+.lt-tablePane { box-sizing: border-box; min-width: 0; width: 100%; max-height: 62vh;
+  position: relative; overflow: auto; container: lt-panel / inline-size; }
+.lt-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; }
+.lt-table td { box-sizing: border-box; height: 30px; padding: 0 8px; overflow: hidden;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  white-space: nowrap; text-overflow: ellipsis; vertical-align: middle; }
+.lt-table tbody tr { transition: background-color .12s var(--ds-ease-in-out, ease-in-out); }
+.lt-table tbody tr:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-table tbody tr[data-selected='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-table tbody tr[data-dim='true'] { opacity: .24; }
+.lt-table tbody tr[data-picked='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-table tbody tr[data-turn-start='true'] td { position: relative; overflow: visible; }
+.lt-table tbody tr[data-turn-start='true']:not(:first-child) td::before {
+  content: ''; position: absolute; inset: 0 0 auto; height: 2px; transform: translateY(-50%);
+  background: var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); pointer-events: none; z-index: 1; }
+.lt-eventColumn { width: 84px; }
+@container lt-panel (width <= 620px) {
+  /* The trajectory view narrows this column to 50px because its chip is a 13px
+     icon there; ours is a word, so it narrows less — the row still scrolls
+     sideways rather than clipping. */
+  .lt-eventColumn { width: 64px; }
+  .lt-kindTag { padding: 0 4px; }
+  .lt-tlEntryId { display: none; }
+}
+.lt-eventCell { position: relative; overflow: visible; padding-left: 12px !important; padding-right: 4px !important; }
+.lt-contentColumn { width: auto; }
+.lt-contentCell { min-width: 0; color: var(--dsw-alias-label-primary); padding-left: 4px !important; }
+.lt-rowButton { display: flex; align-items: center; gap: 6px; width: 100%; height: 30px; padding: 0;
+  border: 0; background: transparent; text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+.lt-rowButton:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--dsw-alias-state-business-primary); }
+.lt-turnRow td { height: 26px; }
+.lt-turnRail { position: absolute; left: 0; top: -1px; bottom: -1px; width: 2px; z-index: 4;
+  background: var(--soia-turn-accent, color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff))); }
+.lt-stepRow td { height: 22px; border-bottom: 0; }
+.lt-stepLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .03em; }
+.lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
+.lt-turnMeta { margin-right: 12px; }
+.lt-toolList { display: flex; flex-direction: column; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
+/* Rows follow the trajectory view's table: one 30px line each, a half-pixel
+   separator, no card chrome. Floating rounded rows read as a different product. */
 .lt-toolButton { display: grid;
   grid-template-columns: var(--lt-col-time) var(--lt-col-kind) minmax(0, 1fr) var(--lt-col-took) 12px;
   align-items: center; gap: var(--lt-gap);
-  width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent;
-  text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer; }
+  box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px;
+  border: 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 0; background: transparent;
+  text-align: left; font-size: 12.5px; line-height: 20px; cursor: pointer;
+  transition: background-color .12s var(--ds-ease-in-out, ease-in-out); }
+.lt-toolButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-toolButton[data-selected='true'] { background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+/* A row outside the selected range dims the way the trajectory view dims its own. */
+.lt-toolItem[data-dim='true'] { opacity: .24; }
 
 /* 类型徽标：照抄轨迹 kindSlot / kindTag 的规格（中文槽宽 44px、标签高 19px、圆角 4px、10px/650、字距 .035em） */
 .lt-kindSlot { display: flex; justify-content: flex-end; align-items: center; width: 44px; flex: none; }
@@ -223,7 +287,8 @@ const CSS = `
 .lt-tlTurnDot { position: relative; z-index: 1; width: 5px; height: 5px; border-radius: 50%;
   background: var(--dsw-alias-label-tertiary); }
 .lt-tlTurnLabel { font-weight: 600; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.lt-tlTime { color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); white-space: nowrap; }
+.lt-tlTime { color: var(--dsw-alias-label-caption); font-family: var(--dsw-font-mono, monospace);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lt-tlBadge, .lt-tlBadgeTool { display: inline-block; padding: 0 5px; border-radius: 5px; font-size: 11px;
   line-height: 16px; text-align: center; }
 .lt-tlBadge { color: var(--dsw-alias-label-tertiary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%)); }
@@ -387,6 +452,20 @@ const styles = {
 	turnHead: "lt-turnHead",
 	turnMeta: "lt-turnMeta",
 	toolList: "lt-toolList",
+	tablePane: "lt-tablePane",
+	eventColumn: "lt-eventColumn",
+	contentColumn: "lt-contentColumn",
+	row: "lt-row",
+	eventCell: "lt-eventCell",
+	contentCell: "lt-contentCell",
+	rowButton: "lt-rowButton",
+	turnRow: "lt-turnRow",
+	stepRow: "lt-stepRow",
+	detailRow: "lt-detailRow",
+	detailCell: "lt-detailCell",
+	turnBody: "lt-turnBody",
+	scroll: "lt-scroll",
+	rowsInner: "lt-rowsInner",
 	toolItem: "lt-toolItem",
 	toolButton: "lt-toolButton",
 	toolHint: "lt-toolHint",
@@ -651,127 +730,139 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
 	});
 }
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }) {
+function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, onToggle, t }) {
 	const running = entry.status === "running";
+	const failed = entry.status === "failed";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
 	const kind = entry.kind === "tool" ? t("timeline.tool") : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant");
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
-		className: styles.toolItem,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-			type: "button",
-			className: styles.toolButton,
-			onClick: onToggle,
-			"aria-expanded": expanded,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.tlTime,
-					children: showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.kindSlot,
-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: styles.kindTag,
-						"data-kind": entry.kind,
-						"data-failed": entry.status === "failed",
-						children: kind
-					})
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-					className: styles.tlBody,
-					children: [
-						entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.tlTitle,
-							children: entry.title
-						}),
-						entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.tlEntryId,
-							children: entry.entryId
-						}),
-						entry.detail !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.tlDetail,
-							title: entry.detail ?? "",
-							children: entry.detail
-						}),
-						entry.result !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.tlArrow,
-							"aria-hidden": "true",
-							children: "→"
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.tlResult,
-							title: entry.result,
-							children: entry.result
-						})] })
-					]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: entry.status === "failed" ? styles.tlTookFailed : styles.tlTook,
-					children: entry.kind !== "tool" ? "" : `${running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.toolHint,
-					children: expanded ? "▾" : ""
+	const clock = showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+		className: styles.row,
+		"data-kind": entry.kind,
+		"data-error": failed || void 0,
+		"data-selected": selected || void 0,
+		"data-dim": dim || void 0,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.eventCell,
+			"aria-label": kind,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: styles.kindSlot,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.kindTag,
+					"data-kind": entry.kind,
+					"data-failed": failed,
+					children: kind
 				})
-			]
-		}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: styles.toolDetail,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("detail.overview")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
-					className: styles.detailGrid,
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.name") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
-						entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-							className: styles.detailMono,
-							children: entry.entryId
-						})] }),
-						entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : entry.status === "failed" ? t("status.failed") : t("status.ok") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.duration") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("time.seconds", { s: took }) })
-						] }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.started") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: clockOf(entry.startedAt) }),
-						entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
-							turn: entry.turn,
-							step: entry.step
-						}) })] })
-					]
-				})]
-			}), entry.kind === "tool" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("turn.args")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: styles.detailPre,
-					children: entry.argsFull ?? entry.detail ?? t("detail.none")
-				})]
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("turn.result")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: styles.detailPre,
-					children: entry.resultFull ?? entry.result ?? t("detail.none")
-				})]
-			})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.detailBlock,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: styles.detailLabel,
-					children: t("detail.content")
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-					className: styles.detailPre,
-					children: entry.detail ?? t("detail.none")
-				})]
-			})]
+			})
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.contentCell,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+				type: "button",
+				className: styles.rowButton,
+				onClick: onToggle,
+				"aria-expanded": expanded,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlTime,
+						children: clock
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlTitle,
+						children: entry.kind === "tool" ? entry.title : ""
+					}),
+					entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlEntryId,
+						children: entry.entryId
+					}),
+					entry.detail !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlDetail,
+						title: entry.detail ?? "",
+						children: entry.detail
+					}),
+					entry.result !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlArrow,
+						"aria-hidden": "true",
+						children: "→"
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.tlResult,
+						title: entry.result,
+						children: entry.result
+					})] }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: failed ? styles.tlTookFailed : styles.tlTook,
+						children: entry.kind !== "tool" ? "" : `${running ? t("status.running") : failed ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
+					})
+				]
+			})
 		})]
-	});
+	}), expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+		className: styles.detailRow,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.eventCell,
+			"aria-hidden": "true"
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.detailCell,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.toolDetail,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("detail.overview")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+						className: styles.detailGrid,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.name") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
+							entry.entryId !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+								className: styles.detailMono,
+								children: entry.entryId
+							})] }),
+							entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : failed ? t("status.failed") : t("status.ok") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.duration") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: t("time.seconds", { s: took }) })
+							] }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("timing.started") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: clockOf(entry.startedAt) }),
+							entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
+								turn: entry.turn,
+								step: entry.step
+							}) })] })
+						]
+					})]
+				}), entry.kind === "tool" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("turn.args")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: styles.detailPre,
+						children: entry.argsFull ?? entry.detail ?? t("detail.none")
+					})]
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("turn.result")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: styles.detailPre,
+						children: entry.resultFull ?? entry.result ?? t("detail.none")
+					})]
+				})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.detailBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: styles.detailLabel,
+						children: t("detail.content")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: styles.detailPre,
+						children: entry.detail ?? t("detail.none")
+					})]
+				})]
+			})
+		})]
+	})] });
 }
 /**
 * Group a turn's rows by step, the way the trajectory view does.
@@ -793,24 +884,35 @@ function groupByStep(entries) {
 	}
 	return groups;
 }
-/** The rows for one turn: its messages and its tool calls, in order. */
-function TurnSection({ turn, entries, selected, now, showClock, open, expandedId, onToggle, t }) {
+/**
+* One turn as a table body: a header row, then one row per record.
+*
+* Multiple `tbody` elements in one table are valid HTML, and this keeps the turn
+* boundaries — and the rail that marks them — inside the table, the way the
+* trajectory view draws them.
+*/
+function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, dimmed, onToggle, t }) {
 	const started = clockOf(turn.startedAt);
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-		className: selected ? styles.turnSectionActive : styles.turnSection,
-		children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: styles.turnRail,
-				"aria-hidden": "true"
-			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("header", {
-				className: styles.turnHead,
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", {
+		className: styles.turnBody,
+		"data-turn": turn.turn,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+			className: styles.turnRow,
+			"data-turn-start": "true",
+			"data-picked": picked || void 0,
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+				className: styles.eventCell,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.turnRail,
+					"aria-hidden": "true"
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
+					className: styles.turnLabel,
+					children: t("timeline.turnN", { n: turn.turn })
+				})]
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+				className: styles.contentCell,
 				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("strong", {
-						className: selected ? styles.turnLabelActive : styles.turnLabel,
-						children: t("timeline.turnN", { n: turn.turn })
-					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.turnMeta,
 						children: started
@@ -823,38 +925,48 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
 						className: styles.turnMeta,
 						children: t("turn.tools", { n: turn.toolCalls })
 					}),
-					turn.tokens > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					(turn.tokens ?? 0) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.turnMeta,
-						children: t("usage.turn", { t: compact(turn.tokens) })
+						children: t("usage.turn", { t: compact(turn.tokens ?? 0) })
 					}),
 					turn.failures > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlTookFailed,
 						children: t("turn.failed", { n: turn.failures })
 					})
 				]
-			}),
-			!open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+			})]
+		}), !open ? null : entries.length === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.eventCell,
+			"aria-hidden": "true"
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+			className: styles.contentCell,
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: styles.none,
 				children: t("turn.empty")
-			}) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.stepGroup,
-				children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+			})
+		})] }) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+			className: styles.stepRow,
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+				className: styles.eventCell,
+				"aria-hidden": "true"
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+				className: styles.contentCell,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: styles.stepLabel,
 					children: t("turn.stepN", { n: group.step })
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ul", {
-					className: styles.toolList,
-					children: group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
-						entry,
-						now,
-						showClock,
-						turnStart: turn.startedAt,
-						expanded: expandedId === "__all__" || expandedId === entry.id,
-						onToggle: () => onToggle(entry.id),
-						t
-					}, entry.id))
-				})]
-			}, `${group.step ?? "none"}-${index}`))
-		]
+				})
+			})]
+		}), group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
+			entry,
+			now,
+			showClock,
+			turnStart: turn.startedAt,
+			expanded: expandedId === "__all__" || expandedId === entry.id,
+			selected: picked,
+			dim: dimmed,
+			onToggle: () => onToggle(entry.id),
+			t
+		}, entry.id))] }, `${group.step ?? "none"}-${index}`))]
 	});
 }
 /**
@@ -863,7 +975,29 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
 * @returns the view body, or an explicit empty state.
 */
 function LiveTasksView({ useProjection, t }) {
-	const state = useProjection("liveTask");
+	const projected = useProjection("liveTask");
+	/**
+	* Tolerate a host running an older build than this bundle.
+	*
+	* The browser half and the host half are versioned separately: a page refresh
+	* can pair a newer client with the host that is still running, and reading a
+	* field the host does not send threw — React then unmounted the view and the
+	* panel went blank. Missing fields fall back here, so the worst case is a
+	* missing line instead of an empty page. `--stale-host` in
+	* `scripts/panel-preview.mjs` renders exactly that pairing.
+	*/
+	const state = projected === void 0 ? void 0 : {
+		...projected,
+		turnsTotal: projected.turnsTotal ?? projected.turns.length,
+		usage: projected.usage ?? {
+			reported: 0,
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			reasoning: 0,
+			total: 0
+		}
+	};
 	const [selected, setSelected] = (0, react.useState)(null);
 	const [expanded, setExpanded] = (0, react.useState)(null);
 	const [expandAll, setExpandAll] = (0, react.useState)(false);
@@ -885,6 +1019,7 @@ function LiveTasksView({ useProjection, t }) {
 	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
 	const selectedTurn = state.turns.at(-1)?.turn ?? null;
 	const shownTurn = selected ?? selectedTurn;
+	const pickedTurn = selected;
 	const needle = query.trim().toLowerCase();
 	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -1004,21 +1139,25 @@ function LiveTasksView({ useProjection, t }) {
 					className: styles.sectionTitle,
 					children: t("timeline.title")
 				}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: styles.turnList,
-					children: [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
-						turn,
-						entries: entriesOfTurn(turn.turn),
-						selected: turn.turn === shownTurn,
-						now,
-						showClock,
-						open: turnsOpen,
-						expandedId: expandAll ? "__all__" : expanded,
-						onToggle: (id) => {
-							setExpandAll(false);
-							setExpanded(expanded === id ? null : id);
-						},
-						t
-					}, turn.turn))
+					className: styles.tablePane,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
+						className: styles.table,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
+							turn,
+							entries: entriesOfTurn(turn.turn),
+							picked: pickedTurn !== null && turn.turn === pickedTurn,
+							now,
+							showClock,
+							open: turnsOpen,
+							expandedId: expandAll ? "__all__" : expanded,
+							dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
+							onToggle: (id) => {
+								setExpandAll(false);
+								setExpanded(expanded === id ? null : id);
+							},
+							t
+						}, turn.turn))]
+					})
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {

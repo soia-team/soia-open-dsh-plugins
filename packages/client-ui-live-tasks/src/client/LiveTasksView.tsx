@@ -25,7 +25,7 @@
  * @module soia-dsh-client-ui-live-tasks/client/view
  */
 import { StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 
 import { hasLiveActivity } from '../shared/live-task-state.ts'
 import type { LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
@@ -200,16 +200,19 @@ function LaneChart({ entries, turns, now, selected, range, t, onSelect, onRange 
 }
 
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
+function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, onToggle, t }: {
   entry: LiveTimelineEntry
   now: number
   showClock: boolean
   turnStart: number
   expanded: boolean
+  selected: boolean
+  dim: boolean
   onToggle: () => void
   t: T
 }): JSX.Element {
   const running = entry.status === 'running'
+  const failed = entry.status === 'failed'
   const took = secondsBetween(entry.startedAt, entry.endedAt ?? now)
   const kind = entry.kind === 'tool'
     ? t('timeline.tool')
@@ -218,94 +221,110 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
       : entry.kind === 'context'
         ? t('lane.context')
         : t('timeline.assistant')
+  const clock = showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`
+
   return (
-    <li className={styles.toolItem}>
-      <button type="button" className={styles.toolButton} onClick={onToggle} aria-expanded={expanded}>
-        <span className={styles.tlTime}>
-          {showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`}
-        </span>
-        {/* The kind slot mirrors the trajectory view: a fixed, right-aligned
-            column so every chip lines up and the payload starts at one edge. */}
-        <span className={styles.kindSlot}>
-          <span className={styles.kindTag} data-kind={entry.kind} data-failed={entry.status === 'failed'}>
-            {kind}
+    <>
+      {/* One table row per record, two columns, exactly like the trajectory view:
+          the event cell carries the kind chip (right-aligned in a fixed slot) and
+          the content cell carries the payload, arrow and inline result. */}
+      <tr
+        className={styles.row}
+        data-kind={entry.kind}
+        data-error={failed || undefined}
+        data-selected={selected || undefined}
+        data-dim={dim || undefined}
+      >
+        {/* The chip carries the readable kind; the cell names it for a screen
+            reader too, which is also what the a11y rule asks for. */}
+        <td className={styles.eventCell} aria-label={kind}>
+          <span className={styles.kindSlot}>
+            <span className={styles.kindTag} data-kind={entry.kind} data-failed={failed}>
+              {kind}
+            </span>
           </span>
-        </span>
-        <span className={styles.tlBody}>
-          {entry.kind === 'tool' && <span className={styles.tlTitle}>{entry.title}</span>}
-          {/* Which plugin produced this row: the entry id the host lists in its own
-              inventory, next to the tool name it registers. */}
-          {entry.entryId !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
-          {entry.detail !== null && <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail}</span>}
-          {entry.result !== null && (
-            <>
-              <span className={styles.tlArrow} aria-hidden="true">→</span>
-              <span className={styles.tlResult} title={entry.result}>{entry.result}</span>
-            </>
-          )}
-        </span>
-        <span className={entry.status === 'failed' ? styles.tlTookFailed : styles.tlTook}>
-          {entry.kind !== 'tool'
-            ? ''
-            : `${running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
-        </span>
-        <span className={styles.toolHint}>{expanded ? '▾' : ''}</span>
-      </button>
+        </td>
+        <td className={styles.contentCell}>
+          <button type="button" className={styles.rowButton} onClick={onToggle} aria-expanded={expanded}>
+            <span className={styles.tlTime}>{clock}</span>
+            <span className={styles.tlTitle}>{entry.kind === 'tool' ? entry.title : ''}</span>
+            {entry.entryId !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
+            {entry.detail !== null && (
+              <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail}</span>
+            )}
+            {entry.result !== null && (
+              <>
+                <span className={styles.tlArrow} aria-hidden="true">→</span>
+                <span className={styles.tlResult} title={entry.result}>{entry.result}</span>
+              </>
+            )}
+            <span className={failed ? styles.tlTookFailed : styles.tlTook}>
+              {entry.kind !== 'tool'
+                ? ''
+                : `${running ? t('status.running') : failed ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
+            </span>
+          </button>
+        </td>
+      </tr>
       {expanded && (
-        <div className={styles.toolDetail}>
-          <div className={styles.detailBlock}>
-            <span className={styles.detailLabel}>{t('detail.overview')}</span>
-            <dl className={styles.detailGrid}>
-              <dt>{t('detail.name')}</dt>
-              <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
-              {entry.entryId !== null && (
-                <>
-                  <dt>{t('detail.entryId')}</dt>
-                  <dd className={styles.detailMono}>{entry.entryId}</dd>
-                </>
-              )}
-              {entry.kind === 'tool' && (
-                <>
-                  <dt>{t('overview.status')}</dt>
-                  <dd>{running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}</dd>
-                  <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
-                </>
-              )}
-              <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
-              {entry.turn !== null && (
-                <>
-                  <dt>{t('overview.at')}</dt>
-                  <dd>{entry.step === null
-                    ? `#${entry.turn}`
-                    : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
-                </>
-              )}
-            </dl>
-          </div>
-          {entry.kind === 'tool'
-            ? (
-                <>
-                  <div className={styles.detailBlock}>
-                    <span className={styles.detailLabel}>{t('turn.args')}</span>
-                    <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <span className={styles.detailLabel}>{t('turn.result')}</span>
-                    <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
-                  </div>
-                </>
-              )
-            : (
-                /* A message row has one body, not an argument and a result; showing
-                   the same sentence twice said nothing. */
-                <div className={styles.detailBlock}>
-                  <span className={styles.detailLabel}>{t('detail.content')}</span>
-                  <pre className={styles.detailPre}>{entry.detail ?? t('detail.none')}</pre>
-                </div>
-              )}
-        </div>
+        <tr className={styles.detailRow}>
+          <td className={styles.eventCell} aria-hidden="true" />
+          <td className={styles.detailCell}>
+            <div className={styles.toolDetail}>
+              <div className={styles.detailBlock}>
+                <span className={styles.detailLabel}>{t('detail.overview')}</span>
+                <dl className={styles.detailGrid}>
+                  <dt>{t('detail.name')}</dt>
+                  <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
+                  {entry.entryId !== null && (
+                    <>
+                      <dt>{t('detail.entryId')}</dt>
+                      <dd className={styles.detailMono}>{entry.entryId}</dd>
+                    </>
+                  )}
+                  {entry.kind === 'tool' && (
+                    <>
+                      <dt>{t('overview.status')}</dt>
+                      <dd>{running ? t('status.running') : failed ? t('status.failed') : t('status.ok')}</dd>
+                      <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
+                    </>
+                  )}
+                  <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
+                  {entry.turn !== null && (
+                    <>
+                      <dt>{t('overview.at')}</dt>
+                      <dd>{entry.step === null
+                        ? `#${entry.turn}`
+                        : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+              {entry.kind === 'tool'
+                ? (
+                    <>
+                      <div className={styles.detailBlock}>
+                        <span className={styles.detailLabel}>{t('turn.args')}</span>
+                        <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>
+                      </div>
+                      <div className={styles.detailBlock}>
+                        <span className={styles.detailLabel}>{t('turn.result')}</span>
+                        <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>
+                      </div>
+                    </>
+                  )
+                : (
+                    /* A message row has one body, not an argument and a result. */
+                    <div className={styles.detailBlock}>
+                      <span className={styles.detailLabel}>{t('detail.content')}</span>
+                      <pre className={styles.detailPre}>{entry.detail ?? t('detail.none')}</pre>
+                    </div>
+                  )}
+            </div>
+          </td>
+        </tr>
       )}
-    </li>
+    </>
   )
 }
 
@@ -327,59 +346,81 @@ function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | nu
   return groups
 }
 
-/** The rows for one turn: its messages and its tool calls, in order. */
-function TurnSection({ turn, entries, selected, now, showClock, open, expandedId, onToggle, t }: {
+/**
+ * One turn as a table body: a header row, then one row per record.
+ *
+ * Multiple `tbody` elements in one table are valid HTML, and this keeps the turn
+ * boundaries — and the rail that marks them — inside the table, the way the
+ * trajectory view draws them.
+ */
+function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, dimmed, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
-  selected: boolean
+  /** True only when the reader picked this turn; the newest turn is not "picked". */
+  picked: boolean
   now: number
   showClock: boolean
   open: boolean
   expandedId: string | null
+  dimmed: boolean
   onToggle: (id: string) => void
   t: T
 }): JSX.Element {
   const started = clockOf(turn.startedAt)
   const took = secondsBetween(turn.startedAt, turn.endedAt ?? now)
   return (
-    <section className={selected ? styles.turnSectionActive : styles.turnSection}>
-      <span className={styles.turnRail} aria-hidden="true" />
-      <header className={styles.turnHead}>
-        <strong className={selected ? styles.turnLabelActive : styles.turnLabel}>
-          {t('timeline.turnN', { n: turn.turn })}
-        </strong>
-        <span className={styles.turnMeta}>{started}</span>
-        <span className={styles.turnMeta}>{t('time.seconds', { s: took })}</span>
-        {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
-        {turn.tokens > 0 && <span className={styles.turnMeta}>{t('usage.turn', { t: compact(turn.tokens) })}</span>}
-        {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
-      </header>
+    <tbody className={styles.turnBody} data-turn={turn.turn}>
+      <tr className={styles.turnRow} data-turn-start="true" data-picked={picked || undefined}>
+        <td className={styles.eventCell}>
+          <span className={styles.turnRail} aria-hidden="true" />
+          <strong className={styles.turnLabel}>{t('timeline.turnN', { n: turn.turn })}</strong>
+        </td>
+        <td className={styles.contentCell}>
+          <span className={styles.turnMeta}>{started}</span>
+          <span className={styles.turnMeta}>{t('time.seconds', { s: took })}</span>
+          {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
+          {(turn.tokens ?? 0) > 0 && (
+            <span className={styles.turnMeta}>{t('usage.turn', { t: compact(turn.tokens ?? 0) })}</span>
+          )}
+          {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
+        </td>
+      </tr>
       {!open
         ? null
         : entries.length === 0
-        ? <p className={styles.none}>{t('turn.empty')}</p>
+        ? (
+            <tr>
+              <td className={styles.eventCell} aria-hidden="true" />
+              <td className={styles.contentCell}><span className={styles.none}>{t('turn.empty')}</span></td>
+            </tr>
+          )
         : groupByStep(entries).map((group, index) => (
-          <div key={`${group.step ?? 'none'}-${index}`} className={styles.stepGroup}>
+          <Fragment key={`${group.step ?? 'none'}-${index}`}>
             {group.step !== null && (
-              <p className={styles.stepLabel}>{t('turn.stepN', { n: group.step })}</p>
+              <tr className={styles.stepRow}>
+                <td className={styles.eventCell} aria-hidden="true" />
+                <td className={styles.contentCell}>
+                  <span className={styles.stepLabel}>{t('turn.stepN', { n: group.step })}</span>
+                </td>
+              </tr>
             )}
-            <ul className={styles.toolList}>
-              {group.rows.map((entry) => (
-                <ToolRow
-                  key={entry.id}
-                  entry={entry}
-                  now={now}
-                  showClock={showClock}
-                  turnStart={turn.startedAt}
-                  expanded={expandedId === '__all__' || expandedId === entry.id}
-                  onToggle={() => onToggle(entry.id)}
-                  t={t}
-                />
-              ))}
-            </ul>
-          </div>
+            {group.rows.map((entry) => (
+              <ToolRow
+                key={entry.id}
+                entry={entry}
+                now={now}
+                showClock={showClock}
+                turnStart={turn.startedAt}
+                expanded={expandedId === '__all__' || expandedId === entry.id}
+                selected={picked}
+                dim={dimmed}
+                onToggle={() => onToggle(entry.id)}
+                t={t}
+              />
+            ))}
+          </Fragment>
         ))}
-    </section>
+    </tbody>
   )
 }
 
@@ -389,7 +430,25 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
  * @returns the view body, or an explicit empty state.
  */
 export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Element {
-  const state = useProjection('liveTask') as LiveTaskView | undefined
+  const projected = useProjection('liveTask') as LiveTaskView | undefined
+  /**
+   * Tolerate a host running an older build than this bundle.
+   *
+   * The browser half and the host half are versioned separately: a page refresh
+   * can pair a newer client with the host that is still running, and reading a
+   * field the host does not send threw — React then unmounted the view and the
+   * panel went blank. Missing fields fall back here, so the worst case is a
+   * missing line instead of an empty page. `--stale-host` in
+   * `scripts/panel-preview.mjs` renders exactly that pairing.
+   */
+  const state = projected === undefined
+    ? undefined
+    : {
+        ...projected,
+        turnsTotal: projected.turnsTotal ?? projected.turns.length,
+        usage: projected.usage
+          ?? { reported: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 },
+      }
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [expandAll, setExpandAll] = useState(false)
@@ -423,6 +482,11 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const selectedTurn = state.turns.at(-1)?.turn ?? null
   const shownTurn = selected ?? selectedTurn
+  // `selected` is the reader's choice; `shownTurn` falls back to the newest turn so
+  // the chart always shows something. Only the choice highlights rows — tinting a
+  // row just because it is the latest is an invention the trajectory view does not
+  // have, and it made the table look permanently selected.
+  const pickedTurn = selected
   const needle = query.trim().toLowerCase()
   // Every row of the turn, not only its tool calls: a turn reads as one story —
   // your message, the model's reply, the calls in between — which is exactly how
@@ -542,26 +606,36 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
 
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('timeline.title')}</h4>
-        <div className={styles.turnList}>
-          {[...state.turns].reverse().map((turn) => (
-            <TurnSection
-              key={turn.turn}
-              turn={turn}
-              entries={entriesOfTurn(turn.turn)}
-              selected={turn.turn === shownTurn}
-              now={now}
-              showClock={showClock}
-              open={turnsOpen}
-              expandedId={expandAll ? '__all__' : expanded}
-              onToggle={(id) => {
-                // A row click always leaves "expand all": otherwise, with every
-                // row expanded, clicking one looks like nothing happened.
-                setExpandAll(false)
-                setExpanded(expanded === id ? null : id)
-              }}
-              t={t}
-            />
-          ))}
+        {/* Two columns and a scrolling pane, copied from the trajectory view: the
+            event column holds the kind chip, the content column the record. The
+            pane scrolls both ways so a narrow window keeps the row intact. */}
+        <div className={styles.tablePane}>
+          <table className={styles.table}>
+            <colgroup>
+              <col className={styles.eventColumn} />
+              <col className={styles.contentColumn} />
+            </colgroup>
+            {[...state.turns].reverse().map((turn) => (
+              <TurnSection
+                key={turn.turn}
+                turn={turn}
+                entries={entriesOfTurn(turn.turn)}
+                picked={pickedTurn !== null && turn.turn === pickedTurn}
+                now={now}
+                showClock={showClock}
+                open={turnsOpen}
+                expandedId={expandAll ? '__all__' : expanded}
+                dimmed={pickedTurn !== null && turn.turn !== pickedTurn}
+                onToggle={(id) => {
+                  // A row click always leaves "expand all": otherwise, with every
+                  // row expanded, clicking one looks like nothing happened.
+                  setExpandAll(false)
+                  setExpanded(expanded === id ? null : id)
+                }}
+                t={t}
+              />
+            ))}
+          </table>
         </div>
       </section>
 
