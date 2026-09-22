@@ -26,6 +26,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
 import { callShapeOf } from './host/call-shape.ts'
+import { journalDecision } from './host/decisions.ts'
+import { isReadOnlyCommand } from './shared/read-only.ts'
 import { loadPolicy } from './host/policy-file.ts'
 import { evaluateCall } from './shared/evaluate.ts'
 import { renderPolicyReason } from './shared/reason.ts'
@@ -69,7 +71,16 @@ function createDecide(ctx: Context): Decide {
 
       for (const note of policy.notes) ctx.logger.warn(`safe-tool-call-policy: ${note}`)
 
-      return evaluateCall(callShapeOf(exec.name, exec.arguments), policy.rules)
+      const shape = callShapeOf(exec.name, exec.arguments)
+      // A provably read-only command skips the rules that would only ask: asking
+      // about a read is friction, and the measured interception log was 25 of 31
+      // calls exactly that. Deny rules still apply — reading a secret is still
+      // reading a secret.
+      const rules = isReadOnlyCommand(shape.text)
+        ? policy.rules.filter((rule) => rule.action === 'deny')
+        : policy.rules
+
+      return evaluateCall(shape, rules)
     } catch (error) {
       // A policy defect must never fail a call: report it and let the call run.
       ctx.logger.warn(`safe-tool-call-policy: evaluation failed (${(error as Error).message}); allowing the call`)
@@ -86,12 +97,56 @@ function createDecide(ctx: Context): Decide {
  */
 export function apply(ctx: Context): void {
   const health = new PolicyHealth(ctx)
+  /**
+   * Whether each session can actually put a question to a human.
+   *
+   * `approval/policy` is a *session event*, not a host event, so it arrives on
+   * `session/event` and is remembered per session. Measured on real sessions:
+   * with the `never` policy every `ask` came back `rejected` in 0–4 ms and the
+   * tool result blamed the user, who had never been shown anything. An advisory
+   * rule must not become a silent hard block, so when asking is impossible the
+   * rule is reported instead of enforced — `deny` rules are untouched.
+   */
+  const approvalPolicies = new Map<string, string>()
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'approval/policy') return
+    approvalPolicies.set(session.id, event.data.policy)
+  })
+
   // One place records every decision, so both hooks report the same counters.
+  const journalPath = process.env['SOIA_POLICY_JOURNAL']
+
   const decideAndCount = (exec: Parameters<typeof decide>[0]) => {
+    // Absent an observed switch, the deployment default applies: the host asks
+    // unless a session says otherwise.
+    const canAsk = approvalPolicies.get(exec.agent?.session.id ?? '') !== 'never'
     const decision = decide(exec)
-    health.record(decision.action === 'deny')
+    const downgraded = decision.action === 'ask' && !canAsk
+    const action = downgraded ? 'allow' as const : decision.action
+
+    health.record(action === 'deny')
     if (decision.ruleId !== undefined) health.recordMatch(decision.ruleId)
-    return decision
+    if (downgraded) health.recordAdvisoryOnly()
+    health.recordDecision(action, decision.ruleId, exec.name)
+
+    if (decision.ruleId !== undefined) {
+      // One line per interception, so a host log or a journal answers "which rule
+      // stopped this, and when" without reading the plugin's memory.
+      ctx.logger.warn(
+        `safe-tool-call-policy: ${decision.ruleId} → ${action}`
+        + `${downgraded ? ' (reported only: this session cannot ask)' : ''} on ${exec.name}`,
+      )
+      journalDecision({
+        at: Date.now(),
+        ruleId: decision.ruleId,
+        tool: exec.name,
+        action,
+        downgraded,
+        excerpt: callShapeOf(exec.name, exec.arguments).text.slice(0, 160),
+      }, journalPath)
+    }
+
+    return downgraded ? { ...decision, action: 'allow' as const } : decision
   }
   const decide = createDecide(ctx)
 

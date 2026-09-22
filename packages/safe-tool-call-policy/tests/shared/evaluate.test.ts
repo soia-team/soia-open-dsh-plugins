@@ -51,13 +51,16 @@ const CASES: readonly { readonly id: string, readonly tool: string, readonly hit
   {
     id: 'failure-as-evidence',
     tool: 'bash',
-    hit: 'grep -rn TODO --include=*.ts src/',
-    allow: "grep -rn 'TODO' --include='*.ts' src/ | head -20",
+    // The unquoted-glob shape was retired after the replay measured 776 of 2,054
+    // hits on it; the surviving hazard is a search whose errors were thrown away
+    // before the next stage read them.
+    hit: 'ugrep -Q "font" src/',
+    allow: 'grep -rn TODO src/',
   },
   {
     id: 'git-danger',
     tool: 'bash',
-    hit: 'git commit -m "wip"',
+    hit: 'git commit -a -m "wip"',
     // The live acceptance run caught this exact command being asked: the rule's
     // first branch matched `git stash` without looking at the subcommand, so a
     // read-only `git stash list` inside an inspection command tripped it.
@@ -162,7 +165,9 @@ describe('verdict precedence', () => {
       { id: 'first', tool: 'bash', pattern: 'shared-token', action: 'ask', reason: 'r', remedy: 'y', source: 'test' },
       { id: 'second', tool: 'bash', pattern: 'shared-token', action: 'ask', reason: 'r', remedy: 'y', source: 'test' },
     ]
-    const decision = evaluateCall({ tool: 'bash', text: 'echo shared-token' }, pair)
+    // Not `echo`: printed text is no longer matched, so a tie-break test has to
+    // use a command that actually runs.
+    const decision = evaluateCall({ tool: 'bash', text: 'toolcall shared-token' }, pair)
 
     expect(decision.matched).toEqual(['first', 'second'])
     expect(decision.ruleId).toBe('first')
@@ -226,7 +231,7 @@ describe('policy defects', () => {
     expect(decision.notes).toHaveLength(1)
   })
 
-  it('flags a silenced search but not an everyday stderr redirect', () => {
+  it('flags the dialect trap but not an everyday stderr redirect', () => {
     // Second false positive found by the live acceptance run: a listener probe
     // with a `||` fallback was asked because `2>/dev/null` appeared before a
     // pipe character. `||` is an explicit fallback, not a discarded error.
@@ -234,9 +239,14 @@ describe('policy defects', () => {
       + '|| echo "(no lsof result)"); curl -s http://127.0.0.1:8899/x | head -1'
     expect(evaluateCall({ tool: 'bash', text: probe }, RULES).ruleId).toBeUndefined()
 
-    // The documented failure mode is still caught: a search whose errors were
-    // thrown away, piped into something that would read "nothing" as "not found".
+    // Discarding a search's stderr was retired as well: 1,400 of the 1,637 hits
+    // left after the first narrowing were that shape, and it is an ordinary
+    // idiom rather than evidence of a false negative.
     expect(evaluateCall({ tool: 'bash', text: 'grep -rn TODO src 2>/dev/null | head -20' }, RULES).ruleId)
+      .toBeUndefined()
+
+    // What survives is the trap the rule was written for: another dialect.
+    expect(evaluateCall({ tool: 'bash', text: 'ugrep -Q "font" src/' }, RULES).ruleId)
       .toBe('failure-as-evidence')
   })
 

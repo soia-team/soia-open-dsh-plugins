@@ -60,8 +60,14 @@ const CORPUS: readonly Case[] = [
   { rule: undefined, text: 'node -e "console.log(process.env.HOME)"', why: 'no literal credential' },
 
   // ── R3 failure-as-evidence: a failed command read as a negative result ──
-  { rule: 'failure-as-evidence', text: 'grep -rn TODO --include=*.ts src/', why: 'unquoted glob lets the shell expand it first' },
-  { rule: 'failure-as-evidence', text: 'grep -rn TODO src 2>/dev/null | head -20', why: 'a silenced search piped onward' },
+  // Retired after the replay measured it: 776 of 2,054 hits were this shape, and
+  // an unquoted glob makes grep fail loudly rather than quietly — noise that
+  // turns a policy off is worse than the hazard it guards against.
+  { rule: undefined, text: 'grep -rn TODO --include=*.ts src/', why: 'an unquoted glob is noisy but not silent' },
+  // Retired: 1,400 of the 1,637 hits left after the first narrowing were this
+  // shape, and discarding a search's stderr is an ordinary idiom, not evidence of
+  // a false negative. The rule keeps the dialect trap it was written for.
+  { rule: undefined, text: 'grep -rn TODO src 2>/dev/null | head -20', why: 'suppressing a search\'s stderr is normal' },
   { rule: 'failure-as-evidence', text: 'ugrep -Q "font" src/', why: 'a different pattern dialect than grep' },
   { rule: undefined, text: "grep -rn 'TODO' --include='*.ts' src/", why: 'quoted glob is the documented fix' },
   { rule: undefined, text: 'rg -n TODO src/', why: 'plain dialect, no redirect' },
@@ -72,10 +78,13 @@ const CORPUS: readonly Case[] = [
   { rule: 'git-danger', text: 'git stash push -m "checkpoint"', why: 'stashes the shared index' },
   { rule: 'git-danger', text: 'git stash', why: 'bare stash means push' },
   { rule: 'git-danger', text: 'git stash pop', why: 'rewrites the working tree' },
-  { rule: 'git-danger', text: 'git checkout main', why: 'switches the shared checkout' },
+  { rule: undefined, text: 'git checkout main', why: 'switching branches is normal work (109 of 239 hits)' },
   { rule: 'git-danger', text: 'git add -A', why: 'stages everything in the checkout' },
   { rule: 'git-danger', text: 'git add .', why: 'same effect, different spelling' },
-  { rule: 'git-danger', text: 'git commit -m "wip"', why: 'commits whatever another worker staged' },
+  { rule: 'git-danger', text: 'git commit -a -m "wip"', why: 'commits every tracked change at once' },
+  // A plain commit is normal work in a worktree-per-task flow; it was 85 of 239
+  // git hits and blocked the operator's own commits.
+  { rule: undefined, text: 'git commit -m "wip"', why: 'a path-scoped or ordinary commit is normal work' },
   { rule: undefined, text: 'git stash list', why: 'reading the stash is a query — this one shipped as a false positive' },
   { rule: undefined, text: 'git stash show -p stash@{0}', why: 'also a query' },
   { rule: undefined, text: 'git status --short', why: 'everyday inspection' },

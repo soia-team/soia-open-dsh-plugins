@@ -13,6 +13,7 @@
  *   that one rule and records a note; every other rule still applies. The
  *   policy never turns its own defect into a blocked or failed call.
  */
+import { matchingText } from './projection.ts'
 import type { PolicyDecision, PolicyRule, PolicyRuleAction, ToolCallShape } from './types.ts'
 
 /** Relative severity of the two blocking verdicts; `allow` never competes. */
@@ -65,7 +66,9 @@ export function evaluateCall(call: ToolCallShape, rules: readonly PolicyRule[]):
       continue
     }
 
-    if (!pattern.test(call.text)) continue
+    // Rules match the executable projection: prose that merely mentions a
+    // dangerous command is not that command.
+    if (!pattern.test(matchingText(call.text))) continue
 
     matched.push(rule.id)
 

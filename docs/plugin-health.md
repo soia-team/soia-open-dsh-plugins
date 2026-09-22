@@ -77,7 +77,31 @@ SOIA_LIVE_ACCEPTANCE=1 node scripts/acceptance-live.mjs   # 结论正确性（�
 
 **回放还抓到一个漏报（已修）**：`data-root-write` 只认 `~` / `$HOME` 写法，模型把路径展开成 `/Users/<user>/.myapp/cache` 时**直接放行**——而展开形式正是 shell 实际执行的东西。已补"展开后的家目录点目录"分支（`/Users/<any>/.app`、`/home/<any>/.app`），并把两种写法与"项目内的点目录不应命中"都固化成语料用例。这条是**验收历史的逐项通过率**暴露的：单跑一次会以为规则正常。
 
-**两类需要收窄的误报（证据在手，尚未改）**：
+### 修复后的复测（2026-09-22 晚）
+
+按实测反馈改完后重跑同一套回放：
+
+| 指标 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 去重后命令 | 23,630 | 25,556 |
+| 命中 | 2,416（**10.2%**） | **244（1.0%）** |
+| `failure-as-evidence` | 2,054 | **0**（规则只剩 `ugrep` 方言陷阱；历史流量里没有） |
+| `git-danger` | 239 | 68（只剩整索引操作：`add -A` / `add .` / `stash` / `commit -a`） |
+| `data-root-write`（deny） | 68 | 115（`cp ~/.soiadeck` ×45、`rm -rf <DSH_HOME>` ×30 —— 都是该拦的真风险） |
+
+改的四件事：只读快通道（可证明只读 → 只跑 `deny` 规则）、命令投影（`echo`/写出型 heredoc 正文不再当命令）、R3 两次收窄、R4 去掉普通提交与建分支。另外 R1 去掉了 `Library`——它把 `~/Library/Application Support/…` 与 `$BUILDER_HOME/Library/…` 这类合法路径当成系统路径。
+
+### 事故案例回归
+
+`packages/safe-tool-call-policy/tests/fixtures/incidents.ts` 把 6 个会话里 **31 次真实拦截**的形状（路径已泛化）固化成案例，逐条断言新判定；`tests/shared/incidents.test.ts` 另有三条汇总断言，其中一条就叫「不再拦下任何只读诊断」。
+
+### 监控（快速定位）
+
+- `PolicyHealth` 新增：**按动作计数**（allow/ask/deny）、**最近一次命中**（规则 id + 工具 + 动作 + 时间）、`advisoryOnly`；
+- 每次命中写一行 **host 日志**：`safe-tool-call-policy: <rule> → <action>[ (reported only…)] on <tool>`；
+- 可选 **判定流水账**：`SOIA_POLICY_JOURNAL=/path/policy.jsonl` 逐条记录（含脱敏后的命令片段），用于事后复现。
+
+**仍然存在的问题**：
 
 1. **引号与 heredoc 正文里的文本被当成命令**。样本里 `cat > /tmp/x.mjs <<'EOF' … 'git commit' …` 被判成 git 危险：那段文本是被**写入文件**的，不是执行的。要收窄就得区分"会被执行的内容"（`bash -c "…"`、heredoc 管道给 shell）与"只被写入的内容"，不能一刀切删引号。
 2. **`failure-as-evidence` 的 `--include=*` 分支太吵**：776 条命中意味着现实里每 30 条命令就有 1 条会弹审批。它的声明危害（shell 先展开 glob）成立，但作为 `ask` 的代价可能高于收益——要么降级为提醒、要么只在"结果被当作证据"的场景里拦。
