@@ -1,0 +1,235 @@
+#!/usr/bin/env node
+/**
+ * Render the panel's browser half against fixture data, in a real browser.
+ *
+ * Verifying a client plugin by driving a live session is slow, costs tokens and
+ * depends on the model doing what the prompt asked. None of that is needed to
+ * answer "does this row look right": the component is a pure function of a
+ * projection value, so this harness hands it one and screenshots the result.
+ *
+ * It loads the **built artifact** (`lib/client.js`) through the same
+ * `window.__ModuleLoader__` contract the shell uses, with React and a minimal
+ * primitives stub standing in for the loader's module table. That makes it a
+ * check of the shipped bundle, not of the source.
+ *
+ * Usage:
+ *   node scripts/panel-preview.mjs [--out <png>] [--keep]
+ *
+ * Exit codes: 0 rendered, 1 the panel did not render.
+ */
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const args = process.argv.slice(2)
+const outIndex = args.indexOf('--out')
+const out = outIndex === -1 ? join(tmpdir(), 'panel-preview.png') : args[outIndex + 1]
+const keep = args.includes('--keep')
+
+const scratch = mkdtempSync(join(tmpdir(), 'panel-preview-'))
+const artifact = readFileSync(join(root, 'packages/client-ui-live-tasks/lib/client.js'), 'utf8')
+const react = readFileSync(join(root, 'node_modules/react/umd/react.production.min.js'), 'utf8')
+const reactDom = readFileSync(join(root, 'node_modules/react-dom/umd/react-dom.production.min.js'), 'utf8')
+
+/**
+ * A projection value that exercises every row kind the panel can draw.
+ *
+ * Deliberately includes the awkward cases: a running call, a failed call, an
+ * injected context row, a step-less message and a long payload that must clip.
+ */
+const fixture = {
+  turn: 2,
+  step: 2,
+  running: true,
+  seq: 42,
+  updatedAt: Date.now() - 3_000,
+  lastTool: { callId: 'c4', name: 'bash', turn: 2, step: 2, open: true, detail: 'sleep 30', startedAt: Date.now() - 3_000 },
+  openTools: [{ callId: 'c4', name: 'bash', turn: 2, step: 2, open: true, detail: 'sleep 30', startedAt: Date.now() - 3_000 }],
+  toolCallsInTurn: 2,
+  toolCallsTotal: 5,
+  failuresTotal: 1,
+  toolsAvailable: 62,
+  lastEvent: { type: 'tool/call', seq: 42, time: Date.now() - 3_000, detail: 'bash' },
+  recent: [],
+  actions: [
+    { callId: 'c1', name: 'read', detail: '/etc/hosts', startedAt: Date.now() - 60_000, endedAt: Date.now() - 59_800, status: 'ok', result: '<path>/etc/hosts</path>' },
+    { callId: 'c2', name: 'check_ui_size', detail: '#pill @ http://127.0.0.1:8899/second-case.html', startedAt: Date.now() - 59_000, endedAt: Date.now() - 58_000, status: 'ok', result: 'selector=#pill, matched=1, visible=true, status=ok' },
+    { callId: 'c3', name: 'grep', detail: 'rg __no_such_symbol__ fixture.html', startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, status: 'failed', result: 'Error: grep search failed (exit 2)' },
+  ],
+  timeline: [
+    { id: 'turn-1', kind: 'turn', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: null, title: '1', detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'u1', kind: 'user', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: Date.now() - 70_000, title: '', detail: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', result: null, argsFull: null, resultFull: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', status: 'ok' },
+    { id: 'x1', kind: 'context', turn: 1, step: null, startedAt: Date.now() - 69_500, endedAt: Date.now() - 69_500, title: '', detail: '<system-reminder> The following workspace instructions may be relevant …', result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'a1', kind: 'assistant', turn: 1, step: 1, startedAt: Date.now() - 69_000, endedAt: Date.now() - 69_000, title: '', detail: "I'll run all three checks in parallel.", result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c1', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 60_000, endedAt: Date.now() - 59_800, title: 'read', detail: '/etc/hosts', result: '<path>/etc/hosts</path>', argsFull: '{\n  "file_path": "/etc/hosts",\n  "limit": 3\n}', resultFull: '<path>/etc/hosts</path>', status: 'ok' },
+    { id: 'c2', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 59_000, endedAt: Date.now() - 58_000, title: 'check_ui_size', detail: '#pill @ http://127.0.0.1:8899/second-case.html', result: 'selector=#pill, matched=1, visible=true, status=ok', argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c3', kind: 'tool', turn: 1, step: 2, startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, title: 'grep', detail: 'rg __no_such_symbol__ fixture.html', result: 'Error: grep search failed (exit 2)', argsFull: null, resultFull: null, status: 'failed' },
+    { id: 'turn-2', kind: 'turn', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: null, title: '2', detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'u2', kind: 'user', turn: 2, step: null, startedAt: Date.now() - 10_000, endedAt: Date.now() - 10_000, title: '', detail: '再跑一条 bash: sleep 30', result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'c4', kind: 'tool', turn: 2, step: 2, startedAt: Date.now() - 3_000, endedAt: null, title: 'bash', detail: 'sleep 30', result: null, argsFull: '{\n  "command": "sleep 30",\n  "timeoutMs": 60000\n}', resultFull: null, status: 'running' },
+  ],
+  turns: [
+    { turn: 1, startedAt: Date.now() - 70_000, endedAt: Date.now() - 20_000, toolCalls: 3, failures: 1, tools: ['read', 'check_ui_size', 'grep'] },
+    { turn: 2, startedAt: Date.now() - 10_000, endedAt: null, toolCalls: 1, failures: 0, tools: ['bash'] },
+  ],
+  health: { folded: 47, ignored: 17, unknown: 0, frames: 0, agents: 0, registry: 0, deltasAccepted: 0, deltasDropped: 0 },
+  streamedAt: null,
+}
+
+/**
+ * Copy for the preview, mirroring `src/client/locales.ts`.
+ *
+ * Duplicated on purpose: the harness must run the shipped bundle without
+ * importing the package's source, and a missing key shows up as the raw key in
+ * the screenshot rather than as a crash.
+ */
+const DICTIONARY = {
+  'view.tab': '活动', 'view.empty': '本会话还没有动作。',
+  'lane.input': '输入', 'lane.model': '模型', 'lane.tools': '工具', 'lane.context': '上下文',
+  'timeline.title': '时间线', 'timeline.user': '你', 'timeline.assistant': '模型', 'timeline.tool': '工具',
+  'timeline.turnN': '第 {n} 轮',
+  'bar.search': '搜索工具或命令', 'bar.failedOnly': '只看失败', 'bar.expandAll': '展开全部',
+  'bar.collapseAll': '收起全部', 'bar.clock': '实际时间', 'bar.duration': '时长',
+  'bar.collapseTurns': '收起轮次', 'bar.expandTurns': '展开轮次', 'bar.clearRange': '清除选择',
+  'bar.scrollHint': '横向可滚动', 'bar.rangeHint': '在时间图上拖动可框选',
+  'axis.title': '轮次横轴（时间向右）',
+  'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）',
+  'overview.title': '概览', 'overview.status': '状态', 'overview.at': '位置',
+  'overview.atValue': '#{turn} · 第 {step} 步', 'overview.turnOnly': '#{turn}',
+  'overview.callsTurn': '本轮调用（回合）', 'overview.callsTotal': '累计调用（会话）',
+  'overview.failures': '失败（会话）', 'overview.tools': '可用工具', 'overview.toolsUsed': '已用到 {n} 种',
+  'head.toolRunning': '正在用的工具', 'head.toolLast': '最近用的工具', 'head.toolNone': '还没有用过工具',
+  'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
+  'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
+  'detail.overview': '概览', 'detail.none': '（没有可显示的内容）',
+  'status.ok': '完成', 'status.failed': '失败', 'status.running': '进行中',
+  'time.seconds': '{s} 秒', 'timing.duration': '时长', 'timing.started': '开始时间',
+  'phase.running': '正在干活', 'phase.tool': '等工具返回', 'phase.idle': '空闲', 'phase.ended': '已结束',
+  'running.title': '正在跑', 'running.empty': '现在没有在跑的动作', 'running.started': '已跑 {s} 秒',
+  'log.title': '动作日志', 'log.filterAll': '最近 {n} 次', 'log.filterFailed': '只看失败 {n}',
+  'log.filterEmpty': '没有符合条件的记录', 'log.time': '时间', 'log.tool': '工具', 'log.did': '干了什么',
+  'log.took': '耗时', 'log.result': '结果', 'recent.title': '最近动静',
+  'health.title': '运行状况', 'health.folded': '已折叠事件', 'health.ignored': '已忽略（会话管理类）',
+  'health.unknown': '未知类型', 'health.frames': '收到流式帧', 'health.agents': '已接管 agent',
+  'health.registry': '注册表可见', 'health.unreachable': '不可达',
+  'health.deltasValue': '接受 {ok} · 丢弃 {dropped}', 'health.lastData': '数据更新',
+  'health.silence': '{s} 秒前', 'health.stale': '已 {s} 秒没有新数据',
+  'event.turnStart': '开始处理', 'event.turnEnd': '处理结束', 'event.userMessage': '收到你的消息',
+  'event.assistantMessage': '模型回复', 'event.toolCall': '调用 {name}', 'event.toolResult': '{name} 返回',
+}
+
+const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<style>body{margin:0;font-family:-apple-system,"PingFang SC",system-ui;background:#fff}
+#root{width:1180px}
+:root{--dsw-alias-bg-base:#fff;--dsw-alias-bg-base-secondary:rgb(0 0 0 / 4%);
+--dsw-alias-bg-layer-1:#fff;--dsw-alias-bg-layer-2:rgb(0 0 0 / 3%);
+--dsw-alias-label-primary:#0f1115;--dsw-alias-label-secondary:#4a4f57;--dsw-alias-label-tertiary:#81858c;
+--dsw-alias-label-caption:#9aa0a6;--dsw-alias-separator:rgb(0 0 0 / 10%);--dsw-alias-border-l1:rgb(0 0 0 / 8%);
+--dsw-alias-border-l2:rgb(0 0 0 / 14%);--dsw-alias-state-business-primary:#4078ff;
+--dsw-alias-state-success-primary:#16a34a;--dsw-alias-state-error-primary:#b42318;
+--dsw-alias-state-warn-label:#96540a;--dsw-alias-brand-primary-new-colorprimary-new-color:#7c5cff;
+--dsw-static-blue-500:#4078ff;--dsw-font-mono:ui-monospace,SFMono-Regular,Menlo,monospace}</style>
+</head><body><div id="root"></div>
+<script>${react}</script><script>${reactDom}</script>
+<script>
+window.__ModuleLoader__ = { load: (spec) => { window.__spec = spec } }
+</script>
+<script>${artifact}</script>
+<script>
+const React = window.React, ReactDOM = window.ReactDOM
+const requireStub = (name) => {
+  if (name === 'react') return React
+  if (name === 'react/jsx-runtime') {
+    // The automatic runtime passes the key as a THIRD argument; handing it to
+    // createElement as a child renders it as text, which is what the first
+    // version of this harness did.
+    const jsx = (type, props, key) => React.createElement(type, key === undefined ? props : { ...props, key })
+    return { jsx, jsxs: jsx, Fragment: React.Fragment }
+  }
+  if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+    return {
+      StateDot: ({ state, size = 10 }) => React.createElement('span', {
+        style: { display: 'inline-block', width: size, height: size, borderRadius: '50%',
+          background: state === 'error' ? '#b42318' : state === 'ongoing' ? '#4078ff' : state === 'done' ? '#16a34a' : '#9aa0a6' },
+      }),
+      Tag: ({ children }) => React.createElement('span', { style: { background: 'rgb(64 120 255 / 12%)', color: '#243b6b', borderRadius: 4, padding: '1px 6px', fontSize: 11 } }, children),
+      Pill: ({ children }) => React.createElement('span', { style: { background: 'rgb(0 0 0 / 6%)', borderRadius: 999, padding: '1px 8px', fontSize: 11 } }, children),
+    }
+  }
+  throw new Error('unexpected require(' + name + ')')
+}
+const fixture = ${JSON.stringify(fixture)}
+const mod = window.__spec.factory(requireStub)
+const View = mod.apply && mod.__view
+window.__mounted = false
+// The plugin exports apply/inject; the view component is reached by letting the
+// plugin register into a stub slot registry, which is how the shell gets it too.
+const registrations = []
+const ctx = {
+  effect: (fn) => fn(),
+  locale: {
+    register: () => () => {},
+    // The plugin binds a translator at registration time for the view tab label.
+    bind: () => (key) => DICTIONARY[key] ?? key,
+  },
+  slots: {
+    inject: (_name, fn) => fn(),
+    register: (_meta, component) => { registrations.push(component); return () => {} },
+  },
+}
+mod.apply(ctx)
+// The plugin registers the view first and the header chip second; this preview
+// is of the view, so the first registration is the one to mount.
+const Component = registrations[0]
+const dict = ${JSON.stringify(DICTIONARY)}
+const t = (key, params) => {
+  const value = dict[key] ?? key
+  return String(value).replace(/[{]([A-Za-z]+)[}]/g, (_m, name) => String(params?.[name] ?? ''))
+}
+const useProjection = () => fixture
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(Component, { useProjection, t }),
+)
+window.__mounted = true
+</script></body></html>`
+
+const pagePath = join(scratch, 'preview.html')
+writeFileSync(pagePath, page)
+
+// Resolved through an absolute path for the same reason the other scripts do:
+// `playwright-core` is a transitive dependency here, not a direct one.
+const playwrightEntry = process.env['PLAYWRIGHT_CORE']
+  ?? join(root, 'node_modules/.pnpm/playwright-core@1.63.0/node_modules/playwright-core/index.mjs')
+const { chromium } = await import(playwrightEntry)
+const browser = await chromium.launch({ executablePath: process.env['CHROME_PATH'] ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true })
+const view = await browser.newPage({ viewport: { width: 1200, height: 900 } })
+const errors = []
+view.on('pageerror', (error) => errors.push(String(error)))
+await view.goto(`file://${pagePath}`)
+await view.waitForTimeout(900)
+const mounted = await view.evaluate(() => globalThis.__mounted === true)
+// A missing translation renders as its raw key, which is exactly how the first
+// version of this harness hid a 46px chip slot behind overflowing text. Detect it
+// rather than let it look like a layout bug.
+const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
+  .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
+  .filter((text) => /^[a-z][A-Za-z]*\.[A-Za-z.]+$/.test(text)))
+const rows = await view.locator('[class*="lt-toolButton"]').count()
+const chips = await view.locator('[class*="lt-kindTag"]').count()
+await view.screenshot({ path: out, fullPage: true })
+await browser.close()
+
+if (!keep) rmSync(scratch, { recursive: true, force: true })
+else console.log(`panel-preview: kept ${pagePath}`)
+
+console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → ${out}`)
+if (errors.length > 0 || !mounted || rows === 0) {
+  console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
+  process.exit(1)
+}
+if (leakedKeys.length > 0) {
+  console.error(`panel-preview: untranslated keys rendered: ${[...new Set(leakedKeys)].join(', ')}`)
+  process.exit(1)
+}

@@ -197,28 +197,42 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
 }): JSX.Element {
   const running = entry.status === 'running'
   const took = secondsBetween(entry.startedAt, entry.endedAt ?? now)
-  const kindBadge = entry.kind === 'user'
-    ? t('timeline.user')
-    : entry.kind === 'assistant'
-      ? t('timeline.assistant')
-      : null
+  const kind = entry.kind === 'tool'
+    ? t('timeline.tool')
+    : entry.kind === 'user'
+      ? t('timeline.user')
+      : entry.kind === 'context'
+        ? t('lane.context')
+        : t('timeline.assistant')
   return (
     <li className={styles.toolItem}>
       <button type="button" className={styles.toolButton} onClick={onToggle} aria-expanded={expanded}>
         <span className={styles.tlTime}>
           {showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`}
         </span>
-        <StateDot state={running ? 'ongoing' : entry.status === 'failed' ? 'error' : 'done'} size={8} />
-        {kindBadge === null
-          ? <span className={styles.tlTitle}>{entry.title}</span>
-          : <span className={styles.tlBadge}>{kindBadge}</span>}
-        <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail ?? ''}</span>
+        {/* The kind slot mirrors the trajectory view: a fixed, right-aligned
+            column so every chip lines up and the payload starts at one edge. */}
+        <span className={styles.kindSlot}>
+          <span className={styles.kindTag} data-kind={entry.kind} data-failed={entry.status === 'failed'}>
+            {kind}
+          </span>
+        </span>
+        <span className={styles.tlBody}>
+          {entry.kind === 'tool' && <span className={styles.tlTitle}>{entry.title}</span>}
+          {entry.detail !== null && <span className={styles.tlDetail} title={entry.detail ?? ''}>{entry.detail}</span>}
+          {entry.result !== null && (
+            <>
+              <span className={styles.tlArrow} aria-hidden="true">→</span>
+              <span className={styles.tlResult} title={entry.result}>{entry.result}</span>
+            </>
+          )}
+        </span>
         <span className={entry.status === 'failed' ? styles.tlTookFailed : styles.tlTook}>
           {entry.kind !== 'tool'
             ? ''
             : `${running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
         </span>
-        <span className={styles.toolHint}>{expanded ? '▾' : t('turn.expand')}</span>
+        <span className={styles.toolHint}>{expanded ? '▾' : ''}</span>
       </button>
       {expanded && (
         <div className={styles.toolDetail}>
@@ -226,19 +240,19 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
             <span className={styles.detailLabel}>{t('detail.overview')}</span>
             <dl className={styles.detailGrid}>
               <dt>{t('timeline.tool')}</dt>
-              <dd>{entry.kind === 'tool'
-                ? entry.title
-                : entry.kind === 'user'
-                  ? t('timeline.user')
-                  : entry.kind === 'context'
-                    ? t('lane.context')
-                    : t('timeline.assistant')}</dd>
+              <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
               <dt>{t('overview.status')}</dt>
               <dd>{running ? t('status.running') : entry.status === 'failed' ? t('status.failed') : t('status.ok')}</dd>
               <dt>{t('timing.duration')}</dt><dd>{t('time.seconds', { s: took })}</dd>
               <dt>{t('timing.started')}</dt><dd>{clockOf(entry.startedAt)}</dd>
-              {entry.turn !== null && <><dt>{t('overview.at')}</dt>
-                <dd>{entry.step === null ? `#${entry.turn}` : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd></>}
+              {entry.turn !== null && (
+                <>
+                  <dt>{t('overview.at')}</dt>
+                  <dd>{entry.step === null
+                    ? `#${entry.turn}`
+                    : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
+                </>
+              )}
             </dl>
           </div>
           <div className={styles.detailBlock}>
@@ -259,8 +273,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, onToggle, t }: {
  * Group a turn's rows by step, the way the trajectory view does.
  *
  * Rows keep their order inside a step; a row without a step number (a message
- * between steps) is emitted before the first group that follows it, so nothing
- * is dropped or reordered.
+ * between steps) forms its own group, so nothing is dropped or reordered.
  * @param entries - the turn's rows in order.
  * @returns groups of rows, each labelled with its step or null.
  */
@@ -290,9 +303,11 @@ function TurnSection({ turn, entries, selected, now, showClock, open, expandedId
   const took = secondsBetween(turn.startedAt, turn.endedAt ?? now)
   return (
     <section className={selected ? styles.turnSectionActive : styles.turnSection}>
+      <span className={styles.turnRail} aria-hidden="true" />
       <header className={styles.turnHead}>
-        <StateDot state={turn.endedAt === null ? 'ongoing' : turn.failures > 0 ? 'warning' : 'done'} size={9} />
-        <strong className={styles.turnTitle}>{t('timeline.turnN', { n: turn.turn })}</strong>
+        <strong className={selected ? styles.turnLabelActive : styles.turnLabel}>
+          {t('timeline.turnN', { n: turn.turn })}
+        </strong>
         <span className={styles.turnMeta}>{started}</span>
         <span className={styles.turnMeta}>{t('time.seconds', { s: took })}</span>
         {turn.toolCalls > 0 && <span className={styles.turnMeta}>{t('turn.tools', { n: turn.toolCalls })}</span>}
