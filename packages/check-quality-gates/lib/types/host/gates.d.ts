@@ -7,7 +7,7 @@
  * declared it in `.dsh/gates.yml`; nothing about a project's scripts, paths, or
  * evidence format is built in.
  */
-import { GATE_CONFIG_FILE_NAME, GATE_CONFIG_NOT_FOUND, type GateDefinition, type GateReport, type RequiredGate } from '../shared/types.ts';
+import { GATE_CONFIG_FILE_NAME, GATE_CONFIG_NOT_FOUND, type GateDefinition, type GateFailureCode, type GateReport, type RequiredGate } from '../shared/types.ts';
 /**
  * A config file that could not be used. Carries the source line when the
  * failure is syntactic; the message is written to be pasted into a report.
@@ -63,6 +63,7 @@ export declare function buildGateReport(input: {
     source: string;
     gates?: readonly GateDefinition[] | undefined;
     error?: string | null | undefined;
+    code?: GateFailureCode | null | undefined;
 }): GateReport;
 /**
  * Readable explanation for a config file that could not be found.

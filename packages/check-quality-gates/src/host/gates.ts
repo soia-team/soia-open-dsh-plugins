@@ -11,6 +11,7 @@ import {
   GATE_CONFIG_FILE_NAME,
   GATE_CONFIG_NOT_FOUND,
   type GateDefinition,
+  type GateFailureCode,
   type GateReport,
   type RequiredGate,
 } from '../shared/types.ts'
@@ -213,6 +214,7 @@ export function buildGateReport(input: {
   source: string
   gates?: readonly GateDefinition[] | undefined
   error?: string | null | undefined
+  code?: GateFailureCode | null | undefined
 }): GateReport {
   const changedFiles = normalizeChangedFiles(input.changedFiles)
   const error = input.error ?? null
@@ -224,6 +226,7 @@ export function buildGateReport(input: {
       enforcement: 'none',
       unmatched: [...changedFiles],
       error,
+      code: input.code ?? 'config_invalid',
     }
   }
   const gates = input.gates ?? []
@@ -234,6 +237,7 @@ export function buildGateReport(input: {
     enforcement: 'none',
     unmatched: selectUnmatchedFiles(changedFiles, gates),
     error: null,
+    code: null,
   }
 }
 

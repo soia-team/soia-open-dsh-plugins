@@ -65,6 +65,8 @@ packages/<pkg>/
 
 - [建库方案与候选盘点](plugin-plan.md)：六个插件的定位、验收口径、批次与处置记录（本仓的唯一真源）。
 - [验收记录](verification.md)：实际跑过的验证与结论。
+- [插件健康度](plugin-health.md)：怎么判断一个插件好与坏、准与不准；`scripts/plugin-scorecard.mjs` 的口径说明。
+- [任务面板设计](panel-design.md)：`ui-live-tasks` 的信息架构与刻意不做的事。
 
 ## 加一个新包
 

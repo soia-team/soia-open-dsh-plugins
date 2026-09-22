@@ -121,3 +121,21 @@ describe('resolveGateReport', () => {
     expect(() => resolveGateReport({ changedFiles: [], cwd: root, configPath: '   ' })).not.toThrow()
   })
 })
+
+describe('machine-readable failure codes', () => {
+  it('names the reason instead of only describing it', () => {
+    // A caller that has to pattern-match an English sentence to tell "no config"
+    // from "config unreadable" is guessing; the code closes that.
+    const empty = makeWorkspace()
+    expect(resolveGateReport({ changedFiles: ['src/a.ts'], cwd: empty }).code).toBe('config_not_found')
+    expect(resolveGateReport({ changedFiles: ['src/a.ts'], cwd: empty }).error).not.toBeNull()
+
+    const broken = makeWorkspace(BROKEN_CONFIG)
+    expect(resolveGateReport({ changedFiles: ['src/a.ts'], cwd: broken }).code).toBe('config_invalid')
+
+    const valid = makeWorkspace(VALID_CONFIG)
+    const report = resolveGateReport({ changedFiles: ['src/a.ts'], cwd: valid })
+    expect(report.code).toBeNull()
+    expect(report.error).toBeNull()
+  })
+})

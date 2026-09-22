@@ -83,6 +83,13 @@ export function apply(ctx: Context): void {
             enforcement: { type: 'string', required: true, const: 'none' },
             unmatched: { type: 'array', items: { type: 'string' }, required: true },
             error: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
+            code: {
+              oneOf: [
+                { type: 'string', enum: ['config_not_found', 'config_unreadable', 'config_invalid'] },
+                { type: 'null' },
+              ],
+              required: true,
+            },
           },
         },
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
