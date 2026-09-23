@@ -202,6 +202,28 @@ function assistantTokens(usage: Record<string, unknown> | undefined): number | n
   return typeof total === 'number' && Number.isFinite(total) ? total : null
 }
 
+/**
+ * Increment one tool's call/failure counters.
+ * @param stats - the current per-tool map.
+ * @param name - tool name the counter belongs to.
+ * @param delta - which counters move (missing keys stay).
+ * @returns a new map with the counter bumped.
+ */
+function bumpToolStat(
+  stats: Readonly<Record<string, { calls: number, failed: number }>>,
+  name: string,
+  delta: { readonly calls?: number, readonly failed?: number },
+): Readonly<Record<string, { calls: number, failed: number }>> {
+  const current = stats[name] ?? { calls: 0, failed: 0 }
+  return {
+    ...stats,
+    [name]: {
+      calls: current.calls + (delta.calls ?? 0),
+      failed: current.failed + (delta.failed ?? 0),
+    },
+  }
+}
+
 function usageField(usage: Record<string, unknown> | undefined, key: string): number {
   if (usage === undefined) return 0
   const value = usage[key]
@@ -315,6 +337,7 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   timeline: NO_TIMELINE,
   spans: NO_SPANS,
   toolSchemas: Object.freeze({}),
+  toolStats: Object.freeze({}),
   model: null,
   provider: null,
   headerSchemas: Object.freeze({}),
@@ -887,6 +910,7 @@ function foldEvent(
         openTools: [...state.openTools, call],
         toolCallsInTurn: state.toolCallsInTurn + 1,
         toolCallsTotal: state.toolCallsTotal + 1,
+        toolStats: bumpToolStat(state.toolStats, name, { calls: 1 }),
         turns: addCallToTurn(state.turns, call.turn, time, name, windows),
         ...foldTimeline(state, {
           id: callId,
@@ -931,6 +955,9 @@ function foldEvent(
             }
           : state.lastTool,
         failuresTotal: resultFailed ? state.failuresTotal + 1 : state.failuresTotal,
+        toolStats: settled !== undefined && resultFailed
+          ? bumpToolStat(state.toolStats, settled.name, { failed: 1 })
+          : state.toolStats,
         turns: settleTurn(state.turns, settled?.turn ?? null, time, resultFailed),
         timeline: callId === undefined
           ? state.timeline

@@ -151,14 +151,21 @@ export function apply(ctx: ClientContext): void {
       // Tool → package rows, derived by naming law; the roster's
       // default filter keeps only `soia-`-namespaced packages (this
       // workspace's own plugins), with the full list still on hover.
-      listToolBundles: async (): Promise<{ tool: string, pkg: string, entryId: string }[]> => {
+      listToolBundles: async (): Promise<{ tool: string, pkg: string, entryId: string, desc: string }[]> => {
         const bundles = await fetchBundles()
         if (bundles === null) return []
-        const rows: { tool: string, pkg: string, entryId: string }[] = []
+        const rows: { tool: string, pkg: string, entryId: string, desc: string }[] = []
         for (const bundle of bundles) {
           for (const row of bundle.rows ?? []) {
             const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
-            if (derived !== null) rows.push({ tool: derived, pkg: bundle.name, entryId: row.entryId ?? row.rowId })
+            if (derived !== null) {
+              rows.push({
+                tool: derived,
+                pkg: bundle.name,
+                entryId: row.entryId ?? row.rowId,
+                desc: bundle.description ?? '',
+              })
+            }
           }
         }
         return rows

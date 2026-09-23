@@ -144,6 +144,7 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   endedReason: z.string().nullable(),
   streamedTextLength: z.number().int().nonnegative(),
   toolSchemas: z.record(z.string(), z.string()),
+  toolStats: z.record(z.string(), z.object({ calls: z.number(), failed: z.number() }).strict()),
   headerSchemas: z.record(z.string(), z.string()),
   model: z.string().nullable(),
   provider: z.string().nullable(),
@@ -170,6 +171,7 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   failuresTotal: z.number().int().nonnegative(),
   toolsAvailable: z.number().int().nonnegative().nullable(),
   toolSchemas: z.record(z.string(), z.string()),
+  toolStats: z.record(z.string(), z.object({ calls: z.number(), failed: z.number() }).strict()),
   model: z.string().nullable(),
   provider: z.string().nullable(),
   lastEvent: liveEventSummarySchema.nullable(),
@@ -217,6 +219,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     failuresTotal: state.failuresTotal,
     toolsAvailable: state.toolsAvailable,
     toolSchemas: state.toolSchemas,
+    toolStats: state.toolStats,
     model: state.model,
     provider: state.provider,
     lastEvent: state.lastEvent,
@@ -247,7 +250,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
  */
 export const liveTaskProjectionDefinition = {
   key: LIVE_TASK_PROJECTION_KEY,
-  stateVersion: 5,
+  stateVersion: 6,
   stateSchema: liveTaskStateSchema,
   // The initial state is built from constants alone, so both arguments the
   // registry passes — the session header and the fork-inherited prefix length —

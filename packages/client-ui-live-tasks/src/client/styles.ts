@@ -170,6 +170,19 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 排序展示：工具名 + 来源标签 + 调用/成功/失败（Owner 画的样例行）。 */
+.lt-toolStatRow, .lt-toolStatRowOurs { display: inline-flex; align-items: baseline; gap: 8px;
+  padding: 3px 10px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 6px; background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  font-size: 12px; line-height: 18px; }
+.lt-toolStatRowOurs { border-color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-toolStatName { font-family: var(--dsw-font-mono, monospace); font-size: 12px;
+  font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-toolStatRowOurs .lt-toolStatName { color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-toolStatTag { color: var(--dsw-alias-label-caption); }
+.lt-toolStatCount { color: var(--dsw-alias-label-secondary); }
+.lt-toolStatCountFail { color: var(--dsw-alias-state-error-primary, #b42318); font-weight: 600; }
+
 /* 插件运行状况：参照上下文页的简单表示——统计卡、用量构成条、工具胶囊、诊断组。 */
 .lt-statGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 4px; }
 .lt-statCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
@@ -580,6 +593,12 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    toolStatRowOurs: 'lt-toolStatRowOurs',
+    toolStatCountFail: 'lt-toolStatCountFail',
+    toolStatCount: 'lt-toolStatCount',
+    toolStatTag: 'lt-toolStatTag',
+    toolStatName: 'lt-toolStatName',
+    toolStatRow: 'lt-toolStatRow',
     statusNote: 'lt-statusNote',
     toolChipOurs: 'lt-toolChipOurs',
     toolChip: 'lt-toolChip',

@@ -153,6 +153,26 @@ function assistantTokens(usage) {
 	const total = usage["totalTokens"];
 	return typeof total === "number" && Number.isFinite(total) ? total : null;
 }
+/**
+* Increment one tool's call/failure counters.
+* @param stats - the current per-tool map.
+* @param name - tool name the counter belongs to.
+* @param delta - which counters move (missing keys stay).
+* @returns a new map with the counter bumped.
+*/
+function bumpToolStat(stats, name, delta) {
+	const current = stats[name] ?? {
+		calls: 0,
+		failed: 0
+	};
+	return {
+		...stats,
+		[name]: {
+			calls: current.calls + (delta.calls ?? 0),
+			failed: current.failed + (delta.failed ?? 0)
+		}
+	};
+}
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
 	const value = usage[key];
@@ -276,6 +296,7 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
 	toolSchemas: Object.freeze({}),
+	toolStats: Object.freeze({}),
 	model: null,
 	provider: null,
 	headerSchemas: Object.freeze({}),
@@ -753,6 +774,7 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 				openTools: [...state.openTools, call],
 				toolCallsInTurn: state.toolCallsInTurn + 1,
 				toolCallsTotal: state.toolCallsTotal + 1,
+				toolStats: bumpToolStat(state.toolStats, name, { calls: 1 }),
 				turns: addCallToTurn(state.turns, call.turn, time, name, windows),
 				...foldTimeline(state, {
 					id: callId,
@@ -790,6 +812,7 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					...resultFailed ? { failed: true } : {}
 				} : state.lastTool,
 				failuresTotal: resultFailed ? state.failuresTotal + 1 : state.failuresTotal,
+				toolStats: settled !== void 0 && resultFailed ? bumpToolStat(state.toolStats, settled.name, { failed: 1 }) : state.toolStats,
 				turns: settleTurn(state.turns, settled?.turn ?? null, time, resultFailed),
 				timeline: callId === void 0 ? state.timeline : settleTimeline(state.timeline, callId, {
 					endedAt: time,
@@ -1119,6 +1142,19 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* 排序展示：工具名 + 来源标签 + 调用/成功/失败（Owner 画的样例行）。 */
+.lt-toolStatRow, .lt-toolStatRowOurs { display: inline-flex; align-items: baseline; gap: 8px;
+  padding: 3px 10px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 6px; background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  font-size: 12px; line-height: 18px; }
+.lt-toolStatRowOurs { border-color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-toolStatName { font-family: var(--dsw-font-mono, monospace); font-size: 12px;
+  font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-toolStatRowOurs .lt-toolStatName { color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-toolStatTag { color: var(--dsw-alias-label-caption); }
+.lt-toolStatCount { color: var(--dsw-alias-label-secondary); }
+.lt-toolStatCountFail { color: var(--dsw-alias-state-error-primary, #b42318); font-weight: 600; }
 
 /* 插件运行状况：参照上下文页的简单表示——统计卡、用量构成条、工具胶囊、诊断组。 */
 .lt-statGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 4px; }
@@ -1529,6 +1565,12 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	toolStatRowOurs: "lt-toolStatRowOurs",
+	toolStatCountFail: "lt-toolStatCountFail",
+	toolStatCount: "lt-toolStatCount",
+	toolStatTag: "lt-toolStatTag",
+	toolStatName: "lt-toolStatName",
+	toolStatRow: "lt-toolStatRow",
 	statusNote: "lt-statusNote",
 	toolChipOurs: "lt-toolChipOurs",
 	toolChip: "lt-toolChip",
@@ -2650,7 +2692,8 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 		spans: projected.spans ?? [],
 		toolSchemas: projected.toolSchemas ?? {},
 		model: projected.model ?? null,
-		provider: projected.provider ?? null
+		provider: projected.provider ?? null,
+		toolStats: projected.toolStats ?? {}
 	};
 	/**
 	* Display state: the archive (whole session, browser-side) when it has rows,
@@ -2671,6 +2714,7 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 		toolCallsTotal: hostState.toolCallsTotal,
 		toolsAvailable: archiveState.toolsAvailable ?? hostState.toolsAvailable,
 		usage: hostState.usage.reported > 0 ? hostState.usage : archiveState.usage,
+		toolStats: hostState.toolStats ?? archiveState.toolStats,
 		health: hostState.health.folded >= archiveState.health.folded ? hostState.health : archiveState.health
 	};
 	const state = withCounters !== null && withCounters.timeline.length > 0 && withCounters.timeline.length >= (hostState?.timeline.length ?? 0) ? {
@@ -2690,14 +2734,17 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 		...(state?.actions ?? []).map((action) => action.name)
 	])];
 	const distinctTools = usedToolNames.length;
-	const [ourToolNames, setOurToolNames] = (0, react.useState)(null);
+	const [toolMeta, setToolMeta] = (0, react.useState)(/* @__PURE__ */ new Map());
 	(0, react.useEffect)(() => {
 		if (listToolBundles === void 0) return;
 		let alive = true;
 		listToolBundles().then((rows) => {
 			if (!alive) return;
-			const ours = new Set(rows.filter((row) => row.pkg.startsWith("soia-")).map((row) => row.tool));
-			setOurToolNames(ours);
+			setToolMeta(new Map(rows.map((row) => [row.tool, {
+				pkg: row.pkg,
+				desc: row.desc,
+				entryId: row.entryId
+			}])));
 		}).catch(() => void 0);
 		return () => {
 			alive = false;
@@ -2710,7 +2757,8 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 		liveStream,
 		usedToolNames,
 		distinctTools,
-		ourToolNames
+		ourToolNames: (0, react.useMemo)(() => new Set([...toolMeta].filter(([, meta]) => meta.pkg.startsWith("soia-")).map(([name]) => name)), [toolMeta]),
+		toolMeta
 	};
 }
 /**
@@ -2722,7 +2770,7 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 * @returns the telemetry panel, or the shared empty state.
 */
 function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }) {
-	const { state, usedToolNames, distinctTools, ourToolNames } = useLiveTaskDisplay({
+	const { state, usedToolNames, distinctTools, ourToolNames, toolMeta } = useLiveTaskDisplay({
 		useProjection,
 		useSession,
 		eventSource,
@@ -2732,6 +2780,31 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.empty,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "idle" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("view.empty") })]
+	});
+	const OUR_TOOL_TAGS = {
+		check_file_hash: "校验文件插件",
+		check_quality_gates: "门禁检查插件",
+		check_skills: "技能审计插件",
+		check_ui_size: "尺寸核对插件"
+	};
+	const tagOf = (name) => {
+		const known = OUR_TOOL_TAGS[name];
+		if (known !== void 0) return `soia ${known}`;
+		const meta = toolMeta.get(name);
+		if (meta === void 0) return "";
+		if (meta.pkg.startsWith("soia-")) {
+			const phrase = (meta.desc.replace(/^DSH host tool that /, "").split(/[,，。:：;；]/)[0] ?? "").trim();
+			return `soia ${phrase.slice(0, 14)}${phrase.length > 14 ? "…" : ""}`;
+		}
+		return "基础插件";
+	};
+	const statEntries = Object.entries(state.toolStats);
+	const sortedStats = statEntries.sort(([leftName, leftStat], [rightName, rightStat]) => {
+		const leftOurs = ourToolNames.has(leftName) ? 1 : 0;
+		const rightOurs = ourToolNames.has(rightName) ? 1 : 0;
+		if (leftOurs !== rightOurs) return rightOurs - leftOurs;
+		if (leftStat.calls !== rightStat.calls) return rightStat.calls - leftStat.calls;
+		return leftName.localeCompare(rightName);
 	});
 	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
 	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
@@ -2858,7 +2931,27 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 					className: styles.toolRoster,
 					title: rosterFull,
-					children: [...usedToolNames].sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0)).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					children: statEntries.length > 0 ? sortedStats.map(([name, stat]) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: oursSet.has(name) ? styles.toolStatRowOurs : styles.toolStatRow,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.toolStatName,
+								children: name
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.toolStatTag,
+								children: tagOf(name)
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: stat.failed > 0 ? styles.toolStatCountFail : styles.toolStatCount,
+								children: t("toolStat.counts", {
+									calls: stat.calls,
+									ok: stat.calls - stat.failed,
+									failed: stat.failed
+								})
+							})
+						]
+					}, name)) : [...usedToolNames].sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0)).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: oursSet.has(name) ? styles.toolChipOurs : styles.toolChip,
 						children: name
 					}, name))
@@ -3157,6 +3250,7 @@ const zh = {
 	"sec.usage": "Token 用量",
 	"sec.tools": "触发过的工具",
 	"sec.diagnostics": "诊断",
+	"toolStat.counts": "调用{calls}次 成功{ok}次 失败{failed}次",
 	"leg.cache": "缓存",
 	"leg.input": "输入",
 	"leg.reason": "思考",
@@ -3318,6 +3412,7 @@ const en = {
 	"sec.usage": "Token usage",
 	"sec.tools": "Tools called",
 	"sec.diagnostics": "Diagnostics",
+	"toolStat.counts": "{calls} calls · {ok} ok · {failed} failed",
 	"leg.cache": "Cache",
 	"leg.input": "Input",
 	"leg.reason": "Reasoning",
@@ -3526,7 +3621,8 @@ function apply(ctx) {
 					if (derived !== null) rows.push({
 						tool: derived,
 						pkg: bundle.name,
-						entryId: row.entryId ?? row.rowId
+						entryId: row.entryId ?? row.rowId,
+						desc: bundle.description ?? ""
 					});
 				}
 				return rows;

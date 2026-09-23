@@ -28,6 +28,7 @@ export declare const zh: {
     readonly 'sec.usage': 'Token 用量';
     readonly 'sec.tools': '触发过的工具';
     readonly 'sec.diagnostics': '诊断';
+    readonly 'toolStat.counts': '调用{calls}次 成功{ok}次 失败{failed}次';
     readonly 'leg.cache': '缓存';
     readonly 'leg.input': '输入';
     readonly 'leg.reason': '思考';
