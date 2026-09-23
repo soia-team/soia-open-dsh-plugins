@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-tool-check-skills",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH host tool that audits a session log for whether the expected skills were actually loaded, and classifies the failure when they were not.",
   "license": "MIT",

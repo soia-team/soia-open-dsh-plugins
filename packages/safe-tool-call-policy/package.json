@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-safe-tool-call-policy",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH host policy plugin that matches bash, write, and edit calls against a shipped danger-pattern list before they execute, asking for confirmation or denying with a one-line compliant alternative. Registers no tool and no prompt section.",
   "license": "MIT",

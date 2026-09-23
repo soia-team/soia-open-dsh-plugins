@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-tool-check-file-hash",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH host tool that hashes files or directories with sha256 and optionally writes a JSON evidence record, so a receipt's claimed artifact can be checked against the actual bytes.",
   "license": "MIT",
