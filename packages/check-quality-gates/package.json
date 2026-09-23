@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-tool-check-quality-gates",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH host tool that maps a task's changed files to the quality gates the caller's config requires, with the raw evidence each gate must return. Reports only; enforcement is none.",
   "license": "MIT",

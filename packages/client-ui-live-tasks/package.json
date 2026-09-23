@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-client-ui-live-tasks",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH Web panel showing one session's current task state — last tool call, last event, and whether the agent is still running — folded on the host and mirrored without a client RPC.",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "soia-dsh-tool-check-ui-size",
-  "version": "0.1.0",
+  "version": "0.1.1-snapshot.0",
   "private": false,
   "description": "DSH host tool that checks one UI element's actual geometry. SKELETON PLACEHOLDER: the tool is registered but no measurement backend is wired up yet.",
   "license": "MIT",
