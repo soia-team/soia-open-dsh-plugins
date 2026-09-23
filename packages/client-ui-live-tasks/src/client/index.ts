@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 import type { LiveTaskKey } from './locales.ts'
 import { LiveTasksHeaderAction } from './LiveTasksHeaderAction.tsx'
-import { LiveStatusView, LiveTasksView } from './LiveTasksView.tsx'
+import { LiveTasksView } from './LiveTasksView.tsx'
 import { en, NS, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -189,16 +189,6 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: sessionExtras,
   }, LiveTasksView))
-  // The 运行状况 tab: everything the activity view's bottom block used to
-  // report, seated right after 活动 so the timeline stays a timeline.
-  ctx.slots.inject('conversation.view', () => ctx.slots.register({
-    name: 'conversation.view',
-    id: 'live-status',
-    order: 30,
-    label: () => t('view.status'),
-    locale: NS,
-    inject: sessionExtras,
-  }, LiveStatusView))
   // A second, smaller surface: the running tool in the session header, readable
   // from the conversation view as well. The full panel is one tab away; the name
   // of the tool should not require going there.

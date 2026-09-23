@@ -1334,6 +1334,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   const [actualDuration, setActualDuration] = useState(true)
   const [failedOnly, setFailedOnly] = useState(false)
   const [query, setQuery] = useState('')
+  // 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。
+  const [subTab, setSubTab] = useState<'activity' | 'status'>('activity')
   const [turnsOpen, setTurnsOpen] = useState(true)
   const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
@@ -1386,6 +1388,36 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
 
   return (
     <div className={styles.view}>
+      <div className={styles.subTabs} role="tablist" aria-label={t('view.subTabs')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subTab === 'activity'}
+          className={styles.subTab}
+          onClick={() => setSubTab('activity')}
+        >
+          {t('view.subTabActivity')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subTab === 'status'}
+          className={styles.subTab}
+          onClick={() => setSubTab('status')}
+        >
+          {t('view.subTabStatus')}
+        </button>
+      </div>
+      {subTab === 'status' ? (
+        <LiveStatusView
+          useProjection={useProjection}
+          t={t}
+          useSession={useSession}
+          eventSource={eventSource}
+          listToolBundles={listToolBundles}
+        />
+      ) : (
+        <>
       <div className={styles.panes}>
         <div className={styles.paneMain}>
       <header className={styles.head}>
@@ -1554,6 +1586,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
           />
         )}
       </div>
+        </>
+      )}
     </div>
   )
 }
