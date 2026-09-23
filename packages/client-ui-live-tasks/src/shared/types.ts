@@ -339,7 +339,9 @@ export interface LiveTaskView {
   readonly turnsTotal: number
   /** Token usage for the whole session, folded from assistant messages. */
   readonly usage: LiveTaskUsage
-  /** Schemas of the tools rows actually called — name → trimmed definition. */
+
+  /** Per-tool call/failure counters, keyed by tool name. */
+  readonly toolStats: Readonly<Record<string, { readonly calls: number, readonly failed: number }>>  /** Schemas of the tools rows actually called — name → trimmed definition. */
   readonly toolSchemas: Readonly<Record<string, string>>
   /** Model id of the most recent request this session made. */
   readonly model: string | null
@@ -382,6 +384,8 @@ export interface LiveTaskState extends LiveTaskView {
    * `toolSchemas` and put on the wire.
    */
   readonly headerSchemas: Readonly<Record<string, string>>
+  /** Per-tool call/failure counters accumulated by the fold. */
+  readonly toolStats: Readonly<Record<string, { readonly calls: number, readonly failed: number }>>
   /** Characters of assistant text streamed for the open step. */
   readonly streamedTextLength: number
   /** Time of the last folded text delta for the open step; null before one. */

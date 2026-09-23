@@ -46,7 +46,7 @@ const reactDom = readFileSync(join(root, 'node_modules/react-dom/umd/react-dom.p
 // not send: the browser half and the host half are versioned separately, and a
 // refresh can pair a new client with the host that is still running. That pairing
 // blanked the panel once; this mode keeps it from happening again unnoticed.
-const staleFields = ['usage', 'turnsTotal', 'spans']
+const staleFields = ['usage', 'turnsTotal', 'spans', 'toolStats']
 
 const fixture = {
   turnsTotal: 64,
@@ -119,7 +119,7 @@ const DICTIONARY = {
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
   'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'card.turns': '轮次', 'card.calls': '调用', 'card.failures': '失败', 'card.tools': '可用工具',
- 'card.used': '用到种数', 'sec.usage': 'Token 用量', 'sec.tools': '触发过的工具', 'sec.diagnostics': '诊断',
+ 'card.used': '用到种数', 'sec.usage': 'Token 用量', 'sec.tools': '触发过的工具', 'sec.diagnostics': '诊断', 'toolStat.counts': '调用{calls}次 成功{ok}次 失败{failed}次',
  'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
@@ -158,6 +158,15 @@ const DICTIONARY = {
 // Schemas the header would carry — `bash` is stored TRUNCATED the way the fold
 // trims long definitions, so the preview proves the description is read even
 // when the JSON will not parse (the live bug this fixed).
+// 逐工具统计（排序展示的数据）：咱们的工具、官方工具、含失败样本。
+fixture.toolStats = {
+  bash: { calls: 120, failed: 0 },
+  read: { calls: 80, failed: 2 },
+  write: { calls: 40, failed: 0 },
+  check_file_hash: { calls: 100, failed: 0 },
+  check_quality_gates: { calls: 30, failed: 0 },
+  check_ui_size: { calls: 60, failed: 1 },
+}
 fixture.toolSchemas = {
   bash: JSON.stringify({
     name: 'bash',
@@ -261,7 +270,18 @@ const useProjection = () => fixture
 // The shell hands real sessions a remote bundle lookup; the fixture maps its
 // one soia tool so the roster's default filter (our packages only) is exercised.
 const listToolBundles = async () => [
-  { tool: 'check_ui_size', pkg: 'soia-dsh-tool-check-ui-size', entryId: 'tool-check-ui-size' },
+  { tool: 'check_file_hash', pkg: 'soia-dsh-tool-check-file-hash', entryId: 'tool-check-file-hash',
+    desc: 'DSH host tool that hashes files or directories with sha256.' },
+  { tool: 'check_quality_gates', pkg: 'soia-dsh-tool-check-quality-gates', entryId: 'tool-check-quality-gates',
+    desc: "DSH host tool that maps a task's changed files to its gates." },
+  { tool: 'check_skills', pkg: 'soia-dsh-tool-check-skills', entryId: 'tool-check-skills',
+    desc: 'DSH host tool that audits a session log for skill coverage.' },
+  { tool: 'check_ui_size', pkg: 'soia-dsh-tool-check-ui-size', entryId: 'tool-check-ui-size',
+    desc: "DSH host tool that checks one UI element's actual geometry." },
+  { tool: 'bash', pkg: '@deepseek-ai/dsh-tool-bash', entryId: 'tool-bash',
+    desc: 'Execute a bash command and return its stdout and stderr.' },
+  { tool: 'read', pkg: '@deepseek-ai/dsh-base', entryId: 'tool-read', desc: 'Read a UTF-8 file.' },
+  { tool: 'write', pkg: '@deepseek-ai/dsh-base', entryId: 'tool-write', desc: 'Write a UTF-8 file.' },
 ]
 const sharedProps = { useProjection, t, useSession: sessionStub, listToolBundles }
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -370,6 +390,14 @@ const healthFacts = await view.evaluate(() => {
     staleVisible: /数据更新/.test(text),
     cards: globalThis.document.querySelectorAll('[class*="lt-statCard"]').length,
     usageBar: globalThis.document.querySelector('[class*="lt-usageBar"]') !== null,
+    // 排序展示：首行是咱们的工具、含 soia 标签与调用计数，官方行带'基础插件'标签。
+    statFirst: (() => {
+      const first = globalThis.document.querySelector('[class*="lt-toolStatRow"]')
+      const text = first?.textContent ?? ''
+      return { text, ours: (first?.className ?? '').includes('Ours') && text.startsWith('check') }
+    })(),
+    statTags: [...globalThis.document.querySelectorAll('[class*="lt-toolStatRow"], [class*="lt-toolStatRowOurs"]')]
+      .map((node) => node.textContent ?? ''),
   }
 })
 await view.getByRole('tab', { name: '插件活动', exact: true }).click()
@@ -385,11 +413,16 @@ const facts = {
   caller: overviewFacts.caller,
   callee: overviewFacts.callee,
   // 名单默认只显示咱们的插件：fixture 用过 read/grep/bash + 一个 soia 工具。
-  ours: healthFacts.roster && healthFacts.cards >= 5 && healthFacts.usageBar,
+  ours: (healthFacts.statFirst.ours || healthFacts.roster) && healthFacts.cards >= 5 && healthFacts.usageBar,
   textHead: healthFacts.textHead,
   chipCount: healthFacts.chipCount,
   cards: healthFacts.cards,
   internalsVisible: healthFacts.internalsVisible,
+  statRows: healthFacts.statFirst.ours
+    && healthFacts.statFirst.text.includes('调用')
+    && healthFacts.statTags.some((text) => text.includes('soia 校验文件插件'))
+    && healthFacts.statTags.some((text) => text.includes('基础插件'))
+    && healthFacts.statTags.some((text) => text.includes('失败0次') || text.includes('失败1次')),
   staleVisible: healthFacts.staleVisible,
 }
 
@@ -452,7 +485,8 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 // pretty-printed and colour-tokenised — the three things the operator called out.
 if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0
   && visuals.facts?.caller && visuals.facts?.callee
-  && visuals.facts?.ours && visuals.facts?.internalsVisible && visuals.facts?.staleVisible)) {
+  && visuals.facts?.ours && visuals.facts?.internalsVisible && visuals.facts?.staleVisible
+  && visuals.facts?.statRows)) {
   console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)} pageErrors=${JSON.stringify(errors.slice(0, 3))} health=${JSON.stringify(visuals.facts?.textHead ?? null)} chips=${visuals.facts?.chipCount}`)
   process.exit(1)
 }

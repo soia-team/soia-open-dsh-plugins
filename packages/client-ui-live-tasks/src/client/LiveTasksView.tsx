@@ -63,7 +63,7 @@ export interface LiveTasksViewProps {
   /** Look up the bundle a tool comes from (remote plugin manager); optional. */
   loadPluginInfo?: (toolName: string) => Promise<PluginInfoCard | null>
   /** Tool → package rows for the roster's default filter; optional. */
-  listToolBundles?: () => Promise<{ tool: string, pkg: string, entryId: string }[]>
+  listToolBundles?: () => Promise<{ tool: string, pkg: string, entryId: string, desc: string }[]>
 }
 
 /** The window snapshot shape the view consumes — declared structurally so the
@@ -1165,6 +1165,8 @@ function useLiveTaskDisplay({
         toolSchemas: projected.toolSchemas ?? {},
         model: projected.model ?? null,
         provider: projected.provider ?? null,
+        // 旧宿主没有逐工具计数；缺了就空表（行内其余照常）。
+        toolStats: projected.toolStats ?? {},
       }
   /**
    * Display state: the archive (whole session, browser-side) when it has rows,
@@ -1198,6 +1200,8 @@ function useLiveTaskDisplay({
           toolCallsTotal: hostState.toolCallsTotal,
           toolsAvailable: archiveState.toolsAvailable ?? hostState.toolsAvailable,
           usage: hostState.usage.reported > 0 ? hostState.usage : archiveState.usage,
+          // 逐工具计数以宿主全量为准（它重放整场日志），档案只作无宿主时的兜底。
+          toolStats: hostState.toolStats ?? archiveState.toolStats,
           health: hostState.health.folded >= archiveState.health.folded ? hostState.health : archiveState.health,
         }
   const state = withCounters !== null
@@ -1223,19 +1227,22 @@ function useLiveTaskDisplay({
     ...(state?.actions ?? []).map((action) => action.name),
   ])]
   const distinctTools = usedToolNames.length
-  // 咱们自己的工具名单（包名 soia- 开头的 bundle 注册的工具）；拿不到就退回全量。
-  const [ourToolNames, setOurToolNames] = useState<ReadonlySet<string> | null>(null)
+  // 工具 → 所属包与描述（标签与"咱们的"判定都靠它）；拿不到就退回无标签。
+  const [toolMeta, setToolMeta] = useState<ReadonlyMap<string, { pkg: string, desc: string, entryId: string }>>(new Map())
   useEffect(() => {
     if (listToolBundles === undefined) return
     let alive = true
     void listToolBundles().then((rows) => {
       if (!alive) return
-      const ours = new Set(rows.filter((row) => row.pkg.startsWith('soia-')).map((row) => row.tool))
-      setOurToolNames(ours)
+      setToolMeta(new Map(rows.map((row) => [row.tool, { pkg: row.pkg, desc: row.desc, entryId: row.entryId }])))
     }).catch(() => undefined)
     return () => { alive = false }
   }, [listToolBundles])
-  return { state, hasOlder, loadingOlder, liveStream, usedToolNames, distinctTools, ourToolNames }
+  const ourToolNames = useMemo(
+    () => new Set([...toolMeta].filter(([, meta]) => meta.pkg.startsWith('soia-')).map(([name]) => name)),
+    [toolMeta],
+  )
+  return { state, hasOlder, loadingOlder, liveStream, usedToolNames, distinctTools, ourToolNames, toolMeta }
 }
 
 /**
@@ -1247,7 +1254,7 @@ function useLiveTaskDisplay({
  * @returns the telemetry panel, or the shared empty state.
  */
 export function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }: LiveTasksViewProps): JSX.Element {
-  const { state, usedToolNames, distinctTools, ourToolNames } = useLiveTaskDisplay(
+  const { state, usedToolNames, distinctTools, ourToolNames, toolMeta } = useLiveTaskDisplay(
     { useProjection, useSession, eventSource, listToolBundles },
   )
   const now = useNow()
@@ -1259,6 +1266,35 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
       </div>
     )
   }
+  // 本工作区自己的工具给短标签（Owner 画的样例：check_file_hash → soia 校验文件插件）；
+  // 没登记的工具回落到包描述短语，不写死别的工具名。
+  const OUR_TOOL_TAGS: Readonly<Record<string, string>> = {
+    check_file_hash: '校验文件插件',
+    check_quality_gates: '门禁检查插件',
+    check_skills: '技能审计插件',
+    check_ui_size: '尺寸核对插件',
+  }
+  const tagOf = (name: string): string => {
+    const known = OUR_TOOL_TAGS[name]
+    if (known !== undefined) return `soia ${known}`
+    const meta = toolMeta.get(name)
+    if (meta === undefined) return ''
+    if (meta.pkg.startsWith('soia-')) {
+      const phrase = (meta.desc.replace(/^DSH host tool that /, '').split(/[,，。:：;；]/)[0] ?? '').trim()
+      return `soia ${phrase.slice(0, 14)}${phrase.length > 14 ? '…' : ''}`
+    }
+    return '基础插件'
+  }
+  const statEntries = Object.entries(state.toolStats)
+  const sortedStats = statEntries
+    .sort(([leftName, leftStat], [rightName, rightStat]) => {
+      // 咱们的排前（与名单页一致），其余按调用次数降序。
+      const leftOurs = ourToolNames.has(leftName) ? 1 : 0
+      const rightOurs = ourToolNames.has(rightName) ? 1 : 0
+      if (leftOurs !== rightOurs) return rightOurs - leftOurs
+      if (leftStat.calls !== rightStat.calls) return rightStat.calls - leftStat.calls
+      return leftName.localeCompare(rightName)
+    })
   const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const oursSet = ourToolNames ?? new Set<string>()
@@ -1328,16 +1364,35 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
         {/* 触发过的工具：咱们的（soia- 包）排最前并高亮；完整名单在 title。 */}
         <div className={styles.subTitle}>{t('sec.tools')}</div>
         <div className={styles.toolRoster} title={rosterFull}>
-          {[...usedToolNames]
-            .sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0))
-            .map((name) => (
+          {statEntries.length > 0
+            // 排序展示：`check_file_hash soia 校验文件插件 调用100次 成功100次 失败0次`
+            ? sortedStats.map(([name, stat]) => (
               <span
                 key={name}
-                className={oursSet.has(name) ? styles.toolChipOurs : styles.toolChip}
+                className={oursSet.has(name) ? styles.toolStatRowOurs : styles.toolStatRow}
               >
-                {name}
+                <b className={styles.toolStatName}>{name}</b>
+                <span className={styles.toolStatTag}>{tagOf(name)}</span>
+                <span className={stat.failed > 0 ? styles.toolStatCountFail : styles.toolStatCount}>
+                  {t('toolStat.counts', {
+                    calls: stat.calls,
+                    ok: stat.calls - stat.failed,
+                    failed: stat.failed,
+                  })}
+                </span>
               </span>
-            ))}
+            ))
+            // 旧宿主没有逐工具计数：退回名字胶囊，至少名单还看得到。
+            : [...usedToolNames]
+              .sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0))
+              .map((name) => (
+                <span
+                  key={name}
+                  className={oursSet.has(name) ? styles.toolChipOurs : styles.toolChip}
+                >
+                  {name}
+                </span>
+              ))}
         </div>
         {/* 诊断 + 数据新旧：内部计数全量常驻（本页签就是看它们的地方）。 */}
         <div className={styles.subTitle}>{t('sec.diagnostics')}</div>

@@ -28,6 +28,7 @@ export interface LiveTasksViewProps {
         tool: string;
         pkg: string;
         entryId: string;
+        desc: string;
     }[]>;
 }
 /** The window snapshot shape the view consumes — declared structurally so the

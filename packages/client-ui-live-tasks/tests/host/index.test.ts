@@ -397,6 +397,7 @@ describe('liveTask projection unit', () => {
       'toolCallsInTurn',
       'toolCallsTotal',
       'toolSchemas',
+      'toolStats',
       'toolsAvailable',
       'turn',
       'turns',

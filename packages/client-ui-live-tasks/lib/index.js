@@ -5550,6 +5550,26 @@ function assistantTokens(usage) {
 	const total = usage["totalTokens"];
 	return typeof total === "number" && Number.isFinite(total) ? total : null;
 }
+/**
+* Increment one tool's call/failure counters.
+* @param stats - the current per-tool map.
+* @param name - tool name the counter belongs to.
+* @param delta - which counters move (missing keys stay).
+* @returns a new map with the counter bumped.
+*/
+function bumpToolStat(stats, name, delta) {
+	const current = stats[name] ?? {
+		calls: 0,
+		failed: 0
+	};
+	return {
+		...stats,
+		[name]: {
+			calls: current.calls + (delta.calls ?? 0),
+			failed: current.failed + (delta.failed ?? 0)
+		}
+	};
+}
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
 	const value = usage[key];
@@ -5673,6 +5693,7 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
 	toolSchemas: Object.freeze({}),
+	toolStats: Object.freeze({}),
 	model: null,
 	provider: null,
 	headerSchemas: Object.freeze({}),
@@ -6135,6 +6156,7 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 				openTools: [...state.openTools, call],
 				toolCallsInTurn: state.toolCallsInTurn + 1,
 				toolCallsTotal: state.toolCallsTotal + 1,
+				toolStats: bumpToolStat(state.toolStats, name, { calls: 1 }),
 				turns: addCallToTurn(state.turns, call.turn, time, name, windows),
 				...foldTimeline(state, {
 					id: callId,
@@ -6172,6 +6194,7 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					...resultFailed ? { failed: true } : {}
 				} : state.lastTool,
 				failuresTotal: resultFailed ? state.failuresTotal + 1 : state.failuresTotal,
+				toolStats: settled !== void 0 && resultFailed ? bumpToolStat(state.toolStats, settled.name, { failed: 1 }) : state.toolStats,
 				turns: settleTurn(state.turns, settled?.turn ?? null, time, resultFailed),
 				timeline: callId === void 0 ? state.timeline : settleTimeline(state.timeline, callId, {
 					endedAt: time,
@@ -6466,6 +6489,10 @@ const liveTaskStateSchema = object({
 	endedReason: string().nullable(),
 	streamedTextLength: number().int().nonnegative(),
 	toolSchemas: record(string(), string()),
+	toolStats: record(string(), object({
+		calls: number(),
+		failed: number()
+	}).strict()),
 	headerSchemas: record(string(), string()),
 	model: string().nullable(),
 	provider: string().nullable(),
@@ -6491,6 +6518,10 @@ const liveTaskViewSchema = object({
 	failuresTotal: number().int().nonnegative(),
 	toolsAvailable: number().int().nonnegative().nullable(),
 	toolSchemas: record(string(), string()),
+	toolStats: record(string(), object({
+		calls: number(),
+		failed: number()
+	}).strict()),
 	model: string().nullable(),
 	provider: string().nullable(),
 	lastEvent: liveEventSummarySchema.nullable(),
@@ -6536,6 +6567,7 @@ function viewOf(state) {
 		failuresTotal: state.failuresTotal,
 		toolsAvailable: state.toolsAvailable,
 		toolSchemas: state.toolSchemas,
+		toolStats: state.toolStats,
 		model: state.model,
 		provider: state.provider,
 		lastEvent: state.lastEvent,
@@ -6565,7 +6597,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 5,
+	stateVersion: 6,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {
