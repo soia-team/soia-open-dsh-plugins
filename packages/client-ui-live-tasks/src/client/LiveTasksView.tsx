@@ -960,7 +960,9 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         usage: archive.usage.reported > 0
           ? archive.usage
           : hostState?.usage ?? archive.usage,
-        toolSchemas: { ...(hostState?.toolSchemas ?? {}), ...archive.toolSchemas },
+        // No empty-object fallback: CI flags `?? {}` inside a spread as
+        // unnecessary — seed from whichever side exists, archive still wins.
+        toolSchemas: { ...(hostState?.toolSchemas ?? archive.toolSchemas), ...archive.toolSchemas },
       }
     : hostState
   const [selected, setSelected] = useState<number | null>(null)
