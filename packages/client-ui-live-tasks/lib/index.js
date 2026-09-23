@@ -5699,6 +5699,17 @@ function entryIdOfTool(toolName) {
 const SPAN_LIMIT = 1600;
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600;
+/**
+* Payload ceilings for the drawer's tabs.
+*
+* One 600-character cap served the row's inline summary but also the drawer, so
+* the 参数 and 结果 tabs showed cut-off JSON — the operator's complaint. The row
+* keeps the small cap; the drawer gets real payloads, bounded so a session of
+* huge results cannot multiply the projection by megabytes: arguments fit any
+* command worth reading (4KB), results up to 8KB with an ellipsis beyond.
+*/
+const EXPAND_ARGS_LIMIT = 4096;
+const EXPAND_RESULT_LIMIT = 8192;
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80;
 /** Longest result line carried to the client. */
@@ -5885,7 +5896,7 @@ function summarizeToolResult(data) {
 * @param value - raw text or JSON string.
 * @returns the expandable form, or null when there is nothing to show.
 */
-function expandable(value) {
+function expandable(value, limit = DETAIL_PAYLOAD_LIMIT) {
 	if (value === null || value.trim() === "") return null;
 	const text = value.trim().startsWith("{") || value.trim().startsWith("[") ? (() => {
 		try {
@@ -5894,7 +5905,7 @@ function expandable(value) {
 			return value;
 		}
 	})() : value;
-	return text.length <= DETAIL_PAYLOAD_LIMIT ? text : `${text.slice(0, DETAIL_PAYLOAD_LIMIT)}…`;
+	return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }
 /** Collapse whitespace and clip to the wire budget. */
 function clip(value) {
@@ -6109,7 +6120,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					entryId: entryIdOfTool(name),
 					detail: call.detail,
 					result: null,
-					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null),
+					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null, EXPAND_ARGS_LIMIT),
 					resultFull: null,
 					status: "running"
 				}),
@@ -6136,7 +6147,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				timeline: callId === void 0 ? state.timeline : settleTimeline(state.timeline, callId, {
 					endedAt: time,
 					result: summarizeToolResult(data),
-					resultFull: expandable(fullToolResult(data)),
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
 					status: resultFailed ? "failed" : "ok"
 				}),
 				actions: settled === void 0 ? state.actions : [...state.actions.filter((action) => action.callId !== settled.callId), actionOf(settled, time, data, resultFailed)].slice(-8),
@@ -6162,7 +6173,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					detail,
 					result: null,
 					argsFull: null,
-					resultFull: expandable(fullToolResult(data)),
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
 					status: "ok"
 				}),
 				...observed(state, event, null)
@@ -6203,7 +6214,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					detail: firstLineOfMessage(data),
 					result: null,
 					argsFull: null,
-					resultFull: expandable(fullToolResult(data)),
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
 					status: "ok"
 				}) : {
 					timeline: state.timeline,

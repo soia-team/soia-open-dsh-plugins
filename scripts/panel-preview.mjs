@@ -124,6 +124,8 @@ const DICTIONARY = {
   'bar.expandCalls': '展开所有调用', 'bar.collapseCalls': '收起所有调用',
   'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
+  'detail.hierarchy': '层级', 'level.user': '用户消息', 'level.assistant': '助手消息', 'level.tool': '工具调用',
+  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…',
   'detail.purpose': '说明', 'row.called': '调用: ',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
@@ -282,20 +284,32 @@ await view.waitForTimeout(900)
 await view.locator('[class*="lt-rowButton"]').nth(5).click()
 await view.waitForTimeout(250)
 // The overview tab is open by default — read the sizes that only exist there.
-const overviewFonts = await view.evaluate(() => {
+const overviewFacts = await view.evaluate(() => {
   const size = (selector) => {
     const node = globalThis.document.querySelector(selector)
     return node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null
   }
-  return { overviewValue: size('[class*="lt-detailGrid"] dd'), label: size('[class*="lt-detailLabel"]') }
+  const body = globalThis.document.querySelector('[class*="lt-detailBody"]')
+  return {
+    overviewValue: size('[class*="lt-detailGrid"] dd'),
+    label: size('[class*="lt-detailLabel"]'),
+    hierarchy: (body?.innerText ?? '').includes('层级'),
+    sections: globalThis.document.querySelectorAll('[class*="lt-sectionToggle"]').length,
+  }
 })
 // The payload lives on the 参数 tab; read its size there, then switch to 计时 so
 // the screenshot shows the millisecond format the reference highlights.
 await view.getByRole('tab', { name: '参数' }).click().catch(() => {})
 await view.waitForTimeout(150)
-const argsFonts = await view.evaluate(() => {
+const argsFacts = await view.evaluate(() => {
   const node = globalThis.document.querySelector('[class*="lt-detailPre"]')
-  return { pre: node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null }
+  const text = node?.textContent ?? ''
+  return {
+    pre: node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null,
+    // Formatted: indented JSON after the pretty-print, coloured: string spans.
+    pretty: /\n\s{2}"/.test(text),
+    colored: globalThis.document.querySelectorAll('[class*="lt-jStr"]').length,
+  }
 })
 await view.getByRole('tab', { name: '计时' }).click().catch(() => {})
 await view.waitForTimeout(150)
@@ -312,7 +326,8 @@ const restFonts = await view.evaluate(() => {
     second: size('[class*="lt-tlSecond"]'),
   }
 })
-const fonts = { ...overviewFonts, ...argsFonts, ...restFonts }
+const fonts = { ...overviewFacts, ...argsFacts, ...restFonts }
+const facts = { hierarchy: overviewFacts.hierarchy, sections: overviewFacts.sections, pretty: argsFacts.pretty, colored: argsFacts.colored }
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
 // A missing translation renders as its raw key, which is exactly how the first
@@ -338,6 +353,7 @@ const visuals = await view.evaluate(() => ({
   html: '',
 }))
 visuals.fonts = fonts
+visuals.facts = facts
 
 const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
   .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
@@ -368,6 +384,12 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 // Typography contract: one scale (11/12/12.5/13) — "some big, some small" was
 // unmeasured until now. Values come from the reference's own numbers: overview
 // block at xs-13, payloads at 12, rows at 12.5, meta no longer inheriting 14.
+// Drawer contract: 概述 stacks 层级 + four collapsed sections, payloads are
+// pretty-printed and colour-tokenised — the three things the operator called out.
+if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0)) {
+  console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)}`)
+  process.exit(1)
+}
 const FONT_CONTRACT = { row: 12.5, meta: 12, overviewValue: 13, pre: 12, tab: 13, drawerName: 13, second: 11 }
 const fontDrift = Object.entries(FONT_CONTRACT)
   .filter(([key, want]) => visuals.fonts?.[key] !== want)
@@ -380,7 +402,7 @@ if (visuals.secondLines < 5) {
   console.error(`panel-preview: expected ≥5 second lines, got ${visuals.secondLines}`)
   process.exit(1)
 }
-console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} toolTip=${visuals.spanToolTitle} colors=${JSON.stringify(visuals.spanColors)} fonts=${JSON.stringify(visuals.fonts)}`)
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} toolTip=${visuals.spanToolTitle} colors=${JSON.stringify(visuals.spanColors)} fonts=${JSON.stringify(visuals.fonts)} facts=${JSON.stringify(visuals.facts)}`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)

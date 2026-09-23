@@ -39,6 +39,12 @@ export declare const zh: {
     readonly 'timeline.toolCallsOnly': '（仅工具调用）';
     readonly 'detail.purpose': '说明';
     readonly 'row.called': '调用: ';
+    readonly 'detail.hierarchy': '层级';
+    readonly 'level.user': '用户消息';
+    readonly 'level.assistant': '助手消息';
+    readonly 'level.tool': '工具调用';
+    readonly 'detail.pending': '运行中，结果完成后显示';
+    readonly 'gen.running': '生成中…';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';

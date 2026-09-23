@@ -134,6 +134,66 @@ function spanTitleOf(
  * @param schema - JSON text of `{name, description, parameters}`, or null.
  * @returns the trimmed description, or null when there is none.
  */
+/**
+ * Pretty-print JSON text for the drawer.
+ *
+ * The fold stores payloads as they arrive — arguments arrive compact, results
+ * arrive as the tool printed them. The reference's tabs show indented JSON, so
+ * the drawer re-formats: parse when possible, pass through when not (a raw
+ * command string is not JSON and must not be mangled).
+ * @param text - payload text.
+ * @returns indented text, or the input unchanged.
+ */
+function pretty(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return text
+  }
+}
+
+/** One token of highlighted JSON: a key, a string, a number, or punctuation. */
+interface JsonPart { readonly kind: 'key' | 'str' | 'num' | 'punct' | 'plain', readonly text: string }
+
+/**
+ * Split JSON-shaped text into colourable parts for the drawer.
+ *
+ * The reference colours string values in its 参数 tab; a wall of monochrome JSON
+ * reads slower and looks unfinished. This is a single-pass tokenizer, not a
+ * renderer — the view maps parts to spans.
+ * @param text - payload text (already pretty-printed when it parsed).
+ * @returns the parts, in order; plain text yields one part.
+ */
+function highlightJson(text: string): JsonPart[] {
+  const pattern = /("(?:[^"\\]|\\.)*")(:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],:])/g
+  const parts: JsonPart[] = []
+  let last = 0
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0
+    if (index > last) parts.push({ kind: 'plain', text: text.slice(last, index) })
+    const [whole, quoted, colon, number, punct] = match
+    if (quoted !== undefined) parts.push({ kind: colon === ':' ? 'key' : 'str', text: whole })
+    else if (number !== undefined) parts.push({ kind: 'num', text: whole })
+    else if (punct !== undefined) parts.push({ kind: 'punct', text: whole })
+    last = index + whole.length
+  }
+  if (last < text.length) parts.push({ kind: 'plain', text: text.slice(last) })
+  return parts
+}
+
+/**
+ * Payload as highlighted parts: JSON gets coloured, anything else stays plain.
+ * @param text - payload text.
+ * @returns parts for rendering.
+ */
+function payloadParts(text: string): JsonPart[] {
+  const formatted = pretty(text)
+  const trimmed = formatted.trimStart()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return [{ kind: 'plain', text: formatted }]
+  return highlightJson(formatted)
+}
+
 function descriptionOf(schema: string | null): string | null {
   if (schema === null) return null
   // Read the description by pattern first: the fold trims long definitions
@@ -517,7 +577,7 @@ function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | nu
  * boundaries — and the rail that marks them — inside the table, the way the
  * trajectory view draws them.
  */
-function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, onToggle, t }: {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, generating, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
   /** True only when the reader picked this turn; the newest turn is not "picked". */
@@ -527,6 +587,8 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
   expandedId: string | null
   dimmed: boolean
   toolSchemas: Readonly<Record<string, string>>
+  /** The model is mid-generation for this turn's open step (client-derived). */
+  generating: boolean
   onToggle: (id: string) => void
   t: T
 }): JSX.Element {
@@ -549,6 +611,19 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
           {turn.failures > 0 && <span className={styles.tlTookFailed}>{t('turn.failed', { n: turn.failures })}</span>}
         </td>
       </tr>
+
+      {generating && (
+        <tr className={styles.generatingRow}>
+          <td className={styles.eventCell} aria-label={t('level.assistant')}>
+            <span className={styles.kindSlot}>
+              <span className={styles.kindTag} data-kind="assistant">{t('timeline.assistant')}</span>
+            </span>
+          </td>
+          <td className={styles.contentCell}>
+            <span className={styles.tlGen}>{t('gen.running')}</span>
+          </td>
+        </tr>
+      )}
       {!open
         ? null
         : entries.length === 0
@@ -612,6 +687,9 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
   t: T
 }): JSX.Element {
   const [tab, setTab] = useState<'overview' | 'args' | 'result' | 'schema' | 'timing'>('overview')
+  // The reference's 概览 tab stacks four collapsible sections under 层级/状态;
+  // closed by default, exactly as it opens.
+  const [open, setOpen] = useState<{ args: boolean, result: boolean, schema: boolean, timing: boolean }>({ args: false, result: false, schema: false, timing: false })
   const running = entry.status === 'running'
   const failed = entry.status === 'failed'
   const kind = entry.kind === 'tool'
@@ -621,66 +699,7 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
       : entry.kind === 'context'
         ? t('lane.context')
         : t('timeline.assistant')
-  const tabs: readonly { id: typeof tab, label: string, body: JSX.Element }[] = [
-    {
-      id: 'overview',
-      label: t('detail.overview'),
-      body: (
-        <dl className={styles.detailGrid}>
-          <dt>{t('detail.name')}</dt>
-          <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
-          {(entry.entryId ?? null) !== null && (
-            <>
-              <dt>{t('detail.entryId')}</dt>
-              <dd className={styles.detailMono}>{entry.entryId}</dd>
-            </>
-          )}
-          {descriptionOf(schema) !== null && (
-            <>
-              <dt>{t('detail.purpose')}</dt>
-              <dd>{descriptionOf(schema)}</dd>
-            </>
-          )}
-          {entry.kind === 'tool' && (
-            <>
-              <dt>{t('overview.status')}</dt>
-              <dd>{running ? t('status.running') : failed ? t('status.failed') : t('status.ok')}</dd>
-            </>
-          )}
-          {entry.turn !== null && (
-            <>
-              <dt>{t('overview.at')}</dt>
-              <dd>{entry.step === null
-                ? `#${entry.turn}`
-                : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
-            </>
-          )}
-        </dl>
-      ),
-    },
-    {
-      id: 'args',
-      label: t('turn.args'),
-      body: <pre className={styles.detailPre}>{entry.argsFull ?? entry.detail ?? t('detail.none')}</pre>,
-    },
-    {
-      id: 'result',
-      label: t('turn.result'),
-      body: <pre className={styles.detailPre}>{entry.resultFull ?? entry.result ?? t('detail.none')}</pre>,
-    },
-    {
-      id: 'schema',
-      label: t('detail.schema'),
-      // The session record carries no per-call schema; the trajectory view shows
-      // the same honest sentence instead of inventing one.
-      body: schema === null
-        ? <p className={styles.none}>{t('detail.schemaUnavailable')}</p>
-        : <pre className={styles.detailPre}>{schema}</pre>,
-    },
-    {
-      id: 'timing',
-      label: t('detail.timing'),
-      body: (
+  const timingBody = (
         <dl className={styles.detailGrid}>
           <dt>{t('timing.started')}</dt><dd className={styles.detailMono}>{stampOf(entry.startedAt)}</dd>
           <dt>{t('timing.duration')}</dt>
@@ -691,8 +710,101 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
           </dd>
           <dt>{t('timing.source')}</dt><dd>{t('timing.sourceSession')}</dd>
         </dl>
+      )
+  /**
+   * Render payload text: JSON is pretty-printed and colour-tokenised the way the
+   * reference's 参数 tab does; anything else passes through as plain monospace.
+   * @param text - the payload.
+   * @param key - React key prefix.
+   * @returns the formatted block.
+   */
+  const payloadEl = (text: string, key: string): JSX.Element => (
+    <pre className={styles.detailPre}>
+      {payloadParts(text).map((part, index) => (
+        <span key={`${key}-${index}`} className={styles[part.kind === 'plain' ? 'jPlain' : part.kind === 'key' ? 'jKey' : part.kind === 'str' ? 'jStr' : part.kind === 'num' ? 'jNum' : 'jPunct']}>
+          {part.text}
+        </span>
+      ))}
+    </pre>
+  )
+  const argsBody = payloadEl(entry.argsFull ?? entry.detail ?? t('detail.none'), 'args')
+  const resultBody = entry.status === 'running'
+    ? <p className={styles.none}>{t('detail.pending')}</p>
+    : payloadEl(entry.resultFull ?? entry.result ?? t('detail.none'), 'res')
+  const schemaBody = schema === null
+    ? <p className={styles.none}>{t('detail.schemaUnavailable')}</p>
+    : payloadEl(schema, 'schema')
+  /** One collapsible row of the 概览 tab, closed the way the reference opens it. */
+  const section = (id: 'args' | 'result' | 'schema' | 'timing', label: string, body: JSX.Element): JSX.Element => (
+    <div className={styles.sectionBlock}>
+      <button
+        type="button"
+        className={styles.sectionToggle}
+        aria-expanded={open[id]}
+        onClick={() => setOpen((state) => ({ ...state, [id]: !state[id] }))}
+      >
+        <span className={open[id] ? styles.sectionChevronDown : styles.sectionChevron} aria-hidden="true">›</span>
+        {label}
+      </button>
+      {open[id] && <div className={styles.sectionPanel}>{body}</div>}
+    </div>
+  )
+  const levelText = entry.kind === 'tool'
+    ? t('level.tool')
+    : entry.kind === 'user'
+      ? t('level.user')
+      : entry.kind === 'context'
+        ? t('lane.context')
+        : t('level.assistant')
+  const tabs: readonly { id: typeof tab, label: string, body: JSX.Element }[] = [
+    {
+      id: 'overview',
+      label: t('detail.overview'),
+      body: (
+        <>
+          <dl className={styles.detailGrid}>
+            <dt>{t('detail.hierarchy')}</dt>
+            <dd>{levelText} ›</dd>
+            <dt>{t('detail.name')}</dt>
+            <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
+            {(entry.entryId ?? null) !== null && (
+              <>
+                <dt>{t('detail.entryId')}</dt>
+                <dd className={styles.detailMono}>{entry.entryId}</dd>
+              </>
+            )}
+            {descriptionOf(schema) !== null && (
+              <>
+                <dt>{t('detail.purpose')}</dt>
+                <dd>{descriptionOf(schema)}</dd>
+              </>
+            )}
+            {entry.kind === 'tool' && (
+              <>
+                <dt>{t('overview.status')}</dt>
+                <dd>{running ? t('status.running') : failed ? t('status.failed') : t('status.ok')}</dd>
+              </>
+            )}
+            {entry.turn !== null && (
+              <>
+                <dt>{t('overview.at')}</dt>
+                <dd>{entry.step === null
+                  ? `#${entry.turn}`
+                  : t('overview.atValue', { turn: entry.turn, step: entry.step })}</dd>
+              </>
+            )}
+          </dl>
+          {section('args', t('turn.args'), argsBody)}
+          {section('result', t('turn.result'), resultBody)}
+          {section('schema', t('detail.schema'), schemaBody)}
+          {section('timing', t('detail.timing'), timingBody)}
+        </>
       ),
     },
+    { id: 'args', label: t('turn.args'), body: argsBody },
+    { id: 'result', label: t('turn.result'), body: resultBody },
+    { id: 'schema', label: t('detail.schema'), body: schemaBody },
+    { id: 'timing', label: t('detail.timing'), body: timingBody },
   ]
   const active = tabs.find((item) => item.id === tab) ?? tabs[0]
 
@@ -980,6 +1092,14 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
                 expandedId={expanded}
                 dimmed={pickedTurn !== null && turn.turn !== pickedTurn}
                 toolSchemas={state.toolSchemas}
+                generating={
+                  state.running
+                  && state.openTools.length === 0
+                  && turn.turn === state.turn
+                  && state.step !== null
+                  && !state.timeline.some((row) =>
+                    row.kind === 'assistant' && row.turn === turn.turn && row.step === state.step)
+                }
                 onToggle={(id) => setExpanded(expanded === id ? null : id)}
                 t={t}
               />
