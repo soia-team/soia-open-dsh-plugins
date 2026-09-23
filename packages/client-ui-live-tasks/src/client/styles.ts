@@ -170,6 +170,14 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 加载更早的历史：官方 historyLoadRow 形态（30px 行 + 居中幽灵按钮）。 */
+.lt-historyRow { display: flex; justify-content: center; align-items: center; min-height: 30px;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-historyButton { height: 22px; padding: 0 10px; border: 0; border-radius: 3px; cursor: pointer;
+  background: transparent; color: var(--dsw-alias-state-business-primary, #4078ff); font-size: 12.5px; }
+.lt-historyButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-historyButton:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
+
 /* ── 概览的四段折叠 + JSON 高亮（照轨迹 overviewSection / 参数页签配色） ────── */
 .lt-sectionBlock { display: flex; flex-direction: column; }
 .lt-sectionToggle { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0;
@@ -527,6 +535,8 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    historyButton: 'lt-historyButton',
+    historyRow: 'lt-historyRow',
     tlGen: 'lt-tlGen',
     generatingRow: 'lt-generatingRow',
     jPlain: 'lt-jPlain',

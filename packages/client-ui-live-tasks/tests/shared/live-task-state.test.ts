@@ -4,6 +4,7 @@ import {
   RECENT_EVENT_LIMIT,
   summarizeToolResult,
   INITIAL_LIVE_TASK_STATE,
+  CLIENT_WINDOWS,
   foldLiveTasks,
   hasLiveActivity,
   reduceLiveTask,
@@ -718,3 +719,21 @@ describe('live-task derivation', () => {
       expect(state.toolsAvailable).toBeNull()
     })
   })
+
+describe('client windows (the archive fold)', () => {
+  it('keeps every row of the resident window, not the wire cap', () => {
+    let bounded = INITIAL_LIVE_TASK_STATE
+    let unbounded = INITIAL_LIVE_TASK_STATE
+    for (let i = 1; i <= 500; i += 1) {
+      const observation = event('user/message', i, { content: [{ type: 'text', text: `m${i}` }] })
+      bounded = reduceLiveTask(bounded, observation)
+      unbounded = reduceLiveTask(unbounded, observation, CLIENT_WINDOWS)
+    }
+
+    // The host projection stays bounded: that cap exists to bound the wire.
+    expect(bounded.timeline.length).toBe(384)
+    // The browser keeps the whole window: no wire, no checkpoint to protect.
+    expect(unbounded.timeline.length).toBe(500)
+    expect(unbounded.seq).toBe(500)
+  })
+})

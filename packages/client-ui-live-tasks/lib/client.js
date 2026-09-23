@@ -16,6 +16,85 @@ const NO_ACTIONS = Object.freeze([]);
 const NO_TIMELINE = Object.freeze([]);
 const NO_TURNS = Object.freeze([]);
 const NO_SPANS = Object.freeze([]);
+/**
+* Record one tool call against its turn's summary, opening the turn if needed.
+* @param turns - existing summaries, oldest first.
+* @param turn - the turn the call belongs to.
+* @param time - when the call started.
+* @param name - the tool name.
+* @returns a new bounded array.
+*/
+function addCallToTurn(turns, turn, time, name, windows) {
+	if (turn === null) return turns;
+	if (turns.find((summary) => summary.turn === turn) === void 0) return [...turns, {
+		turn,
+		startedAt: time,
+		endedAt: null,
+		toolCalls: 1,
+		failures: 0,
+		tools: [name],
+		tokens: 0
+	}].slice(-windows.turns);
+	return turns.map((summary) => summary.turn === turn ? {
+		...summary,
+		toolCalls: summary.toolCalls + 1,
+		tools: summary.tools.includes(name) ? summary.tools : [...summary.tools, name]
+	} : summary);
+}
+/** Close a turn's summary and count a failure against it. */
+function settleTurn(turns, turn, time, failed) {
+	if (turn === null) return turns;
+	return turns.map((summary) => summary.turn === turn ? {
+		...summary,
+		endedAt: time,
+		failures: failed ? summary.failures + 1 : summary.failures
+	} : summary);
+}
+/**
+* Append one row, trimming from the front.
+* @param timeline - existing rows, oldest first.
+* @param entry - row to append.
+* @returns a new bounded array.
+*/
+function pushTimeline(timeline, entry, windows) {
+	const windowed = [...timeline, entry].slice(-windows.timeline);
+	if (windows.fullDetail === null) return windowed;
+	const keepFrom = windowed.length - Math.min(windows.fullDetail, windowed.length);
+	return windowed.map((row, index) => index < keepFrom ? demoteRow(row) : row);
+}
+/**
+* Strip a row's heavy payloads as it ages out of the full-detail window.
+* @param row - the row to demote.
+* @returns the same reference when already light.
+*/
+function demoteRow(row) {
+	if (row.argsFull === null && row.resultFull === null) return row;
+	return {
+		...row,
+		argsFull: null,
+		resultFull: null
+	};
+}
+/** Replace one row in place, keeping its position in the narrative. */
+function settleTimeline(timeline, id, patch) {
+	return timeline.map((entry) => entry.id === id ? {
+		...entry,
+		...patch
+	} : entry);
+}
+/** First non-empty line of a message's text blocks, clipped. */
+function firstLineOfMessage(data) {
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	for (const block of blocks) {
+		const record = recordOf(block);
+		if (record?.["type"] === "text" && typeof record["text"] === "string") {
+			const line = record["text"].split("\n").map((value) => value.trim()).find((value) => value !== "");
+			if (line !== void 0) return clip(line);
+		}
+	}
+	return null;
+}
 /** Usage before any message reported it. */
 const INITIAL_USAGE = Object.freeze({
 	reported: 0,
@@ -25,6 +104,50 @@ const INITIAL_USAGE = Object.freeze({
 	reasoning: 0,
 	total: 0
 });
+/**
+* Read a token count out of a usage record.
+* @param usage - the message's usage payload.
+* @param key - field name.
+* @returns the number, or 0 when the provider did not report it.
+*/
+/**
+* Fold one row into both the row window and the lane segments.
+*
+* They are bounded separately: rows keep the wire small (twenty), the chart needs
+* density (four hundred) or the strip reads as empty next to the trajectory view.
+* @param state - state before the row.
+* @param entry - the row just folded.
+* @returns the new `timeline` and `spans`.
+*/
+function foldTimeline(state, entry, windows) {
+	return {
+		timeline: pushTimeline(state.timeline, entry, windows),
+		spans: pushSpan(state.spans, entry, windows)
+	};
+}
+/**
+* Record one lane segment alongside a timeline row.
+* @param spans - the current segment list.
+* @param entry - the row just folded.
+* @returns the new list, newest-last and bounded.
+*/
+function pushSpan(spans, entry, windows) {
+	if (entry.kind === "turn") return spans;
+	return [...spans, {
+		id: entry.id,
+		turn: entry.turn ?? 0,
+		kind: entry.kind,
+		status: entry.status,
+		startedAt: entry.startedAt,
+		endedAt: entry.endedAt,
+		title: entry.kind === "tool" ? entry.title : null
+	}].slice(-windows.spans);
+}
+function usageField(usage, key) {
+	if (usage === void 0) return 0;
+	const value = usage[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 /** Counters start at zero; nothing has been folded yet. */
 const INITIAL_HEALTH = Object.freeze({
 	folded: 0,
@@ -38,7 +161,91 @@ const INITIAL_HEALTH = Object.freeze({
 });
 /** One frozen array reused for every state without open tool calls. */
 const NO_TOOLS = Object.freeze([]);
-Object.freeze({
+/**
+* Event types this build recognizes and deliberately leaves out of the fold.
+*
+* Session setup, request headers, policy records and receipts are real events
+* that say nothing about what a task is doing. Naming them is what keeps the
+* `unknown` counter meaningful: a host that adds a type shows up as a number,
+* instead of every ordinary session start looking like a surprise.
+*/
+const IGNORED_TYPES = /* @__PURE__ */ new Set([
+	"session",
+	"session/title",
+	"session/title-llm-request",
+	"system/message",
+	"request/context",
+	"permission/preset",
+	"approval/policy",
+	"sandbox/mode",
+	"subagent/model-selection-policy",
+	"agent/inbox/spliced"
+]);
+/**
+* Event types this build folds deliberately.
+*
+* Anything outside both sets is counted as unknown rather than silently
+* dropped: a host that starts emitting a new type should show up as a number
+* the panel can display, not as behaviour that quietly stops updating.
+*/
+const KNOWN_TYPES = /* @__PURE__ */ new Set([
+	"turn/start",
+	"turn/end",
+	"step/start",
+	"step/end",
+	"tool/call",
+	"tool/result",
+	"assistant/message",
+	"assistant/attempt",
+	"user/message",
+	"agent/assistant-stream",
+	"request/header"
+]);
+/**
+* Schema trim: a per-tool definition is capped before it can reach the wire.
+* The drawer shows a schema as text; a definition past this cap is cut with an
+* ellipsis rather than ballooning every projection publish.
+*/
+const SCHEMA_TRIM = 1800;
+/**
+* Fold a request header's tool list into a name → schema map, reusing entries
+* whose definition is unchanged.
+* @param tools - the header's tool array (or anything that is not one).
+* @param previous - the map from the last header.
+* @returns the new map (same reference when nothing changed).
+*/
+/**
+* Publish one tool's schema into the view (once per tool, only for tools a row
+* actually called).
+* @param state - current state.
+* @param name - the tool that was just called.
+* @returns `toolSchemas` updates, or an empty object when already present.
+*/
+function ensureToolSchema(state, name) {
+	const known = state.toolSchemas[name];
+	const schema = state.headerSchemas[name];
+	if (known !== void 0 || schema === void 0) return {};
+	return { toolSchemas: {
+		...state.toolSchemas,
+		[name]: schema
+	} };
+}
+function collectToolSchemas(tools, previous) {
+	if (!Array.isArray(tools)) return previous;
+	const next = {};
+	for (const entry of tools) {
+		const name = recordOf(entry)?.["name"];
+		if (typeof name !== "string" || name === "") continue;
+		const body = JSON.stringify(entry);
+		next[name] = body.length > SCHEMA_TRIM ? `${body.slice(0, SCHEMA_TRIM)}…` : body;
+	}
+	return Object.keys(next).length === 0 ? previous : next;
+}
+/**
+* The state before any observation. Frozen and exported so callers and tests
+* share one identity instead of rebuilding an equal-looking literal.
+*/
+const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	turn: null,
 	step: null,
 	running: false,
@@ -65,6 +272,646 @@ Object.freeze({
 	actions: NO_ACTIONS,
 	endedReason: null
 });
+/** Read a JSON object member without trusting the value. */
+function recordOf(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value) ? value : void 0;
+}
+/** Read a finite number member without trusting the value. */
+function numberOf(value) {
+	return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+/** Read a string member without trusting the value. */
+function stringOf(value) {
+	return typeof value === "string" ? value : void 0;
+}
+/**
+* The entry id a tool name belongs to, by the ecosystem's naming law.
+*
+* `check_ui_size` is registered by the bundle whose entry id is
+* `tool-check-ui-size` (ids keep dashes, tool names use underscores), and the
+* official tools follow the same law (`bash` → `tool-bash`). Showing it tells a
+* reader which plugin a row came from instead of the generic word "tool".
+* @param toolName - the registered tool name.
+* @returns the entry id, or null when the name carries nothing to derive from.
+*/
+function entryIdOfTool(toolName) {
+	const trimmed = toolName.trim();
+	if (trimmed === "") return null;
+	return `tool-${trimmed.replaceAll("_", "-")}`;
+}
+/** How many lane segments the view keeps (the chart wants density, not rows). */
+const SPAN_LIMIT = 1600;
+/** Longest detail payload carried for an expanded row. */
+const DETAIL_PAYLOAD_LIMIT = 600;
+/**
+* Payload ceilings for the drawer's tabs.
+*
+* One 600-character cap served the row's inline summary but also the drawer, so
+* the 参数 and 结果 tabs showed cut-off JSON — the operator's complaint. The row
+* keeps the small cap; the drawer gets real payloads, bounded so a session of
+* huge results cannot multiply the projection by megabytes: arguments fit any
+* command worth reading (4KB), results up to 8KB with an ellipsis beyond.
+*/
+const EXPAND_ARGS_LIMIT = 4096;
+const EXPAND_RESULT_LIMIT = 8192;
+/** Longest argument summary carried to the client; longer values are clipped. */
+const DETAIL_LIMIT = 80;
+/**
+* The host projection's windows: bounded so the wire stays a fixed size.
+*/
+const HOST_WINDOWS = {
+	timeline: 384,
+	turns: 96,
+	spans: SPAN_LIMIT,
+	fullDetail: 64
+};
+/**
+* Windows for the client-side archive fold over the resident event window.
+*
+* The client keeps records in browser memory — no wire, no checkpoint — so the
+* caps that exist purely to bound bytes are lifted and the whole session folds:
+* every row, every turn, every span. This is the paging path the reference view
+* takes through `session.loadOlder()`; here the same reducer just runs unbounded
+* over whatever the window holds.
+*/
+const CLIENT_WINDOWS = {
+	timeline: Number.POSITIVE_INFINITY,
+	turns: Number.POSITIVE_INFINITY,
+	spans: Number.POSITIVE_INFINITY,
+	fullDetail: null
+};
+/** Longest result line carried to the client. */
+const RESULT_LIMIT = 60;
+/** Argument keys worth showing, in the order a reader wants them. */
+const DETAIL_KEYS = [
+	"command",
+	"file_path",
+	"path",
+	"selector",
+	"url",
+	"pattern",
+	"query",
+	"task",
+	"prompt"
+];
+/**
+* Turn a tool call's arguments into one display line.
+*
+* The session records `data.arguments` as a JSON **string** (occasionally as an
+* already-parsed object), and the useful part differs per tool: a shell call is
+* its command, a file call its path, a fetch its URL. Unknown shapes fall back
+* to the first string value, and an unreadable payload reports `null` rather
+* than a guess — a wrong line here would be worse than no line.
+* @param data - the `tool/call` event payload, already narrowed to an object.
+* @returns one clipped line, or null when nothing readable was carried.
+*/
+function summarizeToolArguments(data) {
+	const raw = data?.["arguments"];
+	let parsed = raw;
+	if (typeof raw === "string") try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return clip(raw);
+	}
+	if (typeof parsed !== "object" || parsed === null) return null;
+	const args = parsed;
+	const parts = [];
+	for (const key of DETAIL_KEYS) {
+		const value = args[key];
+		if (typeof value === "string" && value.trim() !== "") parts.push(value);
+		if (parts.length === 2) break;
+	}
+	if (parts.length > 0) return clip(parts.join(" @ "));
+	const firstString = Object.values(args).find((value) => typeof value === "string" && value.trim() !== "");
+	return typeof firstString === "string" ? clip(firstString) : null;
+}
+/**
+* Turn a call and its result into one activity-log line.
+* @param call - the call record as it was opened.
+* @param endedAt - epoch milliseconds of the matching result.
+* @param data - the `tool/result` payload.
+* @returns the human-readable action record.
+*/
+function actionOf(call, endedAt, data, failed) {
+	return {
+		callId: call.callId,
+		name: call.name,
+		detail: call.detail,
+		startedAt: call.startedAt,
+		endedAt,
+		status: failed ? "failed" : "ok",
+		result: summarizeToolResult(data)
+	};
+}
+/** Status values a tool uses in its own payload to report a failed operation. */
+const FAILURE_STATUSES = /* @__PURE__ */ new Set([
+	"error",
+	"failed",
+	"failure",
+	"not_found",
+	"unavailable",
+	"denied",
+	"timeout",
+	"invalid"
+]);
+/**
+* Decide whether a tool call failed, from both places a failure can be written.
+*
+* A tool can fail the way the harness notices (`isError` on the result block) or
+* the way this ecosystem's tools usually report it: a successful tool call whose
+* payload says `{"status":"error","code":…}`. The panel is for a person, and "the
+* call worked but the operation failed" must not read as 完成 — measured live,
+* where a failed page load and a missing file both showed as completed.
+* @param data - the `tool/result` payload.
+* @param harnessError - the harness-level error flag, if the caller read one.
+* @returns true when either layer reports a failure.
+*/
+function toolResultFailed(data, harnessError) {
+	if (harnessError === true) return true;
+	if (data !== void 0 && data["error"] !== void 0 && data["error"] !== null) return true;
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	for (const block of blocks) {
+		const record = recordOf(block);
+		if (record?.["isError"] === true) return true;
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] !== "text" || typeof candidate["text"] !== "string") continue;
+			const firstLine = candidate["text"].split("\n").map((line) => line.trim()).find((line) => line !== "");
+			if (firstLine === void 0 || !firstLine.startsWith("{")) continue;
+			try {
+				const parsed = JSON.parse(firstLine);
+				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+				const status = parsed["status"];
+				if (typeof status === "string" && FAILURE_STATUSES.has(status)) return true;
+			} catch {}
+		}
+	}
+	return false;
+}
+/**
+* Make one result line readable.
+*
+* Tools answer with JSON far more often than with prose, and a raw object reads
+* as noise in a log. Scalar fields are shown as `key=value` pairs instead; a
+* payload whose interesting field is nested keeps its first line, because a
+* half-rendered object would be worse than an honest one.
+* @param line - the first non-empty line of the result.
+* @returns a compact human-readable form of that line.
+*/
+function summarizeResultLine(line) {
+	if (!line.startsWith("{")) return line;
+	try {
+		const parsed = JSON.parse(line);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return line;
+		const pairs = [];
+		for (const [key, value] of Object.entries(parsed)) {
+			if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") pairs.push(`${key}=${String(value)}`);
+			if (pairs.length === 4) break;
+		}
+		return pairs.length === 0 ? line : pairs.join(", ");
+	} catch {
+		return line;
+	}
+}
+/**
+* First non-empty line of a tool result, clipped.
+*
+* A tool's answer can be kilobytes; the activity log needs only enough to say
+* "it came back with something" — a failing call is reported by its error line.
+* @param data - the `tool/result` payload.
+* @returns one clipped line, or null when the result carried no text.
+*/
+/**
+* The whole text of a tool result, for the expanded row.
+* @param data - the `tool/result` payload.
+* @returns concatenated text blocks, or null when the result carried none.
+*/
+function fullToolResult(data) {
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	let text = "";
+	for (const block of blocks) {
+		const record = recordOf(block);
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] === "text" && typeof candidate["text"] === "string") text += candidate["text"];
+		}
+	}
+	return text === "" ? null : text;
+}
+function summarizeToolResult(data) {
+	const message = recordOf(data?.["message"]);
+	const blocks = Array.isArray(message?.["content"]) ? message["content"] : [];
+	let text = "";
+	for (const block of blocks) {
+		const record = recordOf(block);
+		const inner = Array.isArray(record?.["content"]) ? record["content"] : [];
+		for (const part of inner) {
+			const candidate = recordOf(part);
+			if (candidate?.["type"] === "text" && typeof candidate["text"] === "string") text += candidate["text"];
+		}
+	}
+	const line = text.split("\n").map((value) => value.trim()).find((value) => value !== "");
+	if (line === void 0) return null;
+	return clip(summarizeResultLine(line)).slice(0, RESULT_LIMIT);
+}
+/**
+* Prepare a payload for the expanded row: pretty-print JSON when it parses,
+* otherwise pass the text through, clipped.
+* @param value - raw text or JSON string.
+* @returns the expandable form, or null when there is nothing to show.
+*/
+function expandable(value, limit = DETAIL_PAYLOAD_LIMIT) {
+	if (value === null || value.trim() === "") return null;
+	const text = value.trim().startsWith("{") || value.trim().startsWith("[") ? (() => {
+		try {
+			return JSON.stringify(JSON.parse(value), null, 2);
+		} catch {
+			return value;
+		}
+	})() : value;
+	return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+}
+/** Collapse whitespace and clip to the wire budget. */
+function clip(value) {
+	const flat = value.replace(/\s+/g, " ").trim();
+	return flat.length <= DETAIL_LIMIT ? flat : `${flat.slice(0, 79)}…`;
+}
+function summary(event, detail) {
+	return {
+		type: event.type,
+		seq: event.seq,
+		time: event.time,
+		detail
+	};
+}
+/**
+* Record one observation: the "last event" line plus the bounded trail.
+*
+* The trail is what makes the view readable — a single last-event line says
+* what just happened, not what the session has been doing. It is capped so the
+* wire payload stays a fixed size no matter how long a turn runs.
+* @param state - state before this observation.
+* @param event - the event being folded.
+* @param detail - display detail for this observation, or null.
+* @returns the two fields every fold branch writes.
+*/
+function observed(state, event, detail) {
+	const entry = summary(event, detail);
+	if (event.type.startsWith("session-log-")) return {
+		lastEvent: entry,
+		recent: state.recent
+	};
+	return {
+		lastEvent: entry,
+		recent: [...state.recent, entry].slice(-6)
+	};
+}
+/**
+* Read the call identity and error flag out of a `tool/result` payload.
+*
+* The payload nests them: `data.message` is a tool-result message whose single
+* content block carries `toolCallId` and `isError`, and `data.error` is the
+* optional failure identity recorded beside the model-facing content. Either
+* half may be missing on a partially understood event, so each is read on its
+* own and absence is reported as absence.
+* @param data - the event's `data` member, already narrowed to an object.
+* @returns the call id when one was readable, and whether the call failed.
+*/
+function readToolResult(data) {
+	const content = recordOf(data?.["message"])?.["content"];
+	const block = Array.isArray(content) ? recordOf(content[0]) : void 0;
+	const callId = stringOf(block?.["toolCallId"]);
+	const failed = block?.["isError"] === true || data?.["error"] !== void 0;
+	return {
+		...callId === void 0 ? {} : { callId },
+		...failed ? { failed: true } : {}
+	};
+}
+/**
+* Fold one durable session event.
+*
+* The envelope fields (`seq`, `updatedAt`) advance for every accepted event,
+* including event types this build does not know: an unknown event still marks
+* real progress, and `lastEvent` is the honest place to say so. Only recognized
+* types additionally move turn, step, and tool state.
+* @param state - state before this event.
+* @param event - one durable session event.
+* @returns the next state, or the same state for a duplicate or stale event.
+*/
+function foldEvent(state, event, agentAttached = false, registrySize, windows = HOST_WINDOWS) {
+	const seq = numberOf(event.seq);
+	const time = numberOf(event.time);
+	if (seq === void 0 || time === void 0 || seq <= state.seq) return state;
+	const envelope = {
+		seq,
+		updatedAt: state.updatedAt === null ? time : Math.max(state.updatedAt, time),
+		health: {
+			...state.health,
+			folded: state.health.folded + 1,
+			...agentAttached ? { agents: state.health.agents + 1 } : {},
+			...registrySize === void 0 ? {} : { registry: registrySize < 0 ? registrySize : Math.max(state.health.registry, registrySize) },
+			...KNOWN_TYPES.has(event.type) ? {} : IGNORED_TYPES.has(event.type) || event.type.startsWith("session-log-") ? { ignored: state.health.ignored + 1 } : { unknown: state.health.unknown + 1 }
+		}
+	};
+	const data = recordOf(event.data);
+	if (event.type === "request/header") {
+		const header = recordOf(data?.["header"]);
+		const tools = header?.["tools"] ?? recordOf(header?.["config"])?.["tools"];
+		const count = Array.isArray(tools) ? tools.length : void 0;
+		return {
+			...state,
+			...envelope,
+			...count === void 0 ? {} : { toolsAvailable: count },
+			headerSchemas: collectToolSchemas(tools, state.headerSchemas),
+			...observed(state, event, null)
+		};
+	}
+	switch (event.type) {
+		case "turn/start": {
+			const turn = numberOf(data?.["turn"]) ?? null;
+			return {
+				...state,
+				...envelope,
+				turn: turn ?? state.turn,
+				step: null,
+				running: true,
+				openTools: NO_TOOLS,
+				turnsTotal: turn === null || state.turns.some((summary) => summary.turn === turn) ? state.turnsTotal : state.turnsTotal + 1,
+				turns: turn === null || state.turns.some((summary) => summary.turn === turn) ? state.turns : [...state.turns, {
+					turn,
+					startedAt: time,
+					endedAt: null,
+					toolCalls: 0,
+					failures: 0,
+					tools: [],
+					tokens: 0
+				}].slice(-windows.turns),
+				timeline: turn === null ? state.timeline : pushTimeline(state.timeline, {
+					id: `turn-${turn}`,
+					kind: "turn",
+					turn,
+					step: null,
+					startedAt: time,
+					endedAt: null,
+					title: "",
+					entryId: null,
+					detail: null,
+					argsFull: null,
+					resultFull: null,
+					result: null,
+					status: "ok"
+				}, windows),
+				toolCallsInTurn: 0,
+				streamedTextLength: 0,
+				streamedAt: null,
+				endedReason: null,
+				...observed(state, event, null)
+			};
+		}
+		case "turn/end": {
+			const reason = recordOf(data?.["reason"]);
+			return {
+				...state,
+				...envelope,
+				step: null,
+				running: false,
+				openTools: NO_TOOLS,
+				lastTool: state.lastTool === null || !state.lastTool.open ? state.lastTool : {
+					...state.lastTool,
+					open: false
+				},
+				endedReason: stringOf(reason?.["kind"]) ?? "unknown",
+				...observed(state, event, null)
+			};
+		}
+		case "step/start": {
+			const turn = numberOf(data?.["turn"]);
+			const step = numberOf(data?.["step"]);
+			return {
+				...state,
+				...envelope,
+				turn: turn ?? state.turn,
+				step: step ?? state.step,
+				running: true,
+				...observed(state, event, null)
+			};
+		}
+		case "step/end": {
+			const turn = numberOf(data?.["turn"]);
+			const step = numberOf(data?.["step"]);
+			const closesOpenStep = state.step !== null && step === state.step && (turn === void 0 || turn === state.turn);
+			return {
+				...state,
+				...envelope,
+				step: closesOpenStep ? null : state.step,
+				...observed(state, event, null)
+			};
+		}
+		case "tool/call": {
+			const callId = stringOf(data?.["callId"]);
+			const name = stringOf(data?.["name"]);
+			if (callId === void 0 || name === void 0) return {
+				...state,
+				...envelope,
+				...observed(state, event, null)
+			};
+			const call = {
+				callId,
+				name,
+				turn: numberOf(data?.["turn"]) ?? state.turn,
+				step: numberOf(data?.["step"]) ?? state.step,
+				open: true,
+				detail: summarizeToolArguments(data),
+				startedAt: time
+			};
+			return {
+				...state,
+				...envelope,
+				...ensureToolSchema(state, name),
+				lastTool: call,
+				openTools: [...state.openTools, call],
+				toolCallsInTurn: state.toolCallsInTurn + 1,
+				toolCallsTotal: state.toolCallsTotal + 1,
+				turns: addCallToTurn(state.turns, call.turn, time, name, windows),
+				...foldTimeline(state, {
+					id: callId,
+					kind: "tool",
+					turn: call.turn,
+					step: call.step,
+					startedAt: time,
+					endedAt: null,
+					title: name,
+					entryId: entryIdOfTool(name),
+					detail: call.detail,
+					result: null,
+					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null, EXPAND_ARGS_LIMIT),
+					resultFull: null,
+					status: "running"
+				}, windows),
+				...observed(state, event, name)
+			};
+		}
+		case "tool/result": {
+			const { callId, failed } = readToolResult(data);
+			const resultFailed = toolResultFailed(data, failed);
+			const settled = callId === void 0 ? void 0 : state.openTools.find((call) => call.callId === callId);
+			return {
+				...state,
+				...envelope,
+				openTools: callId === void 0 ? state.openTools : state.openTools.filter((call) => call.callId !== callId),
+				lastTool: state.lastTool !== null && callId !== void 0 && state.lastTool.callId === callId ? {
+					...state.lastTool,
+					open: false,
+					endedAt: time,
+					result: summarizeToolResult(data),
+					...resultFailed ? { failed: true } : {}
+				} : state.lastTool,
+				failuresTotal: resultFailed ? state.failuresTotal + 1 : state.failuresTotal,
+				turns: settleTurn(state.turns, settled?.turn ?? null, time, resultFailed),
+				timeline: callId === void 0 ? state.timeline : settleTimeline(state.timeline, callId, {
+					endedAt: time,
+					result: summarizeToolResult(data),
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
+					status: resultFailed ? "failed" : "ok"
+				}),
+				actions: settled === void 0 ? state.actions : [...state.actions.filter((action) => action.callId !== settled.callId), actionOf(settled, time, data, resultFailed)].slice(-8),
+				...observed(state, event, settled?.name ?? null)
+			};
+		}
+		case "user/message": {
+			const detail = firstLineOfMessage(data);
+			const source = recordOf(recordOf(data?.["message"])?.["source"]);
+			const injected = source !== void 0 && stringOf(source["kind"]) !== void 0 && source["kind"] !== "user";
+			return {
+				...state,
+				...envelope,
+				...foldTimeline(state, {
+					id: `user-${seq}`,
+					kind: injected ? "context" : "user",
+					turn: numberOf(data?.["turn"]) ?? state.turn,
+					step: numberOf(data?.["step"]) ?? null,
+					startedAt: time,
+					endedAt: time,
+					title: "",
+					entryId: null,
+					detail,
+					result: null,
+					argsFull: null,
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
+					status: "ok"
+				}, windows),
+				...observed(state, event, null)
+			};
+		}
+		case "assistant/message":
+		case "assistant/attempt": {
+			const usage = recordOf(data?.["usage"]);
+			const reported = usage !== void 0 && typeof usage["totalTokens"] === "number";
+			const spent = reported ? usageField(usage, "totalTokens") : 0;
+			const turn = numberOf(data?.["turn"]) ?? state.turn;
+			return {
+				...state,
+				...envelope,
+				streamedTextLength: 0,
+				streamedAt: null,
+				usage: reported ? {
+					reported: state.usage.reported + 1,
+					input: state.usage.input + usageField(usage, "inputTokens"),
+					output: state.usage.output + usageField(usage, "outputTokens"),
+					cacheRead: state.usage.cacheRead + usageField(usage, "cacheReadTokens"),
+					reasoning: state.usage.reasoning + usageField(usage, "reasoningTokens"),
+					total: state.usage.total + spent
+				} : state.usage,
+				turns: reported && turn !== null ? state.turns.map((summary) => summary.turn === turn ? {
+					...summary,
+					tokens: summary.tokens + spent
+				} : summary) : state.turns,
+				...event.type === "assistant/message" ? foldTimeline(state, {
+					id: `assistant-${seq}`,
+					kind: "assistant",
+					turn: numberOf(data?.["turn"]) ?? state.turn,
+					step: numberOf(data?.["step"]) ?? null,
+					startedAt: time,
+					endedAt: time,
+					title: "",
+					entryId: null,
+					detail: firstLineOfMessage(data),
+					result: null,
+					argsFull: null,
+					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
+					status: "ok"
+				}, windows) : {
+					timeline: state.timeline,
+					spans: state.spans
+				},
+				...observed(state, event, null)
+			};
+		}
+		default: return {
+			...state,
+			...envelope,
+			...observed(state, event, null)
+		};
+	}
+}
+/**
+* Fold one transient assistant text delta.
+*
+* Accepted only while the named step is the open one and its time does not run
+* backwards; anything else is a replay or a straggler and is dropped. The
+* counter is a liveness signal, not accounting: two deltas sharing a
+* millisecond both count, and the durable `assistant/message` of the step
+* resets it to zero.
+* @param state - state before this delta.
+* @param delta - normalized text delta.
+* @returns the next state, or the same state when the delta does not apply.
+*/
+function foldTextDelta(state, delta) {
+	const dropped = () => ({
+		...state,
+		health: {
+			...state.health,
+			deltasDropped: state.health.deltasDropped + 1
+		}
+	});
+	if (!state.running) return dropped();
+	if (delta.turn !== state.turn || delta.step !== state.step) return dropped();
+	if (!Number.isFinite(delta.time)) return dropped();
+	if (state.streamedAt !== null && delta.time < state.streamedAt) return dropped();
+	const length = delta.text.length;
+	const updatedAt = state.updatedAt === null ? delta.time : Math.max(state.updatedAt, delta.time);
+	if (length === 0 && state.streamedAt === delta.time && state.updatedAt === updatedAt) return dropped();
+	return {
+		...state,
+		streamedTextLength: state.streamedTextLength + length,
+		streamedAt: delta.time,
+		updatedAt,
+		health: {
+			...state.health,
+			deltasAccepted: state.health.deltasAccepted + 1
+		}
+	};
+}
+/**
+* Fold one normalized observation into the live-task state.
+* @param state - state before this observation.
+* @param observation - one durable event or one transient text delta.
+* @returns the next state; the same reference when the observation changes nothing.
+*/
+function reduceLiveTask(state, observation, windows = HOST_WINDOWS) {
+	if (observation.kind === "stream-frame") return {
+		...state,
+		health: {
+			...state.health,
+			frames: state.health.frames + 1
+		}
+	};
+	return observation.kind === "event" ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize, windows) : foldTextDelta(state, observation);
+}
 /**
 * Whether the session has shown anything at all.
 *
@@ -249,6 +1096,14 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* 加载更早的历史：官方 historyLoadRow 形态（30px 行 + 居中幽灵按钮）。 */
+.lt-historyRow { display: flex; justify-content: center; align-items: center; min-height: 30px;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-historyButton { height: 22px; padding: 0 10px; border: 0; border-radius: 3px; cursor: pointer;
+  background: transparent; color: var(--dsw-alias-state-business-primary, #4078ff); font-size: 12.5px; }
+.lt-historyButton:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-historyButton:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
 
 /* ── 概览的四段折叠 + JSON 高亮（照轨迹 overviewSection / 参数页签配色） ────── */
 .lt-sectionBlock { display: flex; flex-direction: column; }
@@ -606,6 +1461,8 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	historyButton: "lt-historyButton",
+	historyRow: "lt-historyRow",
 	tlGen: "lt-tlGen",
 	generatingRow: "lt-generatingRow",
 	jPlain: "lt-jPlain",
@@ -1497,8 +2354,35 @@ function DetailDrawer({ entry, now, schema, onClose, t }) {
 * @param props - projection hook and translator from the slot kit.
 * @returns the view body, or an explicit empty state.
 */
-function LiveTasksView({ useProjection, t }) {
+function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder }) {
 	const projected = useProjection("liveTask");
+	/**
+	* The client-side archive: the whole session folded from the resident event
+	* window in browser memory.
+	*
+	* This is the paging path the reference view takes through `session.loadOlder()`:
+	* the window prepends older pages, and the same reducer that drives the host
+	* projection runs here unbounded (`CLIENT_WINDOWS`) — every row, turn and span
+	* the window holds, with no wire cost. The host projection stays as the
+	* fallback (preview fixture, or a session whose window has not opened yet).
+	*/
+	const subscribe = (0, react.useMemo)(() => eventSource === void 0 ? () => () => {} : (listener) => eventSource.subscribe(listener), [eventSource]);
+	const readWindow = (0, react.useMemo)(() => () => eventSource?.getSnapshot() ?? null, [eventSource]);
+	const windowSnapshot = (0, react.useSyncExternalStore)(subscribe, readWindow, readWindow);
+	const hasOlder = useSession((snapshot) => snapshot.hasMore);
+	const loadingOlder = useSession((snapshot) => snapshot.loadingOlder);
+	const archive = (0, react.useMemo)(() => {
+		if (windowSnapshot === null) return null;
+		let folded = INITIAL_LIVE_TASK_STATE;
+		for (const entry of windowSnapshot.entries) {
+			if (entry.type !== "event") continue;
+			folded = reduceLiveTask(folded, {
+				kind: "event",
+				event: entry.event
+			}, CLIENT_WINDOWS);
+		}
+		return folded;
+	}, [windowSnapshot]);
 	/**
 	* Tolerate a host running an older build than this bundle.
 	*
@@ -1509,7 +2393,7 @@ function LiveTasksView({ useProjection, t }) {
 	* missing line instead of an empty page. `--stale-host` in
 	* `scripts/panel-preview.mjs` renders exactly that pairing.
 	*/
-	const state = projected === void 0 ? void 0 : {
+	const hostState = projected === void 0 ? void 0 : {
 		...projected,
 		turnsTotal: projected.turnsTotal ?? projected.turns.length,
 		usage: projected.usage ?? {
@@ -1523,6 +2407,24 @@ function LiveTasksView({ useProjection, t }) {
 		spans: projected.spans ?? [],
 		toolSchemas: projected.toolSchemas ?? {}
 	};
+	/**
+	* Display state: the archive (whole session, browser-side) when it has rows,
+	* otherwise the normalized host projection.
+	*
+	* Scalars prefer whichever side actually carries them: a freshly paged window
+	* may predate this session's `request/header` (no tool count), while an older
+	* host may lack fields this bundle knows. Neither gap is allowed to blank the
+	* panel — both sides already degrade per field.
+	*/
+	const state = archive !== null && archive.timeline.length > 0 && archive.timeline.length >= (hostState?.timeline.length ?? 0) ? {
+		...archive,
+		toolsAvailable: archive.toolsAvailable ?? hostState?.toolsAvailable ?? null,
+		usage: archive.usage.reported > 0 ? archive.usage : hostState?.usage ?? archive.usage,
+		toolSchemas: {
+			...hostState?.toolSchemas ?? {},
+			...archive.toolSchemas
+		}
+	} : hostState;
 	const [selected, setSelected] = (0, react.useState)(null);
 	const [expanded, setExpanded] = (0, react.useState)(null);
 	const [messagesHidden, setMessagesHidden] = (0, react.useState)(false);
@@ -1707,6 +2609,18 @@ function LiveTasksView({ useProjection, t }) {
 									className: styles.sectionTitle,
 									children: t("timeline.title")
 								}),
+								(hasOlder || loadingOlder) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: styles.historyRow,
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: styles.historyButton,
+										disabled: loadingOlder,
+										onClick: () => {
+											loadOlder?.();
+										},
+										children: loadingOlder ? t("history.loadingEarlier") : t("history.loadEarlier")
+									})
+								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 									className: styles.table,
 									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
@@ -1816,6 +2730,8 @@ const zh = {
 	"level.tool": "工具调用",
 	"detail.pending": "运行中，结果完成后显示",
 	"gen.running": "生成中…",
+	"history.loadEarlier": "加载更早的历史",
+	"history.loadingEarlier": "正在加载更早的历史…",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -1943,6 +2859,8 @@ const en = {
 	"level.tool": "Tool call",
 	"detail.pending": "Running — the result appears when the call settles",
 	"gen.running": "Generating…",
+	"history.loadEarlier": "Load earlier history",
+	"history.loadingEarlier": "Loading earlier history…",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",
@@ -2048,16 +2966,6 @@ const en = {
 };
 //#endregion
 //#region src/client/index.ts
-/**
-* Client services this half needs ready before it activates.
-*
-* `slots` and `locale` are the two it calls directly. `sessions` and
-* `uiConversation` are what the standard slot kit is assembled from: the kit
-* hands the component `useProjection`, which reads the session-projection
-* mirror, and the header slot itself belongs to the conversation surface. The
-* official client halves that read a projection declare the same two (see
-* `dsh-client-ui-goal`), and without them the kit cannot supply the hook.
-*/
 const inject = [
 	"slots",
 	"locale",
@@ -2079,7 +2987,15 @@ function apply(ctx) {
 		id: "live-tasks",
 		order: 20,
 		label: () => t("view.tab"),
-		locale: NS
+		locale: NS,
+		inject: (sessionId) => {
+			const session = ctx.sessions.binding(sessionId)?.session;
+			if (session === void 0) return {};
+			return {
+				eventSource: session.eventSource,
+				loadOlder: () => session.loadOlder()
+			};
+		}
 	}, LiveTasksView));
 	ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
 		name: "conversation.session.header.actions",

@@ -5421,7 +5421,7 @@ const NO_SPANS = Object.freeze([]);
 * @param name - the tool name.
 * @returns a new bounded array.
 */
-function addCallToTurn(turns, turn, time, name) {
+function addCallToTurn(turns, turn, time, name, windows) {
 	if (turn === null) return turns;
 	if (turns.find((summary) => summary.turn === turn) === void 0) return [...turns, {
 		turn,
@@ -5431,7 +5431,7 @@ function addCallToTurn(turns, turn, time, name) {
 		failures: 0,
 		tools: [name],
 		tokens: 0
-	}].slice(-96);
+	}].slice(-windows.turns);
 	return turns.map((summary) => summary.turn === turn ? {
 		...summary,
 		toolCalls: summary.toolCalls + 1,
@@ -5453,9 +5453,10 @@ function settleTurn(turns, turn, time, failed) {
 * @param entry - row to append.
 * @returns a new bounded array.
 */
-function pushTimeline(timeline, entry) {
-	const windowed = [...timeline, entry].slice(-384);
-	const keepFrom = windowed.length - Math.min(64, windowed.length);
+function pushTimeline(timeline, entry, windows) {
+	const windowed = [...timeline, entry].slice(-windows.timeline);
+	if (windows.fullDetail === null) return windowed;
+	const keepFrom = windowed.length - Math.min(windows.fullDetail, windowed.length);
 	return windowed.map((row, index) => index < keepFrom ? demoteRow(row) : row);
 }
 /**
@@ -5515,10 +5516,10 @@ const INITIAL_USAGE = Object.freeze({
 * @param entry - the row just folded.
 * @returns the new `timeline` and `spans`.
 */
-function foldTimeline(state, entry) {
+function foldTimeline(state, entry, windows) {
 	return {
-		timeline: pushTimeline(state.timeline, entry),
-		spans: pushSpan(state.spans, entry)
+		timeline: pushTimeline(state.timeline, entry, windows),
+		spans: pushSpan(state.spans, entry, windows)
 	};
 }
 /**
@@ -5527,7 +5528,7 @@ function foldTimeline(state, entry) {
 * @param entry - the row just folded.
 * @returns the new list, newest-last and bounded.
 */
-function pushSpan(spans, entry) {
+function pushSpan(spans, entry, windows) {
 	if (entry.kind === "turn") return spans;
 	return [...spans, {
 		id: entry.id,
@@ -5537,7 +5538,7 @@ function pushSpan(spans, entry) {
 		startedAt: entry.startedAt,
 		endedAt: entry.endedAt,
 		title: entry.kind === "tool" ? entry.title : null
-	}].slice(-SPAN_LIMIT);
+	}].slice(-windows.spans);
 }
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
@@ -5712,6 +5713,15 @@ const EXPAND_ARGS_LIMIT = 4096;
 const EXPAND_RESULT_LIMIT = 8192;
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80;
+/**
+* The host projection's windows: bounded so the wire stays a fixed size.
+*/
+const HOST_WINDOWS = {
+	timeline: 384,
+	turns: 96,
+	spans: SPAN_LIMIT,
+	fullDetail: 64
+};
 /** Longest result line carried to the client. */
 const RESULT_LIMIT = 60;
 /** Argument keys worth showing, in the order a reader wants them. */
@@ -5974,7 +5984,7 @@ function readToolResult(data) {
 * @param event - one durable session event.
 * @returns the next state, or the same state for a duplicate or stale event.
 */
-function foldEvent(state, event, agentAttached = false, registrySize) {
+function foldEvent(state, event, agentAttached = false, registrySize, windows = HOST_WINDOWS) {
 	const seq = numberOf(event.seq);
 	const time = numberOf(event.time);
 	if (seq === void 0 || time === void 0 || seq <= state.seq) return state;
@@ -6021,7 +6031,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					failures: 0,
 					tools: [],
 					tokens: 0
-				}].slice(-96),
+				}].slice(-windows.turns),
 				timeline: turn === null ? state.timeline : pushTimeline(state.timeline, {
 					id: `turn-${turn}`,
 					kind: "turn",
@@ -6036,7 +6046,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					resultFull: null,
 					result: null,
 					status: "ok"
-				}),
+				}, windows),
 				toolCallsInTurn: 0,
 				streamedTextLength: 0,
 				streamedAt: null,
@@ -6108,7 +6118,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 				openTools: [...state.openTools, call],
 				toolCallsInTurn: state.toolCallsInTurn + 1,
 				toolCallsTotal: state.toolCallsTotal + 1,
-				turns: addCallToTurn(state.turns, call.turn, time, name),
+				turns: addCallToTurn(state.turns, call.turn, time, name, windows),
 				...foldTimeline(state, {
 					id: callId,
 					kind: "tool",
@@ -6123,7 +6133,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null, EXPAND_ARGS_LIMIT),
 					resultFull: null,
 					status: "running"
-				}),
+				}, windows),
 				...observed(state, event, name)
 			};
 		}
@@ -6175,7 +6185,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					argsFull: null,
 					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
 					status: "ok"
-				}),
+				}, windows),
 				...observed(state, event, null)
 			};
 		}
@@ -6216,7 +6226,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					argsFull: null,
 					resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
 					status: "ok"
-				}) : {
+				}, windows) : {
 					timeline: state.timeline,
 					spans: state.spans
 				},
@@ -6274,7 +6284,7 @@ function foldTextDelta(state, delta) {
 * @param observation - one durable event or one transient text delta.
 * @returns the next state; the same reference when the observation changes nothing.
 */
-function reduceLiveTask(state, observation) {
+function reduceLiveTask(state, observation, windows = HOST_WINDOWS) {
 	if (observation.kind === "stream-frame") return {
 		...state,
 		health: {
@@ -6282,7 +6292,7 @@ function reduceLiveTask(state, observation) {
 			frames: state.health.frames + 1
 		}
 	};
-	return observation.kind === "event" ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize) : foldTextDelta(state, observation);
+	return observation.kind === "event" ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize, windows) : foldTextDelta(state, observation);
 }
 //#endregion
 //#region packages/client-ui-live-tasks/src/shared/projection.ts

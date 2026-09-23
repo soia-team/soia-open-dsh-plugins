@@ -45,6 +45,8 @@ export declare const zh: {
     readonly 'level.tool': '工具调用';
     readonly 'detail.pending': '运行中，结果完成后显示';
     readonly 'gen.running': '生成中…';
+    readonly 'history.loadEarlier': '加载更早的历史';
+    readonly 'history.loadingEarlier': '正在加载更早的历史…';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';

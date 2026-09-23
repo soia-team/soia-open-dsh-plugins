@@ -29,6 +29,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * official client halves that read a projection declare the same two (see
  * `dsh-client-ui-goal`), and without them the kit cannot supply the hook.
  */
+import type { SessionEventSourceLike } from './LiveTasksView.ts';
+/** The session face this view consumes, declared structurally (see `inject`). */
+export interface SessionFaceLike {
+    readonly eventSource: SessionEventSourceLike;
+    loadOlder(): Promise<void>;
+}
 export declare const inject: string[];
 /**
  * Client plugin body: register the dictionaries and the header action.

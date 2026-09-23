@@ -51,6 +51,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * official client halves that read a projection declare the same two (see
  * `dsh-client-ui-goal`), and without them the kit cannot supply the hook.
  */
+import type { SessionEventSourceLike } from './LiveTasksView.ts'
+
+/** The session face this view consumes, declared structurally (see `inject`). */
+export interface SessionFaceLike {
+  readonly eventSource: SessionEventSourceLike
+  loadOlder(): Promise<void>
+}
+
 export const inject = ['slots', 'locale', 'sessions', 'uiConversation']
 
 /**
@@ -72,6 +80,24 @@ export function apply(ctx: ClientContext): void {
     order: 20,
     label: () => t('view.tab'),
     locale: NS,
+    // Session-scoped extras, the same shape the trajectory view registers: the
+    // resident event window (for the client-side archive fold) and the page pull
+    // that extends it. The view degrades to the host projection when either is
+    // absent — the offline preview passes neither.
+    inject: (sessionId: string) => {
+      // Structural cast: the program carries two `sessions` declaration merges —
+      // the host's `SessionStore` (from `dsh-session`) wins the union and hides
+      // the client face's `binding`. The runtime object is the client controller
+      // (the shell injects it), so the cast states the shape we use instead of
+      // importing a package this workspace cannot resolve the way the official
+      // monorepo does.
+      const sessions = ctx.sessions as unknown as {
+        binding(id: string): { session?: SessionFaceLike } | undefined
+      }
+      const session = sessions.binding(sessionId)?.session
+      if (session === undefined) return {}
+      return { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }
+    },
   }, LiveTasksView))
   // A second, smaller surface: the running tool in the session header, readable
   // from the conversation view as well. The full panel is one tab away; the name

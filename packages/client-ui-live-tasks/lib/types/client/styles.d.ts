@@ -98,6 +98,8 @@ export declare const styles: {
     readonly detailTab: 'lt-detailTab';
     readonly detailTabActive: 'lt-detailTabActive';
     readonly detailBody: 'lt-detailBody';
+    readonly historyButton: 'lt-historyButton';
+    readonly historyRow: 'lt-historyRow';
     readonly tlGen: 'lt-tlGen';
     readonly generatingRow: 'lt-generatingRow';
     readonly jPlain: 'lt-jPlain';
