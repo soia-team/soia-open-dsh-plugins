@@ -92,6 +92,10 @@ function deriveToolName(id: string): string | null {
   return (match[1] ?? '').replaceAll('-', '_')
 }
 
+// One remote read per page load serves both the drawer's 插件 ID card and the
+// health roster's "our packages only" filter.
+let bundlesCache: Promise<BundleInfoLike[] | null> | null = null
+
 export const inject = ['slots', 'locale', 'sessions', 'uiConversation', 'remote', 'remote.pluginManager']
 
 /**
@@ -135,14 +139,38 @@ export function apply(ctx: ClientContext): void {
       const remote = (ctx as unknown as {
         remote?: { pluginManager?: { listBundles(): Promise<{ ok: boolean, value?: BundleInfoLike[] }> } }
       }).remote
+      const fetchBundles = (): Promise<BundleInfoLike[] | null> => {
+        if (bundlesCache === null) {
+          bundlesCache = (async () => {
+            const result = await remote?.pluginManager?.listBundles()
+            return result !== undefined && result.ok && result.value !== undefined ? result.value : null
+          })()
+        }
+        return bundlesCache
+      }
       return {
         ...(session === undefined
           ? {}
           : { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }),
+        // Tool → package rows, derived by naming law; the roster's
+        // default filter keeps only `soia-`-namespaced packages (this
+        // workspace's own plugins), with the full list still on hover.
+        listToolBundles: async (): Promise<{ tool: string, pkg: string, entryId: string }[]> => {
+          const bundles = await fetchBundles()
+          if (bundles === null) return []
+          const rows: { tool: string, pkg: string, entryId: string }[] = []
+          for (const bundle of bundles) {
+            for (const row of bundle.rows ?? []) {
+              const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
+              if (derived !== null) rows.push({ tool: derived, pkg: bundle.name, entryId: row.entryId ?? row.rowId })
+            }
+          }
+          return rows
+        },
         loadPluginInfo: async (toolName: string): Promise<PluginInfoCard | null> => {
-          const result = await remote?.pluginManager?.listBundles()
-          if (result === undefined || !result.ok || result.value === undefined) return null
-          for (const bundle of result.value) {
+          const bundles = await fetchBundles()
+          if (bundles === null) return null
+          for (const bundle of bundles) {
             for (const row of bundle.rows ?? []) {
               const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
               if (derived === toolName) {

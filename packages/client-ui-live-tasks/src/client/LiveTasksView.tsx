@@ -62,6 +62,8 @@ export interface LiveTasksViewProps {
   loadOlder?: () => Promise<void>
   /** Look up the bundle a tool comes from (remote plugin manager); optional. */
   loadPluginInfo?: (toolName: string) => Promise<PluginInfoCard | null>
+  /** Tool → package rows for the roster's default filter; optional. */
+  listToolBundles?: () => Promise<{ tool: string, pkg: string, entryId: string }[]>
 }
 
 /** The window snapshot shape the view consumes — declared structurally so the
@@ -1060,7 +1062,7 @@ function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onC
  * @param props - projection hook and translator from the slot kit.
  * @returns the view body, or an explicit empty state.
  */
-export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo }: LiveTasksViewProps): JSX.Element {
+export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element {
   const projected = useProjection('liveTask') as LiveTaskView | undefined
   /**
    * The client-side archive: the whole session folded from the resident event
@@ -1184,6 +1186,21 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   const [actualDuration, setActualDuration] = useState(true)
   const [failedOnly, setFailedOnly] = useState(false)
   const [query, setQuery] = useState('')
+  // 运行状况的内部诊断默认收起（面板基本用不到，出问题再展开）；
+  // 未知类型计数常驻在按钮上，折叠态也看得见异常。
+  const [diagOpen, setDiagOpen] = useState(false)
+  // 咱们自己的工具名单（包名 soia- 开头的 bundle 注册的工具）；拿不到就退回全量。
+  const [ourToolNames, setOurToolNames] = useState<ReadonlySet<string> | null>(null)
+  useEffect(() => {
+    if (listToolBundles === undefined) return
+    let alive = true
+    void listToolBundles().then((rows) => {
+      if (!alive) return
+      const ours = new Set(rows.filter((row) => row.pkg.startsWith('soia-')).map((row) => row.tool))
+      setOurToolNames(ours)
+    }).catch(() => undefined)
+    return () => { alive = false }
+  }, [listToolBundles])
   const [turnsOpen, setTurnsOpen] = useState(true)
   const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
@@ -1401,7 +1418,18 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
         <div className={styles.health}>
-          <span>{`${t('health.folded')} ${state.health.folded}`}</span>
+          <button
+            type="button"
+            className={styles.diagToggle}
+            aria-expanded={diagOpen}
+            onClick={() => setDiagOpen((value) => !value)}
+          >
+            {t('health.diag')}
+            {state.health.unknown > 0 ? ` · ${t('health.unknown')} ${state.health.unknown}` : ''}
+          </button>
+          {diagOpen && (
+            <>
+              <span>{`${t('health.folded')} ${state.health.folded}`}</span>
           <span>{`${t('health.ignored')} ${state.health.ignored}`}</span>
           <span className={state.health.unknown > 0 ? styles.healthStale : undefined}>
             {`${t('health.unknown')} ${state.health.unknown}`}
@@ -1411,7 +1439,9 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
             {`${t('health.agents')} ${state.health.agents} / ${t('health.registry')} ${
               state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
           </span>
-          <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
+              <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
+            </>
+          )}
           {/* The header lines moved here: the drawer names tools and rows carry
               per-call tokens, so the redundant header went — but the session
               telemetry the operator asked for stays, now beside the other
@@ -1425,10 +1455,18 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
           })}</span>
           {usedToolNames.length > 0 && (
             <span title={usedToolNames.join('、')}>
-              {t('health.tools', {
-                list: usedToolNames.slice(0, 4).join('、')
-                  + (usedToolNames.length > 4 ? '…' : ''),
-              })}
+              {(() => {
+                // 默认只列咱们插件（soia- 包）注册的工具；没触发过就退回全量，
+                // 完整名单始终在 title 里。
+                const oursOnly = ourToolNames !== null
+                  && usedToolNames.some((name) => ourToolNames.has(name))
+                const shown = oursOnly
+                  ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false)
+                  : usedToolNames
+                return t('health.tools', {
+                  list: shown.slice(0, 4).join('、') + (shown.length > 4 ? '…' : ''),
+                })
+              })()}
             </span>
           )}
           <span>{state.usage.reported === 0

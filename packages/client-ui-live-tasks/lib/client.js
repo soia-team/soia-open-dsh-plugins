@@ -1120,6 +1120,12 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 运行状况的诊断开关：收起时只留名字与异常计数，展开才给内部计数。 */
+.lt-diagToggle { height: 20px; padding: 0 8px; border: 0; border-radius: 3px; cursor: pointer;
+  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); color: var(--dsw-alias-label-secondary);
+  font-size: 12px; }
+.lt-diagToggle[aria-expanded='true'] { color: var(--dsw-alias-state-business-primary, #4078ff); }
+
 /* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
 .lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
   color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
@@ -1493,6 +1499,7 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	diagToggle: "lt-diagToggle",
 	pluginCard: "lt-pluginCard",
 	pluginLink: "lt-pluginLink",
 	historyButton: "lt-historyButton",
@@ -2512,7 +2519,7 @@ function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onC
 * @param props - projection hook and translator from the slot kit.
 * @returns the view body, or an explicit empty state.
 */
-function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo }) {
+function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }) {
 	const projected = useProjection("liveTask");
 	/**
 	* The client-side archive: the whole session folded from the resident event
@@ -2610,6 +2617,20 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const [actualDuration, setActualDuration] = (0, react.useState)(true);
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
+	const [diagOpen, setDiagOpen] = (0, react.useState)(false);
+	const [ourToolNames, setOurToolNames] = (0, react.useState)(null);
+	(0, react.useEffect)(() => {
+		if (listToolBundles === void 0) return;
+		let alive = true;
+		listToolBundles().then((rows) => {
+			if (!alive) return;
+			const ours = new Set(rows.filter((row) => row.pkg.startsWith("soia-")).map((row) => row.tool));
+			setOurToolNames(ours);
+		}).catch(() => void 0);
+		return () => {
+			alive = false;
+		};
+	}, [listToolBundles]);
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
@@ -2804,21 +2825,30 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: styles.health,
 							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: state.health.unknown > 0 ? styles.healthStale : void 0,
-									children: `${t("health.unknown")} ${state.health.unknown}`
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+									type: "button",
+									className: styles.diagToggle,
+									"aria-expanded": diagOpen,
+									onClick: () => setDiagOpen((value) => !value),
+									children: [t("health.diag"), state.health.unknown > 0 ? ` · ${t("health.unknown")} ${state.health.unknown}` : ""]
 								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: state.health.registry < 0 ? styles.healthStale : void 0,
-									children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
-									ok: state.health.deltasAccepted,
-									dropped: state.health.deltasDropped
-								}) }),
+								diagOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: state.health.unknown > 0 ? styles.healthStale : void 0,
+										children: `${t("health.unknown")} ${state.health.unknown}`
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: state.health.registry < 0 ? styles.healthStale : void 0,
+										children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
+										ok: state.health.deltasAccepted,
+										dropped: state.health.deltasDropped
+									}) })
+								] }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("axis.summary", {
 									turns: state.turnsTotal,
 									calls: state.toolCallsTotal,
@@ -2828,7 +2858,10 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 								}) }),
 								usedToolNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									title: usedToolNames.join("、"),
-									children: t("health.tools", { list: usedToolNames.slice(0, 4).join("、") + (usedToolNames.length > 4 ? "…" : "") })
+									children: (() => {
+										const shown = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name)) ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false) : usedToolNames;
+										return t("health.tools", { list: shown.slice(0, 4).join("、") + (shown.length > 4 ? "…" : "") });
+									})()
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
 									total: compact(state.usage.total),
@@ -2921,6 +2954,7 @@ const zh = {
 	"detail.loading": "读取中…",
 	"detail.unavailable": "插件信息不可用",
 	"health.tools": "工具：{list}",
+	"health.diag": "诊断",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -3062,6 +3096,7 @@ const en = {
 	"detail.loading": "Loading…",
 	"detail.unavailable": "Plugin info unavailable",
 	"health.tools": "Tools: {list}",
+	"health.diag": "Diagnostics",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",
@@ -3181,6 +3216,7 @@ function deriveToolName(id) {
 	if (match === null) return null;
 	return (match[1] ?? "").replaceAll("-", "_");
 }
+let bundlesCache = null;
 const inject = [
 	"slots",
 	"locale",
@@ -3208,15 +3244,36 @@ function apply(ctx) {
 		inject: (sessionId) => {
 			const session = ctx.sessions.binding(sessionId)?.session;
 			const remote = ctx.remote;
+			const fetchBundles = () => {
+				if (bundlesCache === null) bundlesCache = (async () => {
+					const result = await remote?.pluginManager?.listBundles();
+					return result !== void 0 && result.ok && result.value !== void 0 ? result.value : null;
+				})();
+				return bundlesCache;
+			};
 			return {
 				...session === void 0 ? {} : {
 					eventSource: session.eventSource,
 					loadOlder: () => session.loadOlder()
 				},
+				listToolBundles: async () => {
+					const bundles = await fetchBundles();
+					if (bundles === null) return [];
+					const rows = [];
+					for (const bundle of bundles) for (const row of bundle.rows ?? []) {
+						const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName);
+						if (derived !== null) rows.push({
+							tool: derived,
+							pkg: bundle.name,
+							entryId: row.entryId ?? row.rowId
+						});
+					}
+					return rows;
+				},
 				loadPluginInfo: async (toolName) => {
-					const result = await remote?.pluginManager?.listBundles();
-					if (result === void 0 || !result.ok || result.value === void 0) return null;
-					for (const bundle of result.value) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
+					const bundles = await fetchBundles();
+					if (bundles === null) return null;
+					for (const bundle of bundles) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
 						pkg: bundle.name,
 						version: bundle.version ?? null,
 						description: bundle.description ?? null,
