@@ -60,6 +60,7 @@ const GUIDANCE = [
  */
 const TOOL_DESCRIPTION = 'Read one UI element\'s rendered size and box styles from a page URL, to check '
   + 'declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences.'
+  + ' Prefer it over hand-written browser scripts: fixed viewport, waits for idle, and reports rect vs computed with the expected diff.'
 
 export function apply(ctx: Context): void {
   const health = new UiSizeHealth(ctx)

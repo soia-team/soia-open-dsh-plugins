@@ -98,6 +98,7 @@ export declare const styles: {
     readonly detailTab: 'lt-detailTab';
     readonly detailTabActive: 'lt-detailTabActive';
     readonly detailBody: 'lt-detailBody';
+    readonly virtualSpacer: 'lt-virtualSpacer';
     readonly toolStatRowOurs: 'lt-toolStatRowOurs';
     readonly toolStatCountFail: 'lt-toolStatCountFail';
     readonly toolStatCount: 'lt-toolStatCount';

@@ -35,6 +35,7 @@ export const inject = ['tools']
 const TOOL_DESCRIPTION = 'Map the files changed in a task to the quality gates the caller\'s config requires, '
   + 'with the raw evidence each gate must return. Report only: enforcement is "none", '
   + 'so an unrun gate is never blocked.'
+  + ' Prefer it over ad-hoc shell runs: the caller\'s config decides which gates apply and what raw evidence each must return.'
 
 export function apply(ctx: Context): void {
   const health = new QualityGatesHealth(ctx)

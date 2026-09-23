@@ -37,6 +37,7 @@ import {
 import type { LiveSpan, LiveTaskState, LiveTaskView, LiveTimelineEntry, LiveTurnSummary } from '../shared/types.ts'
 import type { PluginInfoCard } from './index.ts'
 import type { LiveTaskKey } from './locales.ts'
+import { RENDER_STEP, windowGroups } from './render-window.ts'
 import { styles } from './styles.ts'
 
 /** Props the conversation view slot hands a session-scoped view. */
@@ -1432,6 +1433,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   const [query, setQuery] = useState('')
   // 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。
   const [subTab, setSubTab] = useState<'activity' | 'status'>('activity')
+  // 虚拟占位：先渲染最新的 RENDER_STEP 行（按轮组切），更早的由底部占位行按需展开。
+  const [renderLimit, setRenderLimit] = useState(RENDER_STEP)
   const [turnsOpen, setTurnsOpen] = useState(true)
   const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
@@ -1634,11 +1637,16 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
               <col className={styles.eventColumn} />
               <col className={styles.contentColumn} />
             </colgroup>
-            {[...state.turns].reverse().map((turn) => (
-              <TurnSection
-                key={turn.turn}
-                turn={turn}
-                entries={entriesOfTurn(turn.turn)}
+            {(() => {
+            const turnGroups = [...state.turns].reverse().map((turn) => ({ turn, entries: entriesOfTurn(turn.turn) }))
+            const windowed = windowGroups(turnGroups, renderLimit)
+            return (
+              <>
+                {windowed.shown.map(({ turn, entries }) => (
+            <TurnSection
+              key={turn.turn}
+              turn={turn}
+              entries={entries}
                 picked={pickedTurn !== null && turn.turn === pickedTurn}
                 now={now}
                 open={turnsOpen}
@@ -1661,7 +1669,24 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
                 onToggle={(id) => setExpanded(expanded === id ? null : id)}
                 t={t}
               />
-            ))}
+                ))}
+                {windowed.hasMore && (
+                  <tr className={styles.virtualSpacer} data-virtual-spacer="true">
+                    <td colSpan={2}>
+                      <button
+                        type="button"
+                        className={styles.historyButton}
+                        onClick={() => setRenderLimit((limit) => limit + RENDER_STEP)}
+                      >
+                        {t('render.expandOlder', { n: windowed.hiddenRows })}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </>
+            )
+          })()}
+          
           </table>
         </div>
       </section>

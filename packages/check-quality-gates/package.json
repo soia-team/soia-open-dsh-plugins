@@ -32,8 +32,8 @@
       "dsh": ">=0.1.0-rc.8 <0.2.0"
     },
     "tokenBudget": {
-      "resident": 145,
-      "note": "tool block 578 chars -> 145 tokens (name 19 + description 198 + parameters 317) + no prompt section (0); pinned by tests/host/index.test.ts and recomputed from the built artifact by scripts/token-budget.mjs (4 chars ~= 1 token)"
+      "resident": 175,
+      "note": "tool block only (resident includes the 2026-09-23 usage-preference sentence); this package adds no prompt section; measured by scripts/token-budget.mjs (4 chars ≈ 1 token)"
     }
   },
   "peerDependencies": {

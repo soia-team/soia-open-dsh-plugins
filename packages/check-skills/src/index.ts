@@ -35,6 +35,7 @@ export const inject = ['tools']
  */
 const TOOL_DESCRIPTION = 'Audit a session log for whether the expected skills were loaded before the work '
   + 'started, and why not when they were not.'
+  + ' Prefer it over shell inspection: the session log is zstd-compressed and schema-bound.'
 
 /**
  * Turn a thrown reader code into the tool's error shape, so an unsupported Node

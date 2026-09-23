@@ -279,7 +279,7 @@ const GUIDANCE = ["UI acceptance needs a check_ui_size measurement, not CSS alon
 * modes are not described either: a failed call returns `status: "error"` with
 * a `code`, which the model reads from the result itself.
 */
-const TOOL_DESCRIPTION = "Read one UI element's rendered size and box styles from a page URL, to check declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences.";
+const TOOL_DESCRIPTION = "Read one UI element's rendered size and box styles from a page URL, to check declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences. Prefer it over hand-written browser scripts: fixed viewport, waits for idle, and reports rect vs computed with the expected diff.";
 function apply(ctx) {
 	const health = new UiSizeHealth(ctx);
 	ctx.tools.register(defineTool({

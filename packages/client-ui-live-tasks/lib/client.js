@@ -1143,6 +1143,11 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 虚拟占位：被渲染上限挡在后面的更早行，占位一行、点开即展。 */
+.lt-virtualSpacer td { height: 34px; padding: 0 8px; text-align: center;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  background: var(--dsw-alias-bg-layer-1, #fff); }
+
 /* 排序展示：工具名 + 来源标签 + 调用/成功/失败（Owner 画的样例行）。 */
 .lt-toolStatRow, .lt-toolStatRowOurs { display: inline-flex; align-items: baseline; gap: 8px;
   padding: 3px 10px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
@@ -1565,6 +1570,7 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	virtualSpacer: "lt-virtualSpacer",
 	toolStatRowOurs: "lt-toolStatRowOurs",
 	toolStatCountFail: "lt-toolStatCountFail",
 	toolStatCount: "lt-toolStatCount",
@@ -1690,6 +1696,34 @@ function LiveTasksHeaderAction({ useProjection, t }) {
 			children: label
 		})]
 	});
+}
+//#endregion
+//#region src/client/render-window.ts
+/**
+* Keep head groups until the row budget runs out; hold the rest behind the spacer.
+* @param groups - turn groups in render order (newest first).
+* @param limit - row-equivalent budget (each group counts its rows + 1 header slot).
+* @returns the groups to render and what the spacer would reveal.
+*/
+function windowGroups(groups, limit) {
+	let used = 0;
+	let cut = groups.length;
+	for (let index = 0; index < groups.length; index += 1) {
+		const cost = (groups[index]?.entries.length ?? 0) + 1;
+		if (index > 0 && used + cost > limit) {
+			cut = index;
+			break;
+		}
+		used += cost;
+	}
+	const shown = groups.slice(0, cut);
+	let hiddenRows = 0;
+	for (const group of groups.slice(cut)) hiddenRows += group.entries.length + 1;
+	return {
+		shown,
+		hiddenRows,
+		hasMore: groups.length - cut > 0
+	};
 }
 //#endregion
 //#region src/client/LiveTasksView.tsx
@@ -3002,6 +3036,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
 	const [subTab, setSubTab] = (0, react.useState)("activity");
+	const [renderLimit, setRenderLimit] = (0, react.useState)(400);
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
@@ -3186,20 +3221,38 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 									className: styles.table,
-									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
-										turn,
-										entries: entriesOfTurn(turn.turn),
-										picked: pickedTurn !== null && turn.turn === pickedTurn,
-										now,
-										open: turnsOpen,
-										expandedId: expanded,
-										dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
-										toolSchemas: state.toolSchemas,
-										liveText: liveStream !== null && liveStream.turn === turn.turn ? liveStream.text !== "" ? liveStream.text : liveStream.reasoning !== "" ? t("gen.reasoning") : null : null,
-										generating: state.running && state.openTools.length === 0 && turn.turn === state.turn && state.step !== null && !state.timeline.some((row) => row.kind === "assistant" && row.turn === turn.turn && row.step === state.step),
-										onToggle: (id) => setExpanded(expanded === id ? null : id),
-										t
-									}, turn.turn))]
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), (() => {
+										const windowed = windowGroups([...state.turns].reverse().map((turn) => ({
+											turn,
+											entries: entriesOfTurn(turn.turn)
+										})), renderLimit);
+										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [windowed.shown.map(({ turn, entries }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
+											turn,
+											entries,
+											picked: pickedTurn !== null && turn.turn === pickedTurn,
+											now,
+											open: turnsOpen,
+											expandedId: expanded,
+											dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
+											toolSchemas: state.toolSchemas,
+											liveText: liveStream !== null && liveStream.turn === turn.turn ? liveStream.text !== "" ? liveStream.text : liveStream.reasoning !== "" ? t("gen.reasoning") : null : null,
+											generating: state.running && state.openTools.length === 0 && turn.turn === state.turn && state.step !== null && !state.timeline.some((row) => row.kind === "assistant" && row.turn === turn.turn && row.step === state.step),
+											onToggle: (id) => setExpanded(expanded === id ? null : id),
+											t
+										}, turn.turn)), windowed.hasMore && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", {
+											className: styles.virtualSpacer,
+											"data-virtual-spacer": "true",
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+												colSpan: 2,
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+													type: "button",
+													className: styles.historyButton,
+													onClick: () => setRenderLimit((limit) => limit + 400),
+													children: t("render.expandOlder", { n: windowed.hiddenRows })
+												})
+											})
+										})] });
+									})()]
 								})
 							]
 						})]
@@ -3285,6 +3338,7 @@ const zh = {
 	"detail.pending": "运行中，结果完成后显示",
 	"gen.running": "生成中…",
 	"gen.reasoning": "思考中…",
+	"render.expandOlder": "展开更早 {n} 行",
 	"history.loadEarlier": "加载更早的历史",
 	"history.loadingEarlier": "正在加载更早的历史…",
 	"overview.caller": "调用方",
@@ -3443,6 +3497,7 @@ const en = {
 	"detail.pending": "Running — the result appears when the call settles",
 	"gen.running": "Generating…",
 	"gen.reasoning": "Thinking…",
+	"render.expandOlder": "Show {n} earlier rows",
 	"history.loadEarlier": "Load earlier history",
 	"history.loadingEarlier": "Loading earlier history…",
 	"overview.caller": "Caller",

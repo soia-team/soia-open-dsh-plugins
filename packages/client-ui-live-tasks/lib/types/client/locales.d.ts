@@ -63,6 +63,7 @@ export declare const zh: {
     readonly 'detail.pending': '运行中，结果完成后显示';
     readonly 'gen.running': '生成中…';
     readonly 'gen.reasoning': '思考中…';
+    readonly 'render.expandOlder': '展开更早 {n} 行';
     readonly 'history.loadEarlier': '加载更早的历史';
     readonly 'history.loadingEarlier': '正在加载更早的历史…';
     readonly 'overview.caller': '调用方';
