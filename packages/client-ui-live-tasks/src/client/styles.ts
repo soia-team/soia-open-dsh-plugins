@@ -14,6 +14,8 @@ const CSS = `
 /* One place for the row grid: the rows, their header and the detail indentation
    all read these, so a column change cannot leave them out of line. */
 .lt-view { display: flex; flex-direction: column; gap: 18px; padding: 18px 20px;
+  /* One base size: everything without an explicit size used to inherit the page's 14px. */
+  font-size: 12.5px; line-height: 20px;
   --lt-col-time: 84px; --lt-col-kind: 44px; --lt-col-took: 64px; --lt-gap: 8px;
   /* Narrow windows narrow the columns instead of squeezing the payload, and the
      row keeps a floor so the timeline scrolls sideways rather than clipping. */
@@ -28,7 +30,7 @@ const CSS = `
 /* 模块：统一的标题层级与间距，让每块自成一段 */
 .lt-section { display: flex; flex-direction: column; gap: 8px; }
 .lt-sectionHead { display: flex; align-items: center; gap: 10px; }
-.lt-sectionTitle { margin: 0; font: var(--dsw-font-xs-strong-13, 600 13px/18px inherit);
+.lt-sectionTitle { margin: 0; font-size: 13px; line-height: 18px; font-weight: 600;
   color: var(--dsw-alias-label-secondary); user-select: none; }
 
 /* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
@@ -42,7 +44,7 @@ const CSS = `
 .lt-search:focus-within { border-color: var(--dsw-alias-state-business-primary);
   background: var(--dsw-alias-bg-layer-1, #fff); }
 .lt-searchInput { width: 100%; min-width: 0; color: var(--dsw-alias-label-primary);
-  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; outline: 0; padding: 0; }
+  font-size: 12px; line-height: 16px; background: transparent; border: 0; outline: 0; padding: 0; }
 .lt-searchInput::placeholder { color: var(--dsw-alias-label-caption); }
 .lt-barButton, .lt-barOn { height: 26px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
   font-size: 12px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
@@ -114,7 +116,7 @@ const CSS = `
 .lt-turnLabel { color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 4%)); }
 .lt-turnLabelActive { color: var(--dsw-alias-label-primary);
   background: color-mix(in srgb, var(--dsw-static-blue-500, #4078ff) 22%, var(--dsw-alias-bg-layer-1, #fff)); }
-.lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.lt-turnMeta { color: var(--dsw-alias-label-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; }
 /* The timeline scrolls as one pane, both ways: vertical for length, horizontal
    for a narrow window, where the rows keep a floor width instead of clipping. */
 .lt-scroll { min-width: 0; max-height: 62vh; overflow: auto; }
@@ -184,7 +186,7 @@ const CSS = `
    The duration switch is 88px with the clock glyph, the two actions are 20px
    pills with ⊞/⊟ icons, and the search box floats to the right edge. */
 .lt-control { box-sizing: border-box; width: 88px; height: 20px; color: var(--dsw-alias-label-tertiary);
-  cursor: pointer; font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0;
+  cursor: pointer; font-size: 12px; line-height: 16px; background: transparent; border: 0;
   border-radius: 0; flex: none; justify-content: center; align-items: center; gap: 4px; padding: 0 5px;
   display: inline-flex; }
 .lt-control[aria-checked='true'] { color: var(--dsw-alias-label-primary); }
@@ -192,7 +194,7 @@ const CSS = `
 .lt-toggleIcon { stroke: currentColor; stroke-width: 1.25px; stroke-linecap: round; stroke-linejoin: round;
   flex: none; width: 12px; height: 12px; }
 .lt-action, .lt-actionOn { height: 20px; color: var(--dsw-alias-label-tertiary); cursor: pointer;
-  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; border-radius: 3px;
+  font-size: 12px; line-height: 16px; background: transparent; border: 0; border-radius: 3px;
   flex: none; align-items: center; gap: 4px; padding: 0 5px; display: inline-flex; }
 .lt-action:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
 .lt-action[aria-pressed='true'], .lt-actionOn { color: var(--dsw-alias-label-primary);
@@ -206,19 +208,19 @@ const CSS = `
    every later row down and could not be read against the row it described. */
 .lt-panes { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
 .lt-paneMain { display: flex; flex-direction: column; gap: 18px; flex: 1; min-width: 0; }
-.lt-details { display: flex; flex-direction: column; flex: none; width: 380px; max-height: 78vh;
+.lt-details { display: flex; flex-direction: column; flex: none; width: clamp(320px, 38%, 440px); max-height: 78vh;
   /* The shell scrolls the whole view; without this the tab strip rides up out of
      the viewport (measured at y=-94 on a live session) and the drawer cannot be
      used without scrolling back to the top. The trajectory view keeps its pane
      pinned the same way. */
   position: sticky; top: 8px; align-self: flex-start; z-index: 1;
-  border: 1px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 8px;
+  border-left: .5px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 14%));
   background: var(--dsw-alias-bg-layer-1, #fff); overflow: hidden; }
 .lt-detailsHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px;
   box-sizing: border-box; height: 42px; padding: 0 8px 0 12px; flex: none;
   border-bottom: .5px solid var(--dsw-alias-border-l2, rgb(0 0 0 / 14%)); }
 .lt-detailsTitle { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--dsw-alias-label-primary); }
-.lt-detailsName { font-weight: 600; }
+.lt-detailsName { font-size: 13px; font-weight: 600; }
 .lt-detailsLocation { min-width: 0; color: var(--dsw-alias-label-tertiary);
   font: 11px/16px var(--dsw-font-mono, monospace); text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
 .lt-detailsClose { flex: none; width: 22px; height: 22px; border: 0; border-radius: 4px; cursor: pointer;
@@ -227,12 +229,14 @@ const CSS = `
 .lt-detailTabs { display: flex; flex: none; overflow-x: auto; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailTabs::-webkit-scrollbar { display: none; }
 .lt-detailTab, .lt-detailTabActive { flex: none; position: relative; padding: 6px 9px; border: 0;
-  background: transparent; cursor: pointer; font: var(--dsw-font-xs-13, 13px/18px inherit); }
+  background: transparent; cursor: pointer; font-size: 13px; line-height: 18px; }
 .lt-detailTab { color: var(--dsw-alias-label-tertiary); }
 .lt-detailTabActive { color: var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-detailTabActive::after { content: ''; position: absolute; bottom: 0; left: 9px; right: 9px; height: 2px;
   border-radius: 1px 1px 0 0; background: var(--dsw-alias-state-business-primary, #4078ff); }
-.lt-detailBody { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.lt-detailBody { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px;
+  /* The reference's overview block sits at xs-13; ours inherited 14. */
+  font-size: 13px; line-height: 18px; }
 .lt-detailBody .lt-detailPre { max-height: none; }
 .lt-toolList { display: flex; flex-direction: column; margin: 4px 0 0; padding: 0; list-style: none; }
 .lt-toolItem { display: flex; flex-direction: column; }
@@ -278,6 +282,7 @@ const CSS = `
 .lt-detailBlock { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .lt-detailLabel { color: var(--dsw-alias-label-tertiary); font-size: 11px; }
 .lt-detailPre { margin: 0; max-height: 168px; overflow: auto; padding: 6px 8px; border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-1, #fff); white-space: pre-wrap; word-break: break-word;
   font-family: var(--dsw-font-mono, monospace); font-size: 12px; line-height: 18px;
   color: var(--dsw-alias-label-primary); }
@@ -357,7 +362,10 @@ const CSS = `
   letter-spacing: .02em; }
 
 /* 详情：概览网格 + 参数/结果 */
-.lt-detailGrid { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 3px 12px; margin: 0; }
+.lt-detailGrid { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 0;
+  align-items: center; margin: 0; }
+.lt-detailGrid dt, .lt-detailGrid dd { min-height: 22px; display: flex; align-items: center; margin: 0; }
+.lt-detailGrid dd { color: var(--dsw-alias-label-primary); min-width: 0; white-space: normal; word-break: break-word; }
 .lt-detailGrid dt { color: var(--dsw-alias-label-tertiary); }
 .lt-detailGrid dd { margin: 0; color: var(--dsw-alias-label-primary); }
 

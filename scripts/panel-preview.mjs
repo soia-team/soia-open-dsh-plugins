@@ -281,10 +281,38 @@ await view.waitForTimeout(900)
 // reader judges the panel by.
 await view.locator('[class*="lt-rowButton"]').nth(5).click()
 await view.waitForTimeout(250)
-// The highlighted target format lives on the timing tab; open it so the
-// screenshot and the millisecond assertion see the same thing.
+// The overview tab is open by default — read the sizes that only exist there.
+const overviewFonts = await view.evaluate(() => {
+  const size = (selector) => {
+    const node = globalThis.document.querySelector(selector)
+    return node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null
+  }
+  return { overviewValue: size('[class*="lt-detailGrid"] dd'), label: size('[class*="lt-detailLabel"]') }
+})
+// The payload lives on the 参数 tab; read its size there, then switch to 计时 so
+// the screenshot shows the millisecond format the reference highlights.
+await view.getByRole('tab', { name: '参数' }).click().catch(() => {})
+await view.waitForTimeout(150)
+const argsFonts = await view.evaluate(() => {
+  const node = globalThis.document.querySelector('[class*="lt-detailPre"]')
+  return { pre: node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null }
+})
 await view.getByRole('tab', { name: '计时' }).click().catch(() => {})
 await view.waitForTimeout(150)
+const restFonts = await view.evaluate(() => {
+  const size = (selector) => {
+    const node = globalThis.document.querySelector(selector)
+    return node ? parseFloat(globalThis.getComputedStyle(node).fontSize) : null
+  }
+  return {
+    row: size('[class*="lt-rowButton"]'),
+    meta: size('[class*="lt-turnMeta"]'),
+    tab: size('[role="tab"][aria-selected="true"]'),
+    drawerName: size('[class*="lt-detailsName"]'),
+    second: size('[class*="lt-tlSecond"]'),
+  }
+})
+const fonts = { ...overviewFonts, ...argsFonts, ...restFonts }
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
 // A missing translation renders as its raw key, which is exactly how the first
@@ -309,6 +337,7 @@ const visuals = await view.evaluate(() => ({
     .map((node) => (node.textContent ?? '').trim()).filter((text) => text !== ''),
   html: '',
 }))
+visuals.fonts = fonts
 
 const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
   .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
@@ -336,11 +365,22 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 // Fixture expectation: four tool rows (read/check_ui_size/grep + the truncated
 // bash) plus one model call line. The truncated row is the case that regressed
 // silently before — a missing purpose dropped the count from five to four.
+// Typography contract: one scale (11/12/12.5/13) — "some big, some small" was
+// unmeasured until now. Values come from the reference's own numbers: overview
+// block at xs-13, payloads at 12, rows at 12.5, meta no longer inheriting 14.
+const FONT_CONTRACT = { row: 12.5, meta: 12, overviewValue: 13, pre: 12, tab: 13, drawerName: 13, second: 11 }
+const fontDrift = Object.entries(FONT_CONTRACT)
+  .filter(([key, want]) => visuals.fonts?.[key] !== want)
+  .map(([key, want]) => `${key}: want ${want}, got ${visuals.fonts?.[key]}`)
+if (fontDrift.length > 0) {
+  console.error(`panel-preview: font drift → ${fontDrift.join('; ')}`)
+  process.exit(1)
+}
 if (visuals.secondLines < 5) {
   console.error(`panel-preview: expected ≥5 second lines, got ${visuals.secondLines}`)
   process.exit(1)
 }
-console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} toolTip=${visuals.spanToolTitle} colors=${JSON.stringify(visuals.spanColors)}`)
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} toolTip=${visuals.spanToolTitle} colors=${JSON.stringify(visuals.spanColors)} fonts=${JSON.stringify(visuals.fonts)}`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)
