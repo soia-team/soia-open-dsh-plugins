@@ -739,20 +739,37 @@ function argsInline(entry) {
 	return entry.detail;
 }
 /**
+* Hover text for one bar: which tool and what it is for, official or ours —
+* the strip used to say only `tool · 17:59:31`, which names nothing.
+* @param segment - the bar.
+* @param toolSchemas - header schemas keyed by tool name.
+* @param t - translator.
+* @param now - fallback clock for an open bar.
+* @returns the tooltip.
+*/
+function spanTitleOf(segment, toolSchemas, t, now) {
+	const time = `${clockOf(segment.startedAt)} · ${t("time.seconds", { s: secondsBetween(segment.startedAt, segment.endedAt ?? now) })}`;
+	if (segment.title === null) return `${segment.kind === "tool" ? t("timeline.tool") : segment.kind === "user" ? t("timeline.user") : segment.kind === "context" ? t("lane.context") : t("timeline.assistant")} · ${time}`;
+	const purpose = descriptionOf(toolSchemas[segment.title] ?? null);
+	return purpose === null ? `${segment.title} · ${time}` : `${segment.title}（${purpose}） · ${time}`;
+}
+/**
 * Read a tool's one-line purpose out of the schema the header carried.
 * @param schema - JSON text of `{name, description, parameters}`, or null.
 * @returns the trimmed description, or null when there is none.
 */
 function descriptionOf(schema) {
 	if (schema === null) return null;
+	const raw = /"description"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/.exec(schema)?.[1];
+	if (raw !== void 0) {
+		const text = raw.replace(/\\n/g, " ").replace(/\\s+/g, " ").replace(/\\"/g, "\"").trim();
+		if (text !== "") return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+	}
 	try {
 		const parsed = JSON.parse(schema);
 		if (parsed !== null && typeof parsed === "object") {
-			const raw = parsed["description"];
-			if (typeof raw === "string" && raw.trim() !== "") {
-				const text = raw.trim().replace(/\s+/g, " ");
-				return text.length > 140 ? `${text.slice(0, 140)}…` : text;
-			}
+			const value = parsed["description"];
+			if (typeof value === "string" && value.trim() !== "") return value.trim();
 		}
 	} catch {}
 	return null;
@@ -781,7 +798,10 @@ function secondLineOf(entry, siblings, toolSchemas, tLabel) {
 		const name = only?.title ?? "";
 		return purpose === null ? `${tLabel}${name}` : `${tLabel}${name}（${purpose}）`;
 	}
-	return `${tLabel}${called.map((row) => row.title).join("、")}`;
+	return `${tLabel}${called.map((row) => {
+		const purpose = descriptionOf(toolSchemas[row.title] ?? null);
+		return purpose === null ? row.title : `${row.title}（${purpose}）`;
+	}).join("、")}`;
 }
 /**
 * `YYYY-MM-DD HH:MM:SS.mmm`, local time — the precision the trajectory view's
@@ -820,7 +840,7 @@ function secondsBetween(from, to) {
 * @param props - the rows to plot, the turns to mark, and the interaction state.
 * @returns the chart.
 */
-function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, t, onSelect, onRange }) {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, toolSchemas, t, onSelect, onRange }) {
 	const [drag, setDrag] = (0, react.useState)(null);
 	const plotted = spans;
 	const starts = plotted.map((segment) => segment.startedAt);
@@ -948,8 +968,8 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, current
 								width: actualDuration ? `max(2px, ${widthOfSegment(segment)}%)` : "8px",
 								minWidth: actualDuration ? void 0 : "8px"
 							},
-							title: `${segment.kind} · ${clockOf(segment.startedAt)}`,
-							"aria-label": `${segment.kind} · ${clockOf(segment.startedAt)}`,
+							title: spanTitleOf(segment, toolSchemas, t, now),
+							"aria-label": spanTitleOf(segment, toolSchemas, t, now),
 							onClick: () => onSelect(segment.turn)
 						}, segment.id))
 					}),
@@ -1495,7 +1515,8 @@ function LiveTasksView({ useProjection, t }) {
 										t,
 										onSelect: setSelected,
 										onRange: setRange,
-										currentId: detailEntry?.id ?? null
+										currentId: detailEntry?.id ?? null,
+										toolSchemas: state.toolSchemas
 									})
 								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {

@@ -236,6 +236,14 @@ export interface LiveSpan {
   readonly startedAt: number
   /** Epoch milliseconds it settled at, or null while open. */
   readonly endedAt: number | null
+  /**
+   * Tool name for a tool span, null otherwise.
+   *
+   * Hovering a bar used to say only `tool · 17:59:31` — nothing about *which*
+   * tool, official or ours. The name rides on the span so the strip can answer
+   * that even for bars whose row has scrolled out of the retained window.
+   */
+  readonly title: string | null
 }
 
 /** One finished (or running) tool call as a human-readable line. */

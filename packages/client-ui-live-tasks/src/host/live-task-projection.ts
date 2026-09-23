@@ -62,6 +62,7 @@ const liveSpanSchema = z.object({
   status: z.enum(['ok', 'failed', 'running']),
   startedAt: z.number(),
   endedAt: z.number().nullable(),
+  title: z.string().nullable(),
 }).strict()
 
 const liveTimelineEntrySchema = z.object({
@@ -238,7 +239,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
  */
 export const liveTaskProjectionDefinition = {
   key: LIVE_TASK_PROJECTION_KEY,
-  stateVersion: 2,
+  stateVersion: 3,
   stateSchema: liveTaskStateSchema,
   // The initial state is built from constants alone, so both arguments the
   // registry passes — the session header and the fork-inherited prefix length —

@@ -5520,7 +5520,8 @@ function pushSpan(spans, entry) {
 		kind: entry.kind,
 		status: entry.status,
 		startedAt: entry.startedAt,
-		endedAt: entry.endedAt
+		endedAt: entry.endedAt,
+		title: entry.kind === "tool" ? entry.title : null
 	}].slice(-SPAN_LIMIT);
 }
 function usageField(usage, key) {
@@ -6315,7 +6316,8 @@ const liveSpanSchema = object({
 		"running"
 	]),
 	startedAt: number(),
-	endedAt: number().nullable()
+	endedAt: number().nullable(),
+	title: string().nullable()
 }).strict();
 const liveTimelineEntrySchema = object({
 	id: string(),
@@ -6496,7 +6498,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 2,
+	stateVersion: 3,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {
