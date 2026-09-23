@@ -98,6 +98,18 @@ export declare const styles: {
     readonly detailTab: 'lt-detailTab';
     readonly detailTabActive: 'lt-detailTabActive';
     readonly detailBody: 'lt-detailBody';
+    readonly tlGen: 'lt-tlGen';
+    readonly generatingRow: 'lt-generatingRow';
+    readonly jPlain: 'lt-jPlain';
+    readonly jPunct: 'lt-jPunct';
+    readonly jNum: 'lt-jNum';
+    readonly jKey: 'lt-jKey';
+    readonly jStr: 'lt-jStr';
+    readonly sectionPanel: 'lt-sectionPanel';
+    readonly sectionChevronDown: 'lt-sectionChevronDown';
+    readonly sectionChevron: 'lt-sectionChevron';
+    readonly sectionToggle: 'lt-sectionToggle';
+    readonly sectionBlock: 'lt-sectionBlock';
     readonly scroll: 'lt-scroll';
     readonly rowsInner: 'lt-rowsInner';
     readonly toolItem: 'lt-toolItem';

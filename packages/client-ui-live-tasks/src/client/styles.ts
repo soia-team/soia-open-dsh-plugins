@@ -170,6 +170,26 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* ── 概览的四段折叠 + JSON 高亮（照轨迹 overviewSection / 参数页签配色） ────── */
+.lt-sectionBlock { display: flex; flex-direction: column; }
+.lt-sectionToggle { display: inline-flex; align-items: center; gap: 3px; height: 22px; padding: 0;
+  border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 13px;
+  line-height: 18px; cursor: pointer; }
+.lt-sectionToggle:hover { color: var(--dsw-alias-label-primary); }
+.lt-sectionToggle:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.lt-sectionChevron, .lt-sectionChevronDown { display: inline-flex; color: var(--dsw-alias-label-caption);
+  font-size: 14px; line-height: 1; transition: transform .12s var(--ds-ease-in-out, ease-in-out); }
+.lt-sectionChevronDown { color: var(--dsw-alias-state-business-primary); transform: rotate(90deg); }
+.lt-sectionPanel { padding: 2px 0 8px 14px; }
+/* 参考截图的 JSON 主题：字符串红、数值蓝、标点弱化 */
+.lt-jStr { color: var(--dsw-alias-state-error-primary, #b42318); }
+.lt-jKey { color: var(--dsw-alias-label-primary); }
+.lt-jNum { color: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-jPunct, .lt-jPlain { color: var(--dsw-alias-label-secondary); }
+/* 生成中：模型这一步还没落盘 */
+.lt-generatingRow td { height: auto; min-height: 30px; padding-top: 3px; padding-bottom: 3px; }
+.lt-tlGen { color: var(--dsw-alias-label-tertiary); font-size: 12.5px; font-style: italic; }
+
 /* The strip is pinned inside the scrolling pane: one horizontal scroll box moves
    the chart and the rows together (they used to be two contexts and slid apart
    in narrow windows), and the strip stays visible while rows scroll vertically. */
@@ -507,6 +527,18 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    tlGen: 'lt-tlGen',
+    generatingRow: 'lt-generatingRow',
+    jPlain: 'lt-jPlain',
+    jPunct: 'lt-jPunct',
+    jNum: 'lt-jNum',
+    jKey: 'lt-jKey',
+    jStr: 'lt-jStr',
+    sectionPanel: 'lt-sectionPanel',
+    sectionChevronDown: 'lt-sectionChevronDown',
+    sectionChevron: 'lt-sectionChevron',
+    sectionToggle: 'lt-sectionToggle',
+    sectionBlock: 'lt-sectionBlock',
   scroll: 'lt-scroll',
   rowsInner: 'lt-rowsInner',
   toolItem: 'lt-toolItem',

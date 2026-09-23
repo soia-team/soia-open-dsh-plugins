@@ -360,6 +360,17 @@ export const FULL_DETAIL_WINDOW = 64
 
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600
+/**
+ * Payload ceilings for the drawer's tabs.
+ *
+ * One 600-character cap served the row's inline summary but also the drawer, so
+ * the 参数 and 结果 tabs showed cut-off JSON — the operator's complaint. The row
+ * keeps the small cap; the drawer gets real payloads, bounded so a session of
+ * huge results cannot multiply the projection by megabytes: arguments fit any
+ * command worth reading (4KB), results up to 8KB with an ellipsis beyond.
+ */
+const EXPAND_ARGS_LIMIT = 4096
+const EXPAND_RESULT_LIMIT = 8192
 
 /** How many turns the axis keeps. */
 export const TURN_LIMIT = 96
@@ -557,7 +568,7 @@ export function summarizeToolResult(data: Record<string, unknown> | undefined): 
  * @param value - raw text or JSON string.
  * @returns the expandable form, or null when there is nothing to show.
  */
-function expandable(value: string | null): string | null {
+function expandable(value: string | null, limit: number = DETAIL_PAYLOAD_LIMIT): string | null {
   if (value === null || value.trim() === '') return null
   const text = value.trim().startsWith('{') || value.trim().startsWith('[')
     ? (() => {
@@ -568,7 +579,7 @@ function expandable(value: string | null): string | null {
         }
       })()
     : value
-  return text.length <= DETAIL_PAYLOAD_LIMIT ? text : `${text.slice(0, DETAIL_PAYLOAD_LIMIT)}…`
+  return text.length <= limit ? text : `${text.slice(0, limit)}…`
 }
 
 /** Collapse whitespace and clip to the wire budget. */
@@ -821,7 +832,7 @@ function foldEvent(
           entryId: entryIdOfTool(name),
           detail: call.detail,
           result: null,
-          argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null),
+          argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null, EXPAND_ARGS_LIMIT),
           resultFull: null,
           status: 'running',
         }),
@@ -857,7 +868,7 @@ function foldEvent(
           : settleTimeline(state.timeline, callId, {
               endedAt: time,
               result: summarizeToolResult(data),
-              resultFull: expandable(fullToolResult(data)),
+              resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
               status: resultFailed ? 'failed' : 'ok',
             }),
         actions: settled === undefined
@@ -891,7 +902,7 @@ function foldEvent(
           detail,
           result: null,
           argsFull: null,
-          resultFull: expandable(fullToolResult(data)),
+          resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
           status: 'ok',
         }),
         ...observed(state, event, null),
@@ -938,7 +949,7 @@ function foldEvent(
               detail: firstLineOfMessage(data),
               result: null,
               argsFull: null,
-              resultFull: expandable(fullToolResult(data)),
+              resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
               status: 'ok',
             })
           : { timeline: state.timeline, spans: state.spans }),
