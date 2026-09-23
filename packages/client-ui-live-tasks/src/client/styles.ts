@@ -34,9 +34,16 @@ const CSS = `
 /* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
 .lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
   padding: 4px 0; background: var(--dsw-alias-bg-base, #fff); }
-.lt-search { flex: 1 1 220px; min-width: 140px; height: 26px; padding: 0 8px; border-radius: 6px;
-  border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 16%)); background: transparent;
-  color: var(--dsw-alias-label-primary); font-size: 12px; }
+.lt-search { border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); min-width: 84px; height: 22px;
+  color: var(--dsw-alias-label-caption); background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  border-radius: 4px; flex: 0 164px; align-items: center; gap: 4px; margin-left: auto; padding: 0 6px;
+  display: flex; }
+.lt-search:hover { border-color: var(--dsw-alias-label-caption); }
+.lt-search:focus-within { border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-layer-1, #fff); }
+.lt-searchInput { width: 100%; min-width: 0; color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; outline: 0; padding: 0; }
+.lt-searchInput::placeholder { color: var(--dsw-alias-label-caption); }
 .lt-barButton, .lt-barOn { height: 26px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
   font-size: 12px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-secondary); }
@@ -151,6 +158,26 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* ── Toolbar, copied from the trajectory view's toolbar module ──────────────
+   The duration switch is 88px with the clock glyph, the two actions are 20px
+   pills with ⊞/⊟ icons, and the search box floats to the right edge. */
+.lt-control { box-sizing: border-box; width: 88px; height: 20px; color: var(--dsw-alias-label-tertiary);
+  cursor: pointer; font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0;
+  border-radius: 0; flex: none; justify-content: center; align-items: center; gap: 4px; padding: 0 5px;
+  display: inline-flex; }
+.lt-control[aria-checked='true'] { color: var(--dsw-alias-label-primary); }
+.lt-control:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.lt-toggleIcon { stroke: currentColor; stroke-width: 1.25px; stroke-linecap: round; stroke-linejoin: round;
+  flex: none; width: 12px; height: 12px; }
+.lt-action, .lt-actionOn { height: 20px; color: var(--dsw-alias-label-tertiary); cursor: pointer;
+  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; border-radius: 3px;
+  flex: none; align-items: center; gap: 4px; padding: 0 5px; display: inline-flex; }
+.lt-action:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.lt-action[aria-pressed='true'], .lt-actionOn { color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-action:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.lt-actionIcon { color: var(--dsw-alias-label-tertiary); font: 14px/14px var(--dsw-font-mono, monospace); }
 
 /* ── Panes and the detail drawer ────────────────────────────────────────────
    The trajectory view opens a row's detail as a right-hand pane with a 42px
@@ -389,6 +416,12 @@ export const styles = {
   badgeFailed: 'lt-badgeFailed',
   bar: 'lt-bar',
   search: 'lt-search',
+    searchInput: 'lt-searchInput',
+    toggleIcon: 'lt-toggleIcon',
+    actionIcon: 'lt-actionIcon',
+    actionOn: 'lt-actionOn',
+    action: 'lt-action',
+    control: 'lt-control',
   barButton: 'lt-barButton',
   barOn: 'lt-barOn',
   barHint: 'lt-barHint',

@@ -119,6 +119,10 @@ const DICTIONARY = {
   'detail.name': '名称', 'detail.entryId': '插件 ID', 'detail.content': '内容',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 20 行）',
+  'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
+  'bar.useEqual': '使用等宽操作', 'bar.turnsMode': '轮次', 'bar.callsMode': '调用',
+  'bar.expandCalls': '展开所有调用', 'bar.collapseCalls': '收起所有调用',
+  'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
@@ -278,6 +282,8 @@ const visuals = await view.evaluate(() => ({
   drawer: globalThis.document.querySelector('[class*="lt-details"]') !== null,
   stamp: (globalThis.document.querySelector('[class*="lt-detailBody"]')?.textContent ?? '').match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}/)?.[0] ?? null,
   argsInline: globalThis.document.querySelectorAll('[class*="lt-tlArgs"]').length,
+  toolbar: [...globalThis.document.querySelectorAll('[class*="lt-control"], [class*="lt-action"]')]
+    .map((node) => (node.textContent ?? '').trim()).filter((text) => text !== ''),
   html: '',
 }))
 
@@ -293,7 +299,7 @@ if (!keep) rmSync(scratch, { recursive: true, force: true })
 else console.log(`panel-preview: kept ${pagePath}`)
 
 console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → ${out}`)
-console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline}`)
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}]`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)
