@@ -95,7 +95,19 @@ function pushTimeline(
   timeline: readonly LiveTimelineEntry[],
   entry: LiveTimelineEntry,
 ): readonly LiveTimelineEntry[] {
-  return [...timeline, entry].slice(-TIMELINE_LIMIT)
+  const windowed = [...timeline, entry].slice(-TIMELINE_LIMIT)
+  const keepFrom = windowed.length - Math.min(FULL_DETAIL_WINDOW, windowed.length)
+  return windowed.map((row, index) => (index < keepFrom ? demoteRow(row) : row))
+}
+
+/**
+ * Strip a row's heavy payloads as it ages out of the full-detail window.
+ * @param row - the row to demote.
+ * @returns the same reference when already light.
+ */
+function demoteRow(row: LiveTimelineEntry): LiveTimelineEntry {
+  if (row.argsFull === null && row.resultFull === null) return row
+  return { ...row, argsFull: null, resultFull: null }
 }
 
 /** Replace one row in place, keeping its position in the narrative. */
@@ -329,16 +341,28 @@ export function entryIdOfTool(toolName: string): string | null {
 }
 
 /** How many lane segments the view keeps (the chart wants density, not rows). */
-const SPAN_LIMIT = 400
+const SPAN_LIMIT = 1600
 
 /** How many timeline rows the view keeps. */
-export const TIMELINE_LIMIT = 64
+export const TIMELINE_LIMIT = 384
+
+/**
+ * How many of the newest rows keep their full argument/result payloads.
+ *
+ * The trajectory view pages the whole session through the conversation carrier;
+ * this panel reads a bounded projection, so coverage is bought with bytes. Rows
+ * beyond this window keep their identity, times, text summary and result but
+ * drop the large payloads — 64 full rows plus hundreds of summary rows fit in
+ * roughly a third of a megabyte per publish, measured live after install, where
+ * every payload-bearing row would have cost well over a megabyte.
+ */
+export const FULL_DETAIL_WINDOW = 64
 
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600
 
 /** How many turns the axis keeps. */
-export const TURN_LIMIT = 32
+export const TURN_LIMIT = 96
 
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80

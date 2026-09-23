@@ -1142,7 +1142,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
 			className: styles.contentCell,
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: styles.none,
-				children: turn.toolCalls > 0 ? t("turn.windowOnly", { n: 64 }) : t("turn.empty")
+				children: turn.toolCalls > 0 ? t("turn.windowOnly", { n: 384 }) : t("turn.empty")
 			})
 		})] }) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
 			className: styles.stepRow,

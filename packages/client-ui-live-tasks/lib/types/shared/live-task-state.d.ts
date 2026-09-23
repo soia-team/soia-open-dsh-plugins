@@ -38,9 +38,20 @@ export declare const RECENT_EVENT_LIMIT = 6;
  */
 export declare function entryIdOfTool(toolName: string): string | null;
 /** How many timeline rows the view keeps. */
-export declare const TIMELINE_LIMIT = 64;
+export declare const TIMELINE_LIMIT = 384;
+/**
+ * How many of the newest rows keep their full argument/result payloads.
+ *
+ * The trajectory view pages the whole session through the conversation carrier;
+ * this panel reads a bounded projection, so coverage is bought with bytes. Rows
+ * beyond this window keep their identity, times, text summary and result but
+ * drop the large payloads — 64 full rows plus hundreds of summary rows fit in
+ * roughly a third of a megabyte per publish, measured live after install, where
+ * every payload-bearing row would have cost well over a megabyte.
+ */
+export declare const FULL_DETAIL_WINDOW = 64;
 /** How many turns the axis keeps. */
-export declare const TURN_LIMIT = 32;
+export declare const TURN_LIMIT = 96;
 /** How many finished calls the activity log keeps. */
 export declare const ACTION_LIMIT = 8;
 /**
