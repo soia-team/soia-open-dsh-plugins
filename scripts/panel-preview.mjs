@@ -118,7 +118,9 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+  'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'card.turns': '轮次', 'card.calls': '调用', 'card.failures': '失败', 'card.tools': '可用工具',
+ 'card.used': '用到种数', 'sec.usage': 'Token 用量', 'sec.tools': '触发过的工具', 'sec.diagnostics': '诊断',
+ 'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -127,7 +129,7 @@ const DICTIONARY = {
   'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
   'detail.hierarchy': '层级', 'level.user': '用户消息', 'level.assistant': '助手消息', 'level.tool': '工具调用',
-  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…', 'detail.package': '包名', 'detail.version': '版本', 'detail.entry': '入口', 'detail.enabled': '已启用', 'detail.disabled': '未启用', 'detail.loading': '读取中…', 'detail.unavailable': '插件信息不可用', 'gen.reasoning': '思考中…',
+  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…', 'detail.package': '包名', 'detail.version': '版本', 'detail.entry': '入口', 'detail.enabled': '已启用', 'detail.disabled': '未启用', 'detail.loading': '读取中…', 'detail.unavailable': '无独立插件行（可能是主控内置）', 'gen.reasoning': '思考中…',
   'detail.purpose': '说明', 'row.called': '调用: ',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
@@ -349,17 +351,25 @@ const restFonts = await view.evaluate(() => {
 const fonts = { ...overviewFacts, ...argsFacts, ...restFonts }
 // 遥测在活动页的第二个子页签里：切过去读，读完切回来，后续断言照常走时间线。
 await view.getByRole('tab', { name: '插件运行状况', exact: true }).click()
-await view.waitForTimeout(250)
+// 等健康块真的挂上再读，别用固定小睡赌渲染。
+await view.locator('[class*="lt-health"]').first().waitFor({ timeout: 8000 })
 // 运行状况契约：数据整块挪进专属页签（内部计数常驻可见），名单默认只列咱们的插件。
 const healthFacts = await view.evaluate(() => {
   const health = globalThis.document.querySelector('[class*="lt-health"]')
   const text = health?.innerText ?? ''
-  const roster = [...(health?.querySelectorAll('span') ?? [])]
-    .map((node) => node.textContent ?? '').find((value) => value.startsWith('工具：')) ?? null
+  const chips = [...globalThis.document.querySelectorAll('[class*="lt-toolChip"]')]
+  const firstChip = chips[0] ?? null
   return {
-    roster,
+    textHead: text.slice(0, 140),
+    chipCount: chips.length,
+    // 咱们的排最前：首枚胶囊是 soia 工具且带 ours 样式。
+    roster: firstChip !== null
+      && (firstChip.className.includes('lt-toolChipOurs'))
+      && (firstChip.textContent ?? '').startsWith('check'),
     internalsVisible: /已折叠事件/.test(text),
     staleVisible: /数据更新/.test(text),
+    cards: globalThis.document.querySelectorAll('[class*="lt-statCard"]').length,
+    usageBar: globalThis.document.querySelector('[class*="lt-usageBar"]') !== null,
   }
 })
 await view.getByRole('tab', { name: '插件活动', exact: true }).click()
@@ -375,7 +385,10 @@ const facts = {
   caller: overviewFacts.caller,
   callee: overviewFacts.callee,
   // 名单默认只显示咱们的插件：fixture 用过 read/grep/bash + 一个 soia 工具。
-  ours: healthFacts.roster === '工具：check_ui_size',
+  ours: healthFacts.roster && healthFacts.cards >= 5 && healthFacts.usageBar,
+  textHead: healthFacts.textHead,
+  chipCount: healthFacts.chipCount,
+  cards: healthFacts.cards,
   internalsVisible: healthFacts.internalsVisible,
   staleVisible: healthFacts.staleVisible,
 }
@@ -440,7 +453,7 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0
   && visuals.facts?.caller && visuals.facts?.callee
   && visuals.facts?.ours && visuals.facts?.internalsVisible && visuals.facts?.staleVisible)) {
-  console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)}`)
+  console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)} pageErrors=${JSON.stringify(errors.slice(0, 3))} health=${JSON.stringify(visuals.facts?.textHead ?? null)} chips=${visuals.facts?.chipCount}`)
   process.exit(1)
 }
 const FONT_CONTRACT = { row: 12.5, meta: 12, overviewValue: 13, pre: 12, tab: 13, drawerName: 13, second: 11 }

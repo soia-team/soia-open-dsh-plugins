@@ -170,6 +170,33 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 插件运行状况：参照上下文页的简单表示——统计卡、用量构成条、工具胶囊、诊断组。 */
+.lt-statGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 4px; }
+.lt-statCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%)); }
+.lt-statLabel { font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-secondary); }
+.lt-statValue { font-size: 16px; line-height: 22px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-subTitle { margin: 14px 0 6px; font-size: 12px; line-height: 16px;
+  color: var(--dsw-alias-label-caption); }
+.lt-usageBar { display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+  background: rgb(0 0 0 / 6%); }
+.lt-usageBar span { display: block; height: 100%; }
+.lt-usageCache { background: var(--dsw-alias-state-success-primary, #17a34a); }
+.lt-usageInput { background: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-usageReason { background: #9333ea; }
+.lt-usageOutput { background: var(--dsw-alias-state-warn-primary, #f59e0b); }
+.lt-usageLegend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px;
+  font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.lt-toolRoster { display: flex; flex-wrap: wrap; gap: 6px; }
+.lt-toolChip { padding: 2px 8px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  color: var(--dsw-alias-label-secondary); font-size: 12px;
+  font-family: var(--dsw-font-mono, monospace); }
+.lt-toolChipOurs { border-color: var(--dsw-alias-state-business-primary, #4078ff);
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600; }
+.lt-statusNote { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+
 /* 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。13px 对齐官方页签字号。 */
 .lt-subTabs { display: flex; gap: 2px; padding: 2px 8px 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-subTab { height: 26px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
@@ -553,6 +580,19 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    statusNote: 'lt-statusNote',
+    toolChipOurs: 'lt-toolChipOurs',
+    toolChip: 'lt-toolChip',
+    toolRoster: 'lt-toolRoster',
+    usageLegend: 'lt-usageLegend',
+    usageOutput: 'lt-usageOutput',
+    usageReason: 'lt-usageReason',
+    usageInput: 'lt-usageInput',
+    usageCache: 'lt-usageCache',
+    usageBar: 'lt-usageBar',
+    subTitle: 'lt-subTitle',
+    statCard: 'lt-statCard',
+    statGrid: 'lt-statGrid',
       subTab: 'lt-subTab',
     subTabs: 'lt-subTabs',
       pluginCard: 'lt-pluginCard',

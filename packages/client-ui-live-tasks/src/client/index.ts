@@ -135,7 +135,12 @@ export function apply(ctx: ClientContext): void {
         bundlesCache = (async () => {
           const result = await remote?.pluginManager?.listBundles()
           return result !== undefined && result.ok && result.value !== undefined ? result.value : null
-        })()
+        })().then((value) => {
+          // 只缓存成功：页面刚开时远端可能还没连上，把一次 null 钉进缓存
+          // 会让整页的插件信息永远停在'不可用'。
+          if (value === null) bundlesCache = null
+          return value
+        })
       }
       return bundlesCache
     }
@@ -159,23 +164,30 @@ export function apply(ctx: ClientContext): void {
         return rows
       },
       loadPluginInfo: async (toolName: string): Promise<PluginInfoCard | null> => {
-        const bundles = await fetchBundles()
-        if (bundles === null) return null
-        for (const bundle of bundles) {
-          for (const row of bundle.rows ?? []) {
-            const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
-            if (derived === toolName) {
-              return {
-                pkg: bundle.name,
-                version: bundle.version ?? null,
-                description: bundle.description ?? null,
-                enabled: bundle.enabled,
-                entryId: row.entryId ?? row.rowId,
+        const match = async (): Promise<PluginInfoCard | null> => {
+          const bundles = await fetchBundles()
+          if (bundles === null) return null
+          for (const bundle of bundles) {
+            for (const row of bundle.rows ?? []) {
+              const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
+              if (derived === toolName) {
+                return {
+                  pkg: bundle.name,
+                  version: bundle.version ?? null,
+                  description: bundle.description ?? null,
+                  enabled: bundle.enabled,
+                  entryId: row.entryId ?? row.rowId,
+                }
               }
             }
           }
+          return null
         }
-        return null
+        const first = await match()
+        if (first !== null) return first
+        // 远端冷启动窗口：刚打开页面就点，第一次常拿到 null——等一下再问一次。
+        await new Promise((resolve) => { setTimeout(resolve, 700) })
+        return match()
       },
     }
   }

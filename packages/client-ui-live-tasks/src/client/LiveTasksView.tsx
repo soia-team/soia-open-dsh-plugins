@@ -1261,16 +1261,88 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
   }
   const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
-  const oursOnly = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name))
-  const rosterShown = oursOnly
-    ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false)
-    : usedToolNames
+  const oursSet = ourToolNames ?? new Set<string>()
+  const rosterFull = usedToolNames.join('、')
+  // 用量条：缓存/输入/思考/输出 四段占总注入+输出的比例（与上下文页的构成条同思路，简版）。
+  const usageSum = state.usage.cacheRead + state.usage.input + state.usage.output + state.usage.reasoning
+  const segWidth = (value: number): number => (usageSum === 0 ? 0 : (value / usageSum) * 100)
+  const usageLine = state.usage.reported === 0
+    ? t('usage.unknown')
+    : t('usage.line', {
+        total: compact(state.usage.total),
+        input: compact(state.usage.input),
+        output: compact(state.usage.output),
+        cache: compact(state.usage.cacheRead),
+        pct: state.usage.cacheRead + state.usage.input === 0
+          ? 0
+          : Math.round((state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100),
+      })
   return (
     <div className={styles.view}>
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
+        {/* 统计卡（参照上下文页的 上下文统计 一排数）：一眼五个数。 */}
+        <div className={styles.statGrid}>
+          <div className={styles.statCard}>
+            <span className={styles.statLabel}>{t('card.turns')}</span>
+            <b className={styles.statValue}>{state.turnsTotal}</b>
+          </div>
+          <div className={styles.statCard}>
+            <span className={styles.statLabel}>{t('card.calls')}</span>
+            <b className={styles.statValue}>{compact(state.toolCallsTotal)}</b>
+          </div>
+          <div className={styles.statCard}>
+            <span className={styles.statLabel}>{t('card.failures')}</span>
+            <b className={styles.statValue}>{state.failuresTotal}</b>
+          </div>
+          <div className={styles.statCard}>
+            <span className={styles.statLabel}>{t('card.tools')}</span>
+            <b className={styles.statValue}>{state.toolsAvailable ?? '—'}</b>
+          </div>
+          <div className={styles.statCard}>
+            <span className={styles.statLabel}>{t('card.used')}</span>
+            <b className={styles.statValue}>{distinctTools}</b>
+          </div>
+        </div>
+        {/* Token 用量：四段构成条 + 明细行。 */}
+        <div className={styles.subTitle}>{t('sec.usage')}</div>
+        {state.usage.reported === 0 ? (
+          <span className={styles.statusNote}>{t('usage.unknown')}</span>
+        ) : (
+          <>
+            <div className={styles.usageBar} title={usageLine}>
+              <span className={styles.usageCache} style={{ width: `${segWidth(state.usage.cacheRead)}%` }} />
+              <span className={styles.usageInput} style={{ width: `${segWidth(state.usage.input)}%` }} />
+              <span className={styles.usageReason} style={{ width: `${segWidth(state.usage.reasoning)}%` }} />
+              <span className={styles.usageOutput} style={{ width: `${segWidth(state.usage.output)}%` }} />
+            </div>
+            <div className={styles.usageLegend}>
+              <span>{`${t('leg.cache')} ${compact(state.usage.cacheRead)}`}</span>
+              <span>{`${t('leg.input')} ${compact(state.usage.input)}`}</span>
+              <span>{`${t('leg.reason')} ${compact(state.usage.reasoning)}`}</span>
+              <span>{`${t('leg.output')} ${compact(state.usage.output)}`}</span>
+              <span className={styles.statusNote}>{usageLine}</span>
+            </div>
+          </>
+        )}
+        {/* 触发过的工具：咱们的（soia- 包）排最前并高亮；完整名单在 title。 */}
+        <div className={styles.subTitle}>{t('sec.tools')}</div>
+        <div className={styles.toolRoster} title={rosterFull}>
+          {[...usedToolNames]
+            .sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0))
+            .map((name) => (
+              <span
+                key={name}
+                className={oursSet.has(name) ? styles.toolChipOurs : styles.toolChip}
+              >
+                {name}
+              </span>
+            ))}
+        </div>
+        {/* 诊断 + 数据新旧：内部计数全量常驻（本页签就是看它们的地方）。 */}
+        <div className={styles.subTitle}>{t('sec.diagnostics')}</div>
         <div className={styles.health}>
-              <span>{`${t('health.folded')} ${state.health.folded}`}</span>
+          <span>{`${t('health.folded')} ${state.health.folded}`}</span>
           <span>{`${t('health.ignored')} ${state.health.ignored}`}</span>
           <span className={state.health.unknown > 0 ? styles.healthStale : undefined}>
             {`${t('health.unknown')} ${state.health.unknown}`}
@@ -1280,37 +1352,7 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
             {`${t('health.agents')} ${state.health.agents} / ${t('health.registry')} ${
               state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
           </span>
-              <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
-          {/* The header lines moved here: the drawer names tools and rows carry
-              per-call tokens, so the redundant header went — but the session
-              telemetry the operator asked for stays, now beside the other
-              counters where a stale panel is judged. */}
-          <span title={usedToolNames.join('、')}>{t('axis.summary', {
-            turns: state.turnsTotal,
-            calls: state.toolCallsTotal,
-            failures: state.failuresTotal,
-            tools: state.toolsAvailable ?? '—',
-            used: distinctTools,
-          })}</span>
-          {rosterShown.length > 0 && (
-            <span title={usedToolNames.join('、')}>
-              {t('health.tools', {
-                list: rosterShown.slice(0, 4).join('、')
-                  + (rosterShown.length > 4 ? '…' : ''),
-              })}
-            </span>
-          )}
-          <span>{state.usage.reported === 0
-            ? t('usage.unknown')
-            : t('usage.line', {
-                total: compact(state.usage.total),
-                input: compact(state.usage.input),
-                output: compact(state.usage.output),
-                cache: compact(state.usage.cacheRead),
-                pct: state.usage.cacheRead + state.usage.input === 0
-                  ? 0
-                  : Math.round((state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100),
-              })}</span>
+          <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
           <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
             {silentSeconds > 60 && state.running
               ? t('health.stale', { s: silentSeconds })
@@ -1321,7 +1363,6 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
     </div>
   )
 }
-
 export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element {
   const { state, hasOlder, loadingOlder, liveStream } = useLiveTaskDisplay(
     { useProjection, useSession, eventSource, listToolBundles },
