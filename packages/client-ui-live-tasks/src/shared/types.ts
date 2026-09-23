@@ -320,6 +320,8 @@ export interface LiveTaskView {
   readonly turnsTotal: number
   /** Token usage for the whole session, folded from assistant messages. */
   readonly usage: LiveTaskUsage
+  /** Schemas of the tools rows actually called — name → trimmed definition. */
+  readonly toolSchemas: Readonly<Record<string, string>>
   /** Fold counters, so the panel can report its own freshness. */
   readonly health: LiveTaskHealth
   /**
@@ -349,6 +351,14 @@ export interface LiveTaskView {
  * happened, which is what a reader actually wants on the "last event" line.
  */
 export interface LiveTaskState extends LiveTaskView {
+  /**
+   * Every tool the request header offered, keyed by name — host-only.
+   *
+   * The header carries sixty definitions a session; publishing them all would
+   * dwarf the view. Only what a row actually called is copied out to
+   * `toolSchemas` and put on the wire.
+   */
+  readonly headerSchemas: Readonly<Record<string, string>>
   /** Characters of assistant text streamed for the open step. */
   readonly streamedTextLength: number
   /** Time of the last folded text delta for the open step; null before one. */

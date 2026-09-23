@@ -30,7 +30,7 @@ export declare const zh: {
     readonly 'detail.timing': '计时';
     readonly 'detail.close': '关闭详情';
     readonly 'timing.ended': '结束时间';
-    readonly 'turn.windowOnly': '更早的明细未保留（仅保留最近 20 行）';
+    readonly 'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）';
     readonly 'detail.schema': 'Schema';
     readonly 'detail.schemaUnavailable': 'Schema 不可用';
     readonly 'timing.ms': '毫秒';

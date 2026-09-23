@@ -140,6 +140,8 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   health: liveTaskHealthSchema,
   endedReason: z.string().nullable(),
   streamedTextLength: z.number().int().nonnegative(),
+  toolSchemas: z.record(z.string(), z.string()),
+  headerSchemas: z.record(z.string(), z.string()),
   streamedAt: z.number().nullable(),
 }).strict()
 
@@ -162,6 +164,7 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   toolCallsTotal: z.number().int().nonnegative(),
   failuresTotal: z.number().int().nonnegative(),
   toolsAvailable: z.number().int().nonnegative().nullable(),
+  toolSchemas: z.record(z.string(), z.string()),
   lastEvent: liveEventSummarySchema.nullable(),
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
@@ -206,6 +209,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     toolCallsTotal: state.toolCallsTotal,
     failuresTotal: state.failuresTotal,
     toolsAvailable: state.toolsAvailable,
+    toolSchemas: state.toolSchemas,
     lastEvent: state.lastEvent,
     recent: state.recent,
     actions: state.actions,
@@ -234,7 +238,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
  */
 export const liveTaskProjectionDefinition = {
   key: LIVE_TASK_PROJECTION_KEY,
-  stateVersion: 1,
+  stateVersion: 2,
   stateSchema: liveTaskStateSchema,
   // The initial state is built from constants alone, so both arguments the
   // registry passes — the session header and the fork-inherited prefix length —

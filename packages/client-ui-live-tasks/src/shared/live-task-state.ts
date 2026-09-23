@@ -212,6 +212,53 @@ const KNOWN_TYPES = new Set([
 ])
 
 /**
+ * Schema trim: a per-tool definition is capped before it can reach the wire.
+ * The drawer shows a schema as text; a definition past this cap is cut with an
+ * ellipsis rather than ballooning every projection publish.
+ */
+const SCHEMA_TRIM = 1800
+
+/**
+ * Fold a request header's tool list into a name → schema map, reusing entries
+ * whose definition is unchanged.
+ * @param tools - the header's tool array (or anything that is not one).
+ * @param previous - the map from the last header.
+ * @returns the new map (same reference when nothing changed).
+ */
+/**
+ * Publish one tool's schema into the view (once per tool, only for tools a row
+ * actually called).
+ * @param state - current state.
+ * @param name - the tool that was just called.
+ * @returns `toolSchemas` updates, or an empty object when already present.
+ */
+function ensureToolSchema(
+  state: LiveTaskState,
+  name: string,
+): Partial<LiveTaskState> {
+  const known = state.toolSchemas[name]
+  const schema = state.headerSchemas[name]
+  if (known !== undefined || schema === undefined) return {}
+  return { toolSchemas: { ...state.toolSchemas, [name]: schema } }
+}
+
+function collectToolSchemas(
+  tools: unknown,
+  previous: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  if (!Array.isArray(tools)) return previous
+  const next: Record<string, string> = {}
+  for (const entry of tools) {
+    const record = recordOf(entry)
+    const name = record?.['name']
+    if (typeof name !== 'string' || name === '') continue
+    const body = JSON.stringify(entry)
+    next[name] = body.length > SCHEMA_TRIM ? `${body.slice(0, SCHEMA_TRIM)}…` : body
+  }
+  return Object.keys(next).length === 0 ? previous : next
+}
+
+/**
  * The state before any observation. Frozen and exported so callers and tests
  * share one identity instead of rebuilding an equal-looking literal.
  */
@@ -235,6 +282,8 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   recent: NO_EVENTS,
   timeline: NO_TIMELINE,
   spans: NO_SPANS,
+  toolSchemas: Object.freeze({}),
+  headerSchemas: Object.freeze({}),
   turns: NO_TURNS,
   turnsTotal: 0,
   actions: NO_ACTIONS,
@@ -282,13 +331,13 @@ export function entryIdOfTool(toolName: string): string | null {
 const SPAN_LIMIT = 400
 
 /** How many timeline rows the view keeps. */
-export const TIMELINE_LIMIT = 20
+export const TIMELINE_LIMIT = 64
 
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600
 
 /** How many turns the axis keeps. */
-export const TURN_LIMIT = 20
+export const TURN_LIMIT = 32
 
 /** Longest argument summary carried to the client; longer values are clipped. */
 const DETAIL_LIMIT = 80
@@ -603,12 +652,22 @@ function foldEvent(
   // here is what lets the panel say "available tools", which spans official and
   // third-party tools alike rather than only the ones this repository ships.
   if (event.type === 'request/header') {
-    const tools = recordOf(recordOf(data?.['header'])?.['config'])?.['tools']
+    // The tools list lives at `header.tools` in current sessions; older headers
+    // kept it under `header.config`. Reading only the config path left
+    // `toolsAvailable` null — the panel displayed `可用工具 —` for every live
+    // session — and no schema for the drawer to show.
+    const header = recordOf(data?.['header'])
+    const tools = header?.['tools'] ?? recordOf(header?.['config'])?.['tools']
     const count = Array.isArray(tools) ? tools.length : undefined
     return {
       ...state,
       ...envelope,
       ...(count === undefined ? {} : { toolsAvailable: count }),
+      // Keep the schema the drawer's Schema tab needs, keyed by tool name. The
+      // request header carries every tool the model was offered; only what a row
+      // actually calls is published to the wire, so a 60-tool header costs a few
+      // kilobytes instead of sixty.
+      headerSchemas: collectToolSchemas(tools, state.headerSchemas),
       ...observed(state, event, null),
     }
   }
@@ -718,6 +777,9 @@ function foldEvent(
       return {
         ...state,
         ...envelope,
+        // Publish the schema of this call's tool once, so the drawer's Schema tab
+        // shows the real definition the model was given.
+        ...ensureToolSchema(state, name),
         lastTool: call,
         openTools: [...state.openTools, call],
         toolCallsInTurn: state.toolCallsInTurn + 1,

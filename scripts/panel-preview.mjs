@@ -118,7 +118,7 @@ const DICTIONARY = {
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
   'detail.name': '名称', 'detail.entryId': '插件 ID', 'detail.content': '内容',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
-  'turn.windowOnly': '更早的明细未保留（仅保留最近 20 行）',
+  'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
   'bar.useEqual': '使用等宽操作', 'bar.turnsMode': '轮次', 'bar.callsMode': '调用',
   'bar.expandCalls': '展开所有调用', 'bar.collapseCalls': '收起所有调用',
@@ -292,7 +292,18 @@ const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelect
   .filter((text) => /^[a-z][A-Za-z]*\.[A-Za-z.]+$/.test(text)))
 const rows = await view.locator('[class*="lt-rowButton"]').count()
 const chips = await view.locator('[class*="lt-kindTag"]').count()
-await view.locator('#root').screenshot({ path: out })
+// Element screenshots wait on `document.fonts.ready`, which has been observed to
+// hang in this headless Chrome; clip a page-level capture to the panel instead —
+// same pixels, no font gate.
+const box = await view.locator('#root').boundingBox()
+if (process.env['SOIA_DEBUG']) console.log('clip box:', JSON.stringify(box))
+if (box !== null) {
+  await view.screenshot({ path: out, clip: box, animations: 'disabled' })
+} else {
+  await view.screenshot({ path: out })
+}
+const fontStatus = await view.evaluate(() => globalThis.document.fonts?.status ?? 'n/a')
+if (fontStatus !== 'loaded') console.log(`panel-preview: document.fonts.status=${fontStatus}`)
 await browser.close()
 
 if (!keep) rmSync(scratch, { recursive: true, force: true })

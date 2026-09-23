@@ -27,7 +27,7 @@
 import { StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Fragment, useEffect, useState } from 'react'
 
-import { hasLiveActivity } from '../shared/live-task-state.ts'
+import { hasLiveActivity, TIMELINE_LIMIT } from '../shared/live-task-state.ts'
 import type { LiveSpan, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
@@ -442,7 +442,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
                     with 103 calls once read as empty). The counter decides which
                     sentence is true. */}
                 <span className={styles.none}>
-                  {turn.toolCalls > 0 ? t('turn.windowOnly') : t('turn.empty')}
+                  {turn.toolCalls > 0 ? t('turn.windowOnly', { n: TIMELINE_LIMIT }) : t('turn.empty')}
                 </span>
               </td>
             </tr>
@@ -483,9 +483,11 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
  * every later row down and could not be compared side by side with the row it
  * described.
  */
-function DetailDrawer({ entry, now, onClose, t }: {
+function DetailDrawer({ entry, now, schema, onClose, t }: {
   entry: LiveTimelineEntry
   now: number
+  /** The definition this tool was registered with, from the request header. */
+  schema: string | null
   onClose: () => void
   t: T
 }): JSX.Element {
@@ -545,7 +547,9 @@ function DetailDrawer({ entry, now, onClose, t }: {
       label: t('detail.schema'),
       // The session record carries no per-call schema; the trajectory view shows
       // the same honest sentence instead of inventing one.
-      body: <p className={styles.none}>{t('detail.schemaUnavailable')}</p>,
+      body: schema === null
+        ? <p className={styles.none}>{t('detail.schemaUnavailable')}</p>
+        : <pre className={styles.detailPre}>{schema}</pre>,
     },
     {
       id: 'timing',
@@ -622,6 +626,10 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         usage: projected.usage
           ?? { reported: 0, input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 },
         spans: projected.spans ?? [],
+        // An older host (and the preview fixture) has no schema map; without this
+        // default the drawer threw `undefined[…]` on the first row click and React
+        // unmounted the whole view — the panel collapsed to a zero-height box.
+        toolSchemas: projected.toolSchemas ?? {},
       }
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -876,6 +884,9 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           <DetailDrawer
             entry={detailEntry}
             now={now}
+            schema={detailEntry.kind === 'tool'
+              ? state.toolSchemas[detailEntry.title] ?? null
+              : null}
             onClose={() => setExpanded(null)}
             t={t}
           />
