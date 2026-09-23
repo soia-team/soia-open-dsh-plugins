@@ -1206,7 +1206,14 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
       : settled
         ? t('phase.ended')
         : t('phase.idle')
-  const distinctTools = new Set(state.actions.map((action) => action.name)).size
+  // 全会话（含已分页）用过的工具名单，不再只数最近动作：回答"这次会话到底触发过哪些"。
+  const usedToolNames = [...new Set([
+    ...state.turns.flatMap((turn) => turn.tools),
+    ...state.openTools.map((tool) => tool.name),
+    ...(state.lastTool === null ? [] : [state.lastTool.name]),
+    ...state.actions.map((action) => action.name),
+  ])]
+  const distinctTools = usedToolNames.length
   const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
   const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const selectedTurn = state.turns.at(-1)?.turn ?? null
@@ -1227,6 +1234,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
       .filter((entry) => !failedOnly || entry.status === 'failed')
       .filter((entry) => needle === ''
         || entry.title.toLowerCase().includes(needle)
+        // 插件 ID 也能搜：`tool-check` 直接命中我们的行。
+        || (entry.entryId ?? '').toLowerCase().includes(needle)
         || (entry.detail ?? '').toLowerCase().includes(needle)
         || (entry.result ?? '').toLowerCase().includes(needle))
       // A dragged range is a filter, exactly as in the trajectory view.
@@ -1414,6 +1423,14 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
             tools: state.toolsAvailable ?? '—',
             used: distinctTools,
           })}</span>
+          {usedToolNames.length > 0 && (
+            <span title={usedToolNames.join('、')}>
+              {t('health.tools', {
+                list: usedToolNames.slice(0, 4).join('、')
+                  + (usedToolNames.length > 4 ? '…' : ''),
+              })}
+            </span>
+          )}
           <span>{state.usage.reported === 0
             ? t('usage.unknown')
             : t('usage.line', {

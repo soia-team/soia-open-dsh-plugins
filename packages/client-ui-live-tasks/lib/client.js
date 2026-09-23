@@ -2620,14 +2620,20 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const inFlight = state.openTools.length > 0;
 	const settled = state.endedReason !== null && !state.running;
 	const phase = inFlight ? t("phase.tool") : state.running ? t("phase.running") : settled ? t("phase.ended") : t("phase.idle");
-	const distinctTools = new Set(state.actions.map((action) => action.name)).size;
+	const usedToolNames = [.../* @__PURE__ */ new Set([
+		...state.turns.flatMap((turn) => turn.tools),
+		...state.openTools.map((tool) => tool.name),
+		...state.lastTool === null ? [] : [state.lastTool.name],
+		...state.actions.map((action) => action.name)
+	])];
+	const distinctTools = usedToolNames.length;
 	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
 	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
 	const selectedTurn = state.turns.at(-1)?.turn ?? null;
 	const shownTurn = selected ?? selectedTurn;
 	const pickedTurn = selected;
 	const needle = query.trim().toLowerCase();
-	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
+	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.entryId ?? "").toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
 	const detailEntry = state.timeline.find((entry) => entry.id === expanded) ?? null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: styles.view,
@@ -2820,6 +2826,10 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 									tools: state.toolsAvailable ?? "—",
 									used: distinctTools
 								}) }),
+								usedToolNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									title: usedToolNames.join("、"),
+									children: t("health.tools", { list: usedToolNames.slice(0, 4).join("、") + (usedToolNames.length > 4 ? "…" : "") })
+								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
 									total: compact(state.usage.total),
 									input: compact(state.usage.input),
@@ -2910,6 +2920,7 @@ const zh = {
 	"detail.disabled": "未启用",
 	"detail.loading": "读取中…",
 	"detail.unavailable": "插件信息不可用",
+	"health.tools": "工具：{list}",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -2950,7 +2961,7 @@ const zh = {
 	"bar.rangeHint": "在时间图上拖动可框选",
 	"bar.expandTurns": "展开轮次",
 	"timeline.title": "时间线",
-	"timeline.user": "你",
+	"timeline.user": "用户",
 	"timeline.assistant": "模型",
 	"timeline.tool": "工具",
 	"timeline.turnN": "第 {n} 轮",
@@ -3050,6 +3061,7 @@ const en = {
 	"detail.disabled": "Disabled",
 	"detail.loading": "Loading…",
 	"detail.unavailable": "Plugin info unavailable",
+	"health.tools": "Tools: {list}",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",
@@ -3094,7 +3106,7 @@ const en = {
 	"bar.rangeHint": "drag on the chart to select",
 	"bar.expandTurns": "Expand turns",
 	"timeline.title": "Timeline",
-	"timeline.user": "you",
+	"timeline.user": "User",
 	"timeline.assistant": "model",
 	"timeline.tool": "tool",
 	"timeline.turnN": "turn {n}",

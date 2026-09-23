@@ -58,6 +58,7 @@ export declare const zh: {
     readonly 'detail.disabled': '未启用';
     readonly 'detail.loading': '读取中…';
     readonly 'detail.unavailable': '插件信息不可用';
+    readonly 'health.tools': '工具：{list}';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';
@@ -98,7 +99,7 @@ export declare const zh: {
     readonly 'bar.rangeHint': '在时间图上拖动可框选';
     readonly 'bar.expandTurns': '展开轮次';
     readonly 'timeline.title': '时间线';
-    readonly 'timeline.user': '你';
+    readonly 'timeline.user': '用户';
     readonly 'timeline.assistant': '模型';
     readonly 'timeline.tool': '工具';
     readonly 'timeline.turnN': '第 {n} 轮';
