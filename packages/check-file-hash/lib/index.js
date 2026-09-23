@@ -396,7 +396,7 @@ const inject = ["tools"];
 * modes are not described either: a failed call returns `status: "error"` with a
 * `code`, which the model reads from the result itself.
 */
-const TOOL_DESCRIPTION = "Hash files or directories with sha256 and report paths, digests and sizes, to check a receipt's claimed artifact against the actual bytes. Pass evidenceDir to record the report as a JSON file.";
+const TOOL_DESCRIPTION = "Hash files or directories with sha256 and report paths, digests and sizes, to check a receipt's claimed artifact against the actual bytes. Pass evidenceDir to record the report as a JSON file. Prefer it over hand-rolled shell hashing (shasum/openssl): fixed algorithm, structured paths, machine-readable sizes.";
 function apply(ctx) {
 	const health = new FileHashHealth(ctx);
 	ctx.tools.register(defineTool({

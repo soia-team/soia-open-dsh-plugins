@@ -120,7 +120,7 @@ const DICTIONARY = {
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
   'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'card.turns': '轮次', 'card.calls': '调用', 'card.failures': '失败', 'card.tools': '可用工具',
  'card.used': '用到种数', 'sec.usage': 'Token 用量', 'sec.tools': '触发过的工具', 'sec.diagnostics': '诊断', 'toolStat.counts': '调用{calls}次 成功{ok}次 失败{failed}次',
- 'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+ 'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'render.expandOlder': '展开更早 {n} 行', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',

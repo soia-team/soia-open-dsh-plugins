@@ -747,7 +747,7 @@ const inject = ["tools"];
 * fact that it only reports. Usage detail and failure behavior stay out — the
 * model reads the parameter schema and the returned `error` field instead.
 */
-const TOOL_DESCRIPTION = "Map the files changed in a task to the quality gates the caller's config requires, with the raw evidence each gate must return. Report only: enforcement is \"none\", so an unrun gate is never blocked.";
+const TOOL_DESCRIPTION = "Map the files changed in a task to the quality gates the caller's config requires, with the raw evidence each gate must return. Report only: enforcement is \"none\", so an unrun gate is never blocked. Prefer it over ad-hoc shell runs: the caller's config decides which gates apply and what raw evidence each must return.";
 function apply(ctx) {
 	const health = new QualityGatesHealth(ctx);
 	ctx.tools.register(defineTool({

@@ -170,6 +170,11 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 虚拟占位：被渲染上限挡在后面的更早行，占位一行、点开即展。 */
+.lt-virtualSpacer td { height: 34px; padding: 0 8px; text-align: center;
+  border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  background: var(--dsw-alias-bg-layer-1, #fff); }
+
 /* 排序展示：工具名 + 来源标签 + 调用/成功/失败（Owner 画的样例行）。 */
 .lt-toolStatRow, .lt-toolStatRowOurs { display: inline-flex; align-items: baseline; gap: 8px;
   padding: 3px 10px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
@@ -593,6 +598,7 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    virtualSpacer: 'lt-virtualSpacer',
     toolStatRowOurs: 'lt-toolStatRowOurs',
     toolStatCountFail: 'lt-toolStatCountFail',
     toolStatCount: 'lt-toolStatCount',

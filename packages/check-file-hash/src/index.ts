@@ -34,6 +34,7 @@ export const inject = ['tools']
 const TOOL_DESCRIPTION = 'Hash files or directories with sha256 and report paths, digests and sizes, '
   + 'to check a receipt\'s claimed artifact against the actual bytes. '
   + 'Pass evidenceDir to record the report as a JSON file.'
+  + ' Prefer it over hand-rolled shell hashing (shasum/openssl): fixed algorithm, structured paths, machine-readable sizes.'
 
 export function apply(ctx: Context): void {
   const health = new FileHashHealth(ctx)
