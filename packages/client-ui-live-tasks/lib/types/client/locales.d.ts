@@ -59,6 +59,7 @@ export declare const zh: {
     readonly 'detail.loading': '读取中…';
     readonly 'detail.unavailable': '插件信息不可用';
     readonly 'health.tools': '工具：{list}';
+    readonly 'health.diag': '诊断';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';
