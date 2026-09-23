@@ -106,5 +106,5 @@
 
 两个常被问到的事实：
 
-- **classify.ts 草稿**：L1 离线分类器的候选实现（16 单测、**零调用方**）——说清楚见 `policy-classification-plan.md` 的《分类草稿（classify.ts）的状态》一节；**建议删除**，等 Owner 拍板。
+- **classify.ts 草稿**：调用方 2026-09-23 拍板 **A：已删除**（零调用的死码；找回见 `3c8446d` 与 `policy-classification-plan.md` 的《…已删除》一节）。
 - **context-insight**：本仓**零提交历史、不存在这个包**——"上下文"页是官方 `@deepseek-ai/dsh-context`；本仓恒为 6 包（4 工具 + live-tasks + safe-tool-call-policy）。
