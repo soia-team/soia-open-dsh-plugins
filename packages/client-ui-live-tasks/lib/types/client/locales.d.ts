@@ -37,6 +37,8 @@ export declare const zh: {
     readonly 'timing.source': '计时来源';
     readonly 'timing.sourceSession': '会话时间戳';
     readonly 'timeline.toolCallsOnly': '（仅工具调用）';
+    readonly 'detail.purpose': '说明';
+    readonly 'row.called': '调用: ';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';

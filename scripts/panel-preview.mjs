@@ -124,6 +124,7 @@ const DICTIONARY = {
   'bar.expandCalls': '展开所有调用', 'bar.collapseCalls': '收起所有调用',
   'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
+  'detail.purpose': '说明', 'row.called': '调用: ',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
   'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）',
@@ -282,6 +283,11 @@ const visuals = await view.evaluate(() => ({
   drawer: globalThis.document.querySelector('[class*="lt-details"]') !== null,
   stamp: (globalThis.document.querySelector('[class*="lt-detailBody"]')?.textContent ?? '').match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}/)?.[0] ?? null,
   argsInline: globalThis.document.querySelectorAll('[class*="lt-tlArgs"]').length,
+  secondLines: globalThis.document.querySelectorAll('[class*="lt-tlSecond"]').length,
+  spanColors: Object.fromEntries(['assistant', 'tool', 'user', 'context'].map((kind) => {
+    const node = globalThis.document.querySelector(`[data-kind="${kind}"]`)
+    return [kind, node ? globalThis.getComputedStyle(node).backgroundColor : null]
+  })),
   toolbar: [...globalThis.document.querySelectorAll('[class*="lt-control"], [class*="lt-action"]')]
     .map((node) => (node.textContent ?? '').trim()).filter((text) => text !== ''),
   html: '',
@@ -310,7 +316,7 @@ if (!keep) rmSync(scratch, { recursive: true, force: true })
 else console.log(`panel-preview: kept ${pagePath}`)
 
 console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → ${out}`)
-console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}]`)
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} colors=${JSON.stringify(visuals.spanColors)}`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)

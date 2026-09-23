@@ -52,6 +52,8 @@ export declare const styles: {
     readonly detailBlock: 'lt-detailBlock';
     readonly detailLabel: 'lt-detailLabel';
     readonly detailPre: 'lt-detailPre';
+    readonly chartSticky: 'lt-chartSticky';
+    readonly tlSecond: 'lt-tlSecond';
     readonly chartScroll: 'lt-chartScroll';
     readonly chart: 'lt-chart';
     readonly chartLabels: 'lt-chartLabels';

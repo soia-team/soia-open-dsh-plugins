@@ -100,6 +100,63 @@ function argsInline(entry: LiveTimelineEntry): string | null {
 }
 
 /**
+ * Read a tool's one-line purpose out of the schema the header carried.
+ * @param schema - JSON text of `{name, description, parameters}`, or null.
+ * @returns the trimmed description, or null when there is none.
+ */
+function descriptionOf(schema: string | null): string | null {
+  if (schema === null) return null
+  try {
+    const parsed: unknown = JSON.parse(schema)
+    if (parsed !== null && typeof parsed === 'object') {
+      const raw = (parsed as Record<string, unknown>)['description']
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        const text = raw.trim().replace(/\s+/g, ' ')
+        return text.length > 140 ? `${text.slice(0, 140)}…` : text
+      }
+    }
+  } catch {
+    // Header entries are not always JSON-shaped; no description beats a crash.
+  }
+  return null
+}
+
+/**
+ * The second line a row carries: a tool's purpose, or the tools an assistant
+ * message dispatched in the same step.
+ *
+ * A row saying only `check_ui_size` tells a reader nothing about what the tool
+ * does; a model row quoting only its text hides which tools it reached for. Both
+ * answers come from data already on the panel — no new wire field.
+ * @param entry - the row.
+ * @param siblings - every row of its turn.
+ * @param toolSchemas - header schemas keyed by tool name.
+ * @param tLabel - locale prefix for the dispatched-tools line.
+ * @returns the line, or null when the row needs none.
+ */
+function secondLineOf(
+  entry: LiveTimelineEntry,
+  siblings: readonly LiveTimelineEntry[],
+  toolSchemas: Readonly<Record<string, string>>,
+  tLabel: string,
+): string | null {
+  if (entry.kind === 'tool') return descriptionOf(toolSchemas[entry.title] ?? null)
+  if (entry.kind !== 'assistant') return null
+  const called = siblings.filter((row) =>
+    row.kind === 'tool'
+    && row.turn === entry.turn
+    && (row.step === entry.step || row.step === null || entry.step === null))
+  if (called.length === 0) return null
+  if (called.length === 1) {
+    const only = called[0]
+    const purpose = only === undefined ? null : descriptionOf(toolSchemas[only.title] ?? null)
+    const name = only?.title ?? ''
+    return purpose === null ? `${tLabel}${name}` : `${tLabel}${name}（${purpose}）`
+  }
+  return `${tLabel}${called.map((row) => row.title).join('、')}`
+}
+
+/**
  * `YYYY-MM-DD HH:MM:SS.mmm`, local time — the precision the trajectory view's
  * timing panel shows; second resolution hides the very differences timing exists
  * to reveal.
@@ -142,9 +199,11 @@ function secondsBetween(from: number, to: number): number {
  * @param props - the rows to plot, the turns to mark, and the interaction state.
  * @returns the chart.
  */
-function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSelect, onRange }: {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, t, onSelect, onRange }: {
   spans: readonly LiveSpan[]
   actualDuration: boolean
+  /** The span whose row is open in the drawer — the reference marks it as current. */
+  currentId: string | null
   turns: LiveTaskView['turns']
   now: number
   selected: number | null
@@ -268,10 +327,14 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSe
               data-kind={segment.kind}
               data-error={segment.status === 'failed'}
               data-selected={selected === null || selected === segment.turn}
+              data-current={segment.id === currentId ? 'true' : undefined}
               style={{
                 top: `${laneOf(segment.kind) * 14}px`,
                 left: `${pctOfSegment(segment)}%`,
-                width: `max(2px, ${widthOfSegment(segment)}%)`,
+                // Equal-width mode draws fixed 8px blocks like the reference's
+                // data-equal-duration spans: proportions stop mattering there.
+                width: actualDuration ? `max(2px, ${widthOfSegment(segment)}%)` : '8px',
+                minWidth: actualDuration ? undefined : '8px',
               }}
               title={`${segment.kind} · ${clockOf(segment.startedAt)}`}
               aria-label={`${segment.kind} · ${clockOf(segment.startedAt)}`}
@@ -295,12 +358,14 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSe
 }
 
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }: {
+function ToolRow({ entry, now, expanded, selected, dim, secondLine, onToggle, t }: {
   entry: LiveTimelineEntry
   now: number
   expanded: boolean
   selected: boolean
   dim: boolean
+  /** Purpose (tool rows) or dispatched tools (model rows), under the row. */
+  secondLine: string | null
   onToggle: () => void
   t: T
 }): JSX.Element {
@@ -327,6 +392,7 @@ function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }: {
         data-error={failed || undefined}
         data-selected={selected || undefined}
         data-dim={dim || undefined}
+        data-lines={secondLine !== null ? '2' : undefined}
       >
         {/* The chip carries the readable kind; the cell names it for a screen
             reader too, which is also what the a11y rule asks for. */}
@@ -368,6 +434,9 @@ function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }: {
                 : `${running ? t('status.running') : failed ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
             </span>
           </button>
+          {secondLine !== null && (
+            <div className={styles.tlSecond} title={secondLine}>{secondLine}</div>
+          )}
         </td>
       </tr>
     </>
@@ -399,7 +468,7 @@ function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | nu
  * boundaries — and the rail that marks them — inside the table, the way the
  * trajectory view draws them.
  */
-function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onToggle, t }: {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
   /** True only when the reader picked this turn; the newest turn is not "picked". */
@@ -408,6 +477,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
   open: boolean
   expandedId: string | null
   dimmed: boolean
+  toolSchemas: Readonly<Record<string, string>>
   onToggle: (id: string) => void
   t: T
 }): JSX.Element {
@@ -461,9 +531,10 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
               <ToolRow
                 key={entry.id}
                 entry={entry}
+                secondLine={secondLineOf(entry, group.rows, toolSchemas, t('row.called'))}
                 now={now}
                 expanded={expandedId === entry.id}
-                selected={picked}
+                selected={expandedId === entry.id}
                 dim={dimmed}
                 onToggle={() => onToggle(entry.id)}
                 t={t}
@@ -513,6 +584,12 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
             <>
               <dt>{t('detail.entryId')}</dt>
               <dd className={styles.detailMono}>{entry.entryId}</dd>
+            </>
+          )}
+          {descriptionOf(schema) !== null && (
+            <>
+              <dt>{t('detail.purpose')}</dt>
+              <dd>{descriptionOf(schema)}</dd>
             </>
           )}
           {entry.kind === 'tool' && (
@@ -810,13 +887,19 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         </div>
       </div>
 
+      {/* The strip lives INSIDE the scrolling pane, pinned on top: one horizontal
+          scroll box now moves the chart and the rows together (they used to be two
+          scroll contexts, so a narrow window slid them apart), and the strip stays
+          visible while the rows scroll vertically. */}
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>
           {state.turnsTotal > state.turns.length
             ? t('axis.titleWindow', { total: state.turnsTotal, shown: state.turns.length })
             : t('axis.title')}
         </h4>
-        <LaneChart
+        <div className={styles.tablePane}>
+          <div className={styles.chartSticky}>
+            <LaneChart
           spans={state.spans}
           actualDuration={actualDuration}
           turns={state.turns}
@@ -826,15 +909,11 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           t={t}
           onSelect={setSelected}
           onRange={setRange}
-        />
-      </section>
+              currentId={detailEntry?.id ?? null}
+            />
+          </div>
 
-      <section className={styles.section}>
-        <h4 className={styles.sectionTitle}>{t('timeline.title')}</h4>
-        {/* Two columns and a scrolling pane, copied from the trajectory view: the
-            event column holds the kind chip, the content column the record. The
-            pane scrolls both ways so a narrow window keeps the row intact. */}
-        <div className={styles.tablePane}>
+          <h4 className={styles.sectionTitle}>{t('timeline.title')}</h4>
           <table className={styles.table}>
             <colgroup>
               <col className={styles.eventColumn} />
@@ -850,6 +929,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
                 open={turnsOpen}
                 expandedId={expanded}
                 dimmed={pickedTurn !== null && turn.turn !== pickedTurn}
+                toolSchemas={state.toolSchemas}
                 onToggle={(id) => setExpanded(expanded === id ? null : id)}
                 t={t}
               />
