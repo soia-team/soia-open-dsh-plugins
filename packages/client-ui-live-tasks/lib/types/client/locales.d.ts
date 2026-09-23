@@ -17,6 +17,9 @@ export declare const NS = "liveTasks";
 export declare const zh: {
     readonly 'view.tab': '活动';
     readonly 'view.status': '运行状况';
+    readonly 'view.subTabs': '活动分页';
+    readonly 'view.subTabActivity': '插件活动';
+    readonly 'view.subTabStatus': '插件运行状况';
     readonly 'view.empty': '本会话还没有动作。';
     readonly 'head.toolRunning': '正在用的工具';
     readonly 'head.toolLast': '最近用的工具';

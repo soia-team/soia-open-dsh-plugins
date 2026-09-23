@@ -20,6 +20,9 @@ export const zh = {
   // 页签名取「活动」而不是「任务」：待办类插件已经占用了「任务」，而这里是实时活动时间线。
   'view.tab': '活动',
   'view.status': '运行状况',
+  'view.subTabs': '活动分页',
+  'view.subTabActivity': '插件活动',
+  'view.subTabStatus': '插件运行状况',
   'view.empty': '本会话还没有动作。',
 
   // 模块一：概览
@@ -184,6 +187,9 @@ export type LiveTaskKey = keyof typeof zh
 export const en: Record<LiveTaskKey, string> = {
   'view.tab': 'Activity',
   'view.status': 'Status',
+  'view.subTabs': 'Activity panes',
+  'view.subTabActivity': 'Plugin activity',
+  'view.subTabStatus': 'Plugin status',
   'view.empty': 'This session has no actions yet.',
 
   'head.toolRunning': 'Tool in use',

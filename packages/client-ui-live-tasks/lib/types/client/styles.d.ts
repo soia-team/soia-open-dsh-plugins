@@ -98,6 +98,8 @@ export declare const styles: {
     readonly detailTab: 'lt-detailTab';
     readonly detailTabActive: 'lt-detailTabActive';
     readonly detailBody: 'lt-detailBody';
+    readonly subTab: 'lt-subTab';
+    readonly subTabs: 'lt-subTabs';
     readonly pluginCard: 'lt-pluginCard';
     readonly pluginLink: 'lt-pluginLink';
     readonly historyButton: 'lt-historyButton';

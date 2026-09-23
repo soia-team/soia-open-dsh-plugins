@@ -1120,6 +1120,14 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。13px 对齐官方页签字号。 */
+.lt-subTabs { display: flex; gap: 2px; padding: 2px 8px 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-subTab { height: 26px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 18px; border-radius: 4px 4px 0 0; }
+.lt-subTab:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-subTab[aria-selected='true'] { color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--dsw-alias-state-business-primary, #4078ff); }
+
 
 /* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
 .lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
@@ -1494,6 +1502,8 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	subTab: "lt-subTab",
+	subTabs: "lt-subTabs",
 	pluginCard: "lt-pluginCard",
 	pluginLink: "lt-pluginLink",
 	historyButton: "lt-historyButton",
@@ -2754,6 +2764,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const [actualDuration, setActualDuration] = (0, react.useState)(true);
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
+	const [subTab, setSubTab] = (0, react.useState)("activity");
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
@@ -2770,9 +2781,34 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const needle = query.trim().toLowerCase();
 	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.entryId ?? "").toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
 	const detailEntry = state.timeline.find((entry) => entry.id === expanded) ?? null;
-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
-		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: styles.subTabs,
+			role: "tablist",
+			"aria-label": t("view.subTabs"),
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				role: "tab",
+				"aria-selected": subTab === "activity",
+				className: styles.subTab,
+				onClick: () => setSubTab("activity"),
+				children: t("view.subTabActivity")
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				type: "button",
+				role: "tab",
+				"aria-selected": subTab === "status",
+				className: styles.subTab,
+				onClick: () => setSubTab("status"),
+				children: t("view.subTabStatus")
+			})]
+		}), subTab === "status" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LiveStatusView, {
+			useProjection,
+			t,
+			useSession,
+			eventSource,
+			listToolBundles
+		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.panes,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: styles.paneMain,
@@ -2942,7 +2978,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 				onClose: () => setExpanded(null),
 				t
 			})]
-		})
+		}) })]
 	});
 }
 //#endregion
@@ -2966,6 +3002,9 @@ const NS = "liveTasks";
 const zh = {
 	"view.tab": "活动",
 	"view.status": "运行状况",
+	"view.subTabs": "活动分页",
+	"view.subTabActivity": "插件活动",
+	"view.subTabStatus": "插件运行状况",
 	"view.empty": "本会话还没有动作。",
 	"head.toolRunning": "正在用的工具",
 	"head.toolLast": "最近用的工具",
@@ -3112,6 +3151,9 @@ const zh = {
 const en = {
 	"view.tab": "Activity",
 	"view.status": "Status",
+	"view.subTabs": "Activity panes",
+	"view.subTabActivity": "Plugin activity",
+	"view.subTabStatus": "Plugin status",
 	"view.empty": "This session has no actions yet.",
 	"head.toolRunning": "Tool in use",
 	"head.toolLast": "Last tool used",
@@ -3340,14 +3382,6 @@ function apply(ctx) {
 		locale: NS,
 		inject: sessionExtras
 	}, LiveTasksView));
-	ctx.slots.inject("conversation.view", () => ctx.slots.register({
-		name: "conversation.view",
-		id: "live-status",
-		order: 30,
-		label: () => t("view.status"),
-		locale: NS,
-		inject: sessionExtras
-	}, LiveStatusView));
 	ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
 		name: "conversation.session.header.actions",
 		id: "live-tasks",

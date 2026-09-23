@@ -118,7 +118,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'health.tools': '工具：{list}', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+  'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -347,6 +347,9 @@ const restFonts = await view.evaluate(() => {
   }
 })
 const fonts = { ...overviewFacts, ...argsFacts, ...restFonts }
+// 遥测在活动页的第二个子页签里：切过去读，读完切回来，后续断言照常走时间线。
+await view.getByRole('tab', { name: '插件运行状况', exact: true }).click()
+await view.waitForTimeout(250)
 // 运行状况契约：数据整块挪进专属页签（内部计数常驻可见），名单默认只列咱们的插件。
 const healthFacts = await view.evaluate(() => {
   const health = globalThis.document.querySelector('[class*="lt-health"]')
@@ -359,6 +362,11 @@ const healthFacts = await view.evaluate(() => {
     staleVisible: /数据更新/.test(text),
   }
 })
+await view.getByRole('tab', { name: '插件活动', exact: true }).click()
+await view.waitForTimeout(250)
+// 切回后抽屉回到概述页签（其页签态随内容重挂）：重按 计时，让毫秒戳照常出现在截图里。
+await view.getByRole('tab', { name: '计时', exact: true }).click().catch(() => {})
+await view.waitForTimeout(200)
 const facts = {
   hierarchy: overviewFacts.hierarchy,
   sections: overviewFacts.sections,

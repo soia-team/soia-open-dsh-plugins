@@ -170,6 +170,14 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。13px 对齐官方页签字号。 */
+.lt-subTabs { display: flex; gap: 2px; padding: 2px 8px 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+.lt-subTab { height: 26px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 18px; border-radius: 4px 4px 0 0; }
+.lt-subTab:hover { background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); }
+.lt-subTab[aria-selected='true'] { color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--dsw-alias-state-business-primary, #4078ff); }
+
 
 /* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
 .lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
@@ -545,6 +553,8 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+      subTab: 'lt-subTab',
+    subTabs: 'lt-subTabs',
       pluginCard: 'lt-pluginCard',
     pluginLink: 'lt-pluginLink',
     historyButton: 'lt-historyButton',
