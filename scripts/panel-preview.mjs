@@ -101,7 +101,7 @@ const fixture = {
 const DICTIONARY = {
   'view.tab': '活动', 'view.empty': '本会话还没有动作。',
   'lane.input': '输入', 'lane.model': '模型', 'lane.tools': '工具', 'lane.context': '上下文',
-  'timeline.title': '时间线', 'timeline.user': '你', 'timeline.assistant': '模型', 'timeline.tool': '工具',
+  'timeline.title': '时间线', 'timeline.user': '用户', 'timeline.assistant': '模型', 'timeline.tool': '工具',
   'timeline.turnN': '第 {n} 轮',
   'bar.search': '搜索工具或命令', 'bar.failedOnly': '只看失败', 'bar.expandAll': '展开全部',
   'bar.collapseAll': '收起全部', 'bar.clock': '实际时间', 'bar.duration': '时长',
@@ -118,7 +118,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+  'detail.name': '名称', 'health.tools': '工具：{list}', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
