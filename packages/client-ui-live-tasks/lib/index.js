@@ -5431,7 +5431,7 @@ function addCallToTurn(turns, turn, time, name) {
 		failures: 0,
 		tools: [name],
 		tokens: 0
-	}].slice(-32);
+	}].slice(-96);
 	return turns.map((summary) => summary.turn === turn ? {
 		...summary,
 		toolCalls: summary.toolCalls + 1,
@@ -5454,7 +5454,22 @@ function settleTurn(turns, turn, time, failed) {
 * @returns a new bounded array.
 */
 function pushTimeline(timeline, entry) {
-	return [...timeline, entry].slice(-64);
+	const windowed = [...timeline, entry].slice(-384);
+	const keepFrom = windowed.length - Math.min(64, windowed.length);
+	return windowed.map((row, index) => index < keepFrom ? demoteRow(row) : row);
+}
+/**
+* Strip a row's heavy payloads as it ages out of the full-detail window.
+* @param row - the row to demote.
+* @returns the same reference when already light.
+*/
+function demoteRow(row) {
+	if (row.argsFull === null && row.resultFull === null) return row;
+	return {
+		...row,
+		argsFull: null,
+		resultFull: null
+	};
 }
 /** Replace one row in place, keeping its position in the narrative. */
 function settleTimeline(timeline, id, patch) {
@@ -5681,7 +5696,7 @@ function entryIdOfTool(toolName) {
 	return `tool-${trimmed.replaceAll("_", "-")}`;
 }
 /** How many lane segments the view keeps (the chart wants density, not rows). */
-const SPAN_LIMIT = 400;
+const SPAN_LIMIT = 1600;
 /** Longest detail payload carried for an expanded row. */
 const DETAIL_PAYLOAD_LIMIT = 600;
 /** Longest argument summary carried to the client; longer values are clipped. */
@@ -5995,7 +6010,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					failures: 0,
 					tools: [],
 					tokens: 0
-				}].slice(-32),
+				}].slice(-96),
 				timeline: turn === null ? state.timeline : pushTimeline(state.timeline, {
 					id: `turn-${turn}`,
 					kind: "turn",
@@ -6498,7 +6513,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 3,
+	stateVersion: 4,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {
