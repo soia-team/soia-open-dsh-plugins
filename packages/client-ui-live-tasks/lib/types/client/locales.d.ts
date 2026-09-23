@@ -20,6 +20,18 @@ export declare const zh: {
     readonly 'view.subTabs': '活动分页';
     readonly 'view.subTabActivity': '插件活动';
     readonly 'view.subTabStatus': '插件运行状况';
+    readonly 'card.turns': '轮次';
+    readonly 'card.calls': '调用';
+    readonly 'card.failures': '失败';
+    readonly 'card.tools': '可用工具';
+    readonly 'card.used': '用到种数';
+    readonly 'sec.usage': 'Token 用量';
+    readonly 'sec.tools': '触发过的工具';
+    readonly 'sec.diagnostics': '诊断';
+    readonly 'leg.cache': '缓存';
+    readonly 'leg.input': '输入';
+    readonly 'leg.reason': '思考';
+    readonly 'leg.output': '输出';
     readonly 'view.empty': '本会话还没有动作。';
     readonly 'head.toolRunning': '正在用的工具';
     readonly 'head.toolLast': '最近用的工具';
@@ -61,7 +73,7 @@ export declare const zh: {
     readonly 'detail.enabled': '已启用';
     readonly 'detail.disabled': '未启用';
     readonly 'detail.loading': '读取中…';
-    readonly 'detail.unavailable': '插件信息不可用';
+    readonly 'detail.unavailable': '无独立插件行（可能是主控内置）';
     readonly 'health.tools': '工具：{list}';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';

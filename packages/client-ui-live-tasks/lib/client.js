@@ -1120,6 +1120,33 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 插件运行状况：参照上下文页的简单表示——统计卡、用量构成条、工具胶囊、诊断组。 */
+.lt-statGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 4px; }
+.lt-statCard { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%)); }
+.lt-statLabel { font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-secondary); }
+.lt-statValue { font-size: 16px; line-height: 22px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.lt-subTitle { margin: 14px 0 6px; font-size: 12px; line-height: 16px;
+  color: var(--dsw-alias-label-caption); }
+.lt-usageBar { display: flex; height: 10px; border-radius: 5px; overflow: hidden;
+  background: rgb(0 0 0 / 6%); }
+.lt-usageBar span { display: block; height: 100%; }
+.lt-usageCache { background: var(--dsw-alias-state-success-primary, #17a34a); }
+.lt-usageInput { background: var(--dsw-alias-state-business-primary, #4078ff); }
+.lt-usageReason { background: #9333ea; }
+.lt-usageOutput { background: var(--dsw-alias-state-warn-primary, #f59e0b); }
+.lt-usageLegend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px;
+  font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.lt-toolRoster { display: flex; flex-wrap: wrap; gap: 6px; }
+.lt-toolChip { padding: 2px 8px; border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
+  border-radius: 10px; background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  color: var(--dsw-alias-label-secondary); font-size: 12px;
+  font-family: var(--dsw-font-mono, monospace); }
+.lt-toolChipOurs { border-color: var(--dsw-alias-state-business-primary, #4078ff);
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600; }
+.lt-statusNote { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+
 /* 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。13px 对齐官方页签字号。 */
 .lt-subTabs { display: flex; gap: 2px; padding: 2px 8px 0; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-subTab { height: 26px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
@@ -1502,6 +1529,19 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	statusNote: "lt-statusNote",
+	toolChipOurs: "lt-toolChipOurs",
+	toolChip: "lt-toolChip",
+	toolRoster: "lt-toolRoster",
+	usageLegend: "lt-usageLegend",
+	usageOutput: "lt-usageOutput",
+	usageReason: "lt-usageReason",
+	usageInput: "lt-usageInput",
+	usageCache: "lt-usageCache",
+	usageBar: "lt-usageBar",
+	subTitle: "lt-subTitle",
+	statCard: "lt-statCard",
+	statGrid: "lt-statGrid",
 	subTab: "lt-subTab",
 	subTabs: "lt-subTabs",
 	pluginCard: "lt-pluginCard",
@@ -2695,59 +2735,163 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 	});
 	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
 	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
-	const rosterShown = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name)) ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false) : usedToolNames;
+	const oursSet = ourToolNames ?? /* @__PURE__ */ new Set();
+	const rosterFull = usedToolNames.join("、");
+	const usageSum = state.usage.cacheRead + state.usage.input + state.usage.output + state.usage.reasoning;
+	const segWidth = (value) => usageSum === 0 ? 0 : value / usageSum * 100;
+	const usageLine = state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
+		total: compact(state.usage.total),
+		input: compact(state.usage.input),
+		output: compact(state.usage.output),
+		cache: compact(state.usage.cacheRead),
+		pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
+	});
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: styles.view,
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
 			className: styles.section,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-				className: styles.sectionTitle,
-				children: t("health.title")
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: styles.health,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: state.health.unknown > 0 ? styles.healthStale : void 0,
-						children: `${t("health.unknown")} ${state.health.unknown}`
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: state.health.registry < 0 ? styles.healthStale : void 0,
-						children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
-						ok: state.health.deltasAccepted,
-						dropped: state.health.deltasDropped
-					}) }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						title: usedToolNames.join("、"),
-						children: t("axis.summary", {
-							turns: state.turnsTotal,
-							calls: state.toolCallsTotal,
-							failures: state.failuresTotal,
-							tools: state.toolsAvailable ?? "—",
-							used: distinctTools
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+					className: styles.sectionTitle,
+					children: t("health.title")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.statGrid,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: styles.statCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.statLabel,
+								children: t("card.turns")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.statValue,
+								children: state.turnsTotal
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: styles.statCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.statLabel,
+								children: t("card.calls")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.statValue,
+								children: compact(state.toolCallsTotal)
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: styles.statCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.statLabel,
+								children: t("card.failures")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.statValue,
+								children: state.failuresTotal
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: styles.statCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.statLabel,
+								children: t("card.tools")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.statValue,
+								children: state.toolsAvailable ?? "—"
+							})]
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+							className: styles.statCard,
+							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: styles.statLabel,
+								children: t("card.used")
+							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("b", {
+								className: styles.statValue,
+								children: distinctTools
+							})]
 						})
-					}),
-					rosterShown.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						title: usedToolNames.join("、"),
-						children: t("health.tools", { list: rosterShown.slice(0, 4).join("、") + (rosterShown.length > 4 ? "…" : "") })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
-						total: compact(state.usage.total),
-						input: compact(state.usage.input),
-						output: compact(state.usage.output),
-						cache: compact(state.usage.cacheRead),
-						pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
-					}) }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
-						children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
-					})
-				]
-			})]
+					]
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.subTitle,
+					children: t("sec.usage")
+				}),
+				state.usage.reported === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: styles.statusNote,
+					children: t("usage.unknown")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.usageBar,
+					title: usageLine,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.usageCache,
+							style: { width: `${segWidth(state.usage.cacheRead)}%` }
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.usageInput,
+							style: { width: `${segWidth(state.usage.input)}%` }
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.usageReason,
+							style: { width: `${segWidth(state.usage.reasoning)}%` }
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.usageOutput,
+							style: { width: `${segWidth(state.usage.output)}%` }
+						})
+					]
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.usageLegend,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("leg.cache")} ${compact(state.usage.cacheRead)}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("leg.input")} ${compact(state.usage.input)}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("leg.reason")} ${compact(state.usage.reasoning)}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("leg.output")} ${compact(state.usage.output)}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: styles.statusNote,
+							children: usageLine
+						})
+					]
+				})] }),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.subTitle,
+					children: t("sec.tools")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.toolRoster,
+					title: rosterFull,
+					children: [...usedToolNames].sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0)).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: oursSet.has(name) ? styles.toolChipOurs : styles.toolChip,
+						children: name
+					}, name))
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.subTitle,
+					children: t("sec.diagnostics")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: styles.health,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.unknown > 0 ? styles.healthStale : void 0,
+							children: `${t("health.unknown")} ${state.health.unknown}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: state.health.registry < 0 ? styles.healthStale : void 0,
+							children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
+							ok: state.health.deltasAccepted,
+							dropped: state.health.deltasDropped
+						}) }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
+							children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
+						})
+					]
+				})
+			]
 		})
 	});
 }
@@ -3005,6 +3149,18 @@ const zh = {
 	"view.subTabs": "活动分页",
 	"view.subTabActivity": "插件活动",
 	"view.subTabStatus": "插件运行状况",
+	"card.turns": "轮次",
+	"card.calls": "调用",
+	"card.failures": "失败",
+	"card.tools": "可用工具",
+	"card.used": "用到种数",
+	"sec.usage": "Token 用量",
+	"sec.tools": "触发过的工具",
+	"sec.diagnostics": "诊断",
+	"leg.cache": "缓存",
+	"leg.input": "输入",
+	"leg.reason": "思考",
+	"leg.output": "输出",
 	"view.empty": "本会话还没有动作。",
 	"head.toolRunning": "正在用的工具",
 	"head.toolLast": "最近用的工具",
@@ -3046,7 +3202,7 @@ const zh = {
 	"detail.enabled": "已启用",
 	"detail.disabled": "未启用",
 	"detail.loading": "读取中…",
-	"detail.unavailable": "插件信息不可用",
+	"detail.unavailable": "无独立插件行（可能是主控内置）",
 	"health.tools": "工具：{list}",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
@@ -3154,6 +3310,18 @@ const en = {
 	"view.subTabs": "Activity panes",
 	"view.subTabActivity": "Plugin activity",
 	"view.subTabStatus": "Plugin status",
+	"card.turns": "Turns",
+	"card.calls": "Calls",
+	"card.failures": "Failures",
+	"card.tools": "Tools available",
+	"card.used": "Tools used",
+	"sec.usage": "Token usage",
+	"sec.tools": "Tools called",
+	"sec.diagnostics": "Diagnostics",
+	"leg.cache": "Cache",
+	"leg.input": "Input",
+	"leg.reason": "Reasoning",
+	"leg.output": "Output",
 	"view.empty": "This session has no actions yet.",
 	"head.toolRunning": "Tool in use",
 	"head.toolLast": "Last tool used",
@@ -3191,7 +3359,7 @@ const en = {
 	"detail.enabled": "Enabled",
 	"detail.disabled": "Disabled",
 	"detail.loading": "Loading…",
-	"detail.unavailable": "Plugin info unavailable",
+	"detail.unavailable": "No standalone bundle row (likely host built-in)",
 	"health.tools": "Tools: {list}",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
@@ -3338,7 +3506,10 @@ function apply(ctx) {
 			if (bundlesCache === null) bundlesCache = (async () => {
 				const result = await remote?.pluginManager?.listBundles();
 				return result !== void 0 && result.ok && result.value !== void 0 ? result.value : null;
-			})();
+			})().then((value) => {
+				if (value === null) bundlesCache = null;
+				return value;
+			});
 			return bundlesCache;
 		};
 		return {
@@ -3361,16 +3532,24 @@ function apply(ctx) {
 				return rows;
 			},
 			loadPluginInfo: async (toolName) => {
-				const bundles = await fetchBundles();
-				if (bundles === null) return null;
-				for (const bundle of bundles) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
-					pkg: bundle.name,
-					version: bundle.version ?? null,
-					description: bundle.description ?? null,
-					enabled: bundle.enabled,
-					entryId: row.entryId ?? row.rowId
+				const match = async () => {
+					const bundles = await fetchBundles();
+					if (bundles === null) return null;
+					for (const bundle of bundles) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
+						pkg: bundle.name,
+						version: bundle.version ?? null,
+						description: bundle.description ?? null,
+						enabled: bundle.enabled,
+						entryId: row.entryId ?? row.rowId
+					};
+					return null;
 				};
-				return null;
+				const first = await match();
+				if (first !== null) return first;
+				await new Promise((resolve) => {
+					setTimeout(resolve, 700);
+				});
+				return match();
 			}
 		};
 	};
