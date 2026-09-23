@@ -35,6 +35,7 @@ import {
   TIMELINE_LIMIT,
 } from '../shared/live-task-state.ts'
 import type { LiveSpan, LiveTaskState, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
+import type { PluginInfoCard } from './index.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
 
@@ -59,6 +60,8 @@ export interface LiveTasksViewProps {
   eventSource?: SessionEventSourceLike
   /** Pull one older history page; injected beside the event source. */
   loadOlder?: () => Promise<void>
+  /** Look up the bundle a tool comes from (remote plugin manager); optional. */
+  loadPluginInfo?: (toolName: string) => Promise<PluginInfoCard | null>
 }
 
 /** The window snapshot shape the view consumes — declared structurally so the
@@ -814,11 +817,16 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
  * every later row down and could not be compared side by side with the row it
  * described.
  */
-function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
+function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onClose, t }: {
   entry: LiveTimelineEntry
   now: number
   /** The definition this tool was registered with, from the request header. */
   schema: string | null
+  /**
+   * Look up which bundle registers a tool, via the same remote the built-in
+   * plugin manager page calls. Absent in the offline preview.
+   */
+  loadPluginInfo?: (toolName: string) => Promise<PluginInfoCard | null>
   /** Model/provider of the request that drove this row (the caller identity). */
   model: string | null
   provider: string | null
@@ -829,6 +837,10 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
   // The reference's 概览 tab stacks four collapsible sections under 层级/状态;
   // closed by default, exactly as it opens.
   const [open, setOpen] = useState<{ args: boolean, result: boolean, schema: boolean, timing: boolean }>({ args: false, result: false, schema: false, timing: false })
+  // 插件信息：点 插件 ID 才去远端取（内置插件页同一 remote），按需加载。
+  const [pluginCard, setPluginCard] = useState<PluginInfoCard | null>(null)
+  const [pluginOpen, setPluginOpen] = useState(false)
+  const [pluginLoading, setPluginLoading] = useState(false)
   const running = entry.status === 'running'
   const failed = entry.status === 'failed'
   const kind = entry.kind === 'tool'
@@ -927,7 +939,24 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
             {(entry.entryId ?? null) !== null && (
               <>
                 <dt>{t('detail.entryId')}</dt>
-                <dd className={styles.detailMono}>{entry.entryId}</dd>
+                <dd>
+                  <button
+                    type="button"
+                    className={styles.pluginLink}
+                    onClick={() => {
+                      setPluginOpen((value) => !value)
+                      if (entry.kind !== 'tool' || loadPluginInfo === undefined) return
+                      if (pluginCard !== null || pluginLoading) return
+                      setPluginLoading(true)
+                      void loadPluginInfo(entry.title).then((card) => {
+                        setPluginCard(card)
+                        setPluginLoading(false)
+                      })
+                    }}
+                  >
+                    {entry.entryId}
+                  </button>
+                </dd>
               </>
             )}
             {descriptionOf(schema) !== null && (
@@ -951,6 +980,36 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
               </>
             )}
           </dl>
+          {pluginOpen && (
+            <div className={styles.pluginCard}>
+              <dl className={styles.detailGrid}>
+                <dt>{t('detail.package')}</dt>
+                <dd className={styles.detailMono}>
+                  {pluginLoading ? t('detail.loading') : (pluginCard?.pkg ?? t('detail.unavailable'))}
+                </dd>
+                {pluginCard !== null && pluginCard.version !== null && (
+                  <>
+                    <dt>{t('detail.version')}</dt>
+                    <dd className={styles.detailMono}>{pluginCard.version}</dd>
+                  </>
+                )}
+                {pluginCard !== null && (
+                  <>
+                    <dt>{t('detail.entry')}</dt>
+                    <dd className={styles.detailMono}>{pluginCard.entryId}</dd>
+                    <dt>{t('overview.status')}</dt>
+                    <dd>{pluginCard.enabled ? t('detail.enabled') : t('detail.disabled')}</dd>
+                    {pluginCard.description !== null && (
+                      <>
+                        <dt>{t('detail.purpose')}</dt>
+                        <dd>{pluginCard.description}</dd>
+                      </>
+                    )}
+                  </>
+                )}
+              </dl>
+            </div>
+          )}
           {section('args', t('turn.args'), argsBody)}
           {section('result', t('turn.result'), resultBody)}
           {section('schema', t('detail.schema'), schemaBody)}
@@ -1001,7 +1060,7 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
  * @param props - projection hook and translator from the slot kit.
  * @returns the view body, or an explicit empty state.
  */
-export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder }: LiveTasksViewProps): JSX.Element {
+export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo }: LiveTasksViewProps): JSX.Element {
   const projected = useProjection('liveTask') as LiveTaskView | undefined
   /**
    * The client-side archive: the whole session folded from the resident event
@@ -1188,49 +1247,6 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         </span>
       </header>
 
-      {/* Which tool is in use, readable without scanning the timeline. */}
-      <p className={styles.toolLine}>
-        <span className={styles.toolLineLabel}>
-          {inFlight ? t('head.toolRunning') : t('head.toolLast')}
-        </span>
-        <span className={styles.toolLineValue}>
-          {inFlight
-            ? state.openTools.map((call) => call.name).join(', ')
-            : state.actions.at(-1)?.name ?? t('head.toolNone')}
-        </span>
-      </p>
-
-      <p className={styles.summaryLine}>
-        {t('axis.summary', {
-          turns: state.turnsTotal,
-          calls: state.toolCallsTotal,
-          failures: state.failuresTotal,
-          tools: state.toolsAvailable ?? '—',
-          used: distinctTools,
-        })}
-      </p>
-
-      {/* Token telemetry: the host records usage per assistant message, and this
-          is the only surface where a reader can see what the session has cost. */}
-      <p className={styles.usageLine}>
-        {state.usage.reported === 0
-          ? t('usage.unknown')
-          : t('usage.line', {
-              total: compact(state.usage.total),
-              input: compact(state.usage.input),
-              output: compact(state.usage.output),
-              cache: compact(state.usage.cacheRead),
-              // The footer's 缓存命中 rate: cache reads over *all* input reads
-              // (billed input + cache reads). Using cache/billed alone reported
-              // 15531% on a real session, because billed input excludes cache.
-              pct: state.usage.cacheRead + state.usage.input === 0
-                ? 0
-                : Math.round(
-                    (state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100,
-                  ),
-            })}
-      </p>
-
       {/* Toolbar copied from the trajectory view: a duration switch, the turns and
           calls actions with their icons, and the search pinned to the right. */}
       <div className={styles.bar} role="toolbar" aria-label={t('bar.aria')}>
@@ -1387,6 +1403,28 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
               state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
           </span>
           <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
+          {/* The header lines moved here: the drawer names tools and rows carry
+              per-call tokens, so the redundant header went — but the session
+              telemetry the operator asked for stays, now beside the other
+              counters where a stale panel is judged. */}
+          <span>{t('axis.summary', {
+            turns: state.turnsTotal,
+            calls: state.toolCallsTotal,
+            failures: state.failuresTotal,
+            tools: state.toolsAvailable ?? '—',
+            used: distinctTools,
+          })}</span>
+          <span>{state.usage.reported === 0
+            ? t('usage.unknown')
+            : t('usage.line', {
+                total: compact(state.usage.total),
+                input: compact(state.usage.input),
+                output: compact(state.usage.output),
+                cache: compact(state.usage.cacheRead),
+                pct: state.usage.cacheRead + state.usage.input === 0
+                  ? 0
+                  : Math.round((state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100),
+              })}</span>
           <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
             {silentSeconds > 60 && state.running
               ? t('health.stale', { s: silentSeconds })
@@ -1404,6 +1442,7 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
               : null}
             model={state.model ?? null}
             provider={state.provider ?? null}
+            loadPluginInfo={loadPluginInfo}
             onClose={() => setExpanded(null)}
             t={t}
           />

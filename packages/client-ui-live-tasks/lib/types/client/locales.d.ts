@@ -51,6 +51,13 @@ export declare const zh: {
     readonly 'overview.caller': '调用方';
     readonly 'overview.callee': '被调用方';
     readonly 'overview.tokens': 'Token';
+    readonly 'detail.package': '包名';
+    readonly 'detail.version': '版本';
+    readonly 'detail.entry': '入口';
+    readonly 'detail.enabled': '已启用';
+    readonly 'detail.disabled': '未启用';
+    readonly 'detail.loading': '读取中…';
+    readonly 'detail.unavailable': '插件信息不可用';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';

@@ -59,7 +59,40 @@ export interface SessionFaceLike {
   loadOlder(): Promise<void>
 }
 
-export const inject = ['slots', 'locale', 'sessions', 'uiConversation']
+/** Bundle rows as the remote face reports them (structural, see `inject`). */
+export interface BundleInfoLike {
+  readonly name: string
+  readonly version?: string
+  readonly description?: string
+  readonly enabled: boolean
+  readonly rows?: readonly { readonly rowId: string, readonly moduleName: string, readonly entryId?: string }[]
+}
+
+/** What the drawer shows when 插件 ID is clicked. */
+export interface PluginInfoCard {
+  readonly pkg: string
+  readonly version: string | null
+  readonly description: string | null
+  readonly enabled: boolean
+  readonly entryId: string
+}
+
+/**
+ * Tool name a patch row registers, by the ecosystem's naming law.
+ *
+ * `tool-check-ui-size` / `dsh-tool-bash` / `soia-dsh-tool-check-ui-size` all end
+ * in the dashed tool name; the row id wins when present.
+ * @param id - a row id or module name.
+ * @returns the snake-cased tool name, or null when the id names no tool.
+ */
+function deriveToolName(id: string): string | null {
+  const tail = id.split('/').pop() ?? id
+  const match = /^(?:soia-)?(?:dsh-)?tool-(.+)$/.exec(tail)
+  if (match === null) return null
+  return (match[1] ?? '').replaceAll('-', '_')
+}
+
+export const inject = ['slots', 'locale', 'sessions', 'uiConversation', 'remote', 'remote.pluginManager']
 
 /**
  * Client plugin body: register the dictionaries and the header action.
@@ -95,8 +128,37 @@ export function apply(ctx: ClientContext): void {
         binding(id: string): { session?: SessionFaceLike } | undefined
       }
       const session = sessions.binding(sessionId)?.session
-      if (session === undefined) return {}
-      return { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }
+      // Structural cast again: `remote.pluginManager`'s typert face is generated
+      // per install, and this workspace cannot resolve its package the way the
+      // official monorepo does. The shape used here is what the manager page
+      // itself calls.
+      const remote = (ctx as unknown as {
+        remote?: { pluginManager?: { listBundles(): Promise<{ ok: boolean, value?: BundleInfoLike[] }> } }
+      }).remote
+      return {
+        ...(session === undefined
+          ? {}
+          : { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }),
+        loadPluginInfo: async (toolName: string): Promise<PluginInfoCard | null> => {
+          const result = await remote?.pluginManager?.listBundles()
+          if (result === undefined || !result.ok || result.value === undefined) return null
+          for (const bundle of result.value) {
+            for (const row of bundle.rows ?? []) {
+              const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
+              if (derived === toolName) {
+                return {
+                  pkg: bundle.name,
+                  version: bundle.version ?? null,
+                  description: bundle.description ?? null,
+                  enabled: bundle.enabled,
+                  entryId: row.entryId ?? row.rowId,
+                }
+              }
+            }
+          }
+          return null
+        },
+      }
     },
   }, LiveTasksView))
   // A second, smaller surface: the running tool in the session header, readable

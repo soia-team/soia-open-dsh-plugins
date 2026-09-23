@@ -1120,6 +1120,15 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
+.lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  font-family: var(--dsw-font-mono, monospace); font-size: inherit; }
+.lt-pluginLink:hover { text-decoration: underline; }
+.lt-pluginCard { margin-top: 6px; padding: 8px 10px; border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+
 /* 加载更早的历史：官方 historyLoadRow 形态（30px 行 + 居中幽灵按钮）。 */
 .lt-historyRow { display: flex; justify-content: center; align-items: center; min-height: 30px;
   border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
@@ -1291,8 +1300,8 @@ const CSS = `
 .lt-tlBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .lt-tlTitle { flex: none; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
   color: var(--dsw-alias-label-primary); }
-.lt-tlEntryId { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px;
-  font-family: var(--dsw-font-mono, monospace); }
+.lt-tlEntryId { flex: none; color: var(--dsw-alias-state-business-primary, #4078ff); font-size: 11px;
+  font-weight: 600; font-family: var(--dsw-font-mono, monospace); }
 .lt-detailMono { font-family: var(--dsw-font-mono, monospace); }
 .lt-tlArgs { flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, monospace); }
@@ -1484,6 +1493,8 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	pluginCard: "lt-pluginCard",
+	pluginLink: "lt-pluginLink",
 	historyButton: "lt-historyButton",
 	historyRow: "lt-historyRow",
 	tlGen: "lt-tlGen",
@@ -2269,7 +2280,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
 * every later row down and could not be compared side by side with the row it
 * described.
 */
-function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
+function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onClose, t }) {
 	const [tab, setTab] = (0, react.useState)("overview");
 	const [open, setOpen] = (0, react.useState)({
 		args: false,
@@ -2277,6 +2288,9 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
 		schema: false,
 		timing: false
 	});
+	const [pluginCard, setPluginCard] = (0, react.useState)(null);
+	const [pluginOpen, setPluginOpen] = (0, react.useState)(false);
+	const [pluginLoading, setPluginLoading] = (0, react.useState)(false);
 	const running = entry.status === "running";
 	const failed = entry.status === "failed";
 	const kind = entry.kind === "tool" ? t("timeline.tool") : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant");
@@ -2365,10 +2379,21 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
 							children: `${model}${provider !== null ? ` · ${provider}` : ""}`
 						})] }),
 						(entry.tokens ?? null) !== null && entry.kind === "assistant" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.tokens") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: `${compact(entry.tokens ?? 0)} tok` })] }),
-						(entry.entryId ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
-							className: styles.detailMono,
+						(entry.entryId ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: styles.pluginLink,
+							onClick: () => {
+								setPluginOpen((value) => !value);
+								if (entry.kind !== "tool" || loadPluginInfo === void 0) return;
+								if (pluginCard !== null || pluginLoading) return;
+								setPluginLoading(true);
+								loadPluginInfo(entry.title).then((card) => {
+									setPluginCard(card);
+									setPluginLoading(false);
+								});
+							},
 							children: entry.entryId
-						})] }),
+						}) })] }),
 						descriptionOf(schema) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.purpose") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: descriptionOf(schema) })] }),
 						entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : failed ? t("status.failed") : t("status.ok") })] }),
 						entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
@@ -2376,6 +2401,33 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
 							step: entry.step
 						}) })] })
 					]
+				}),
+				pluginOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: styles.pluginCard,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dl", {
+						className: styles.detailGrid,
+						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.package") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+								className: styles.detailMono,
+								children: pluginLoading ? t("detail.loading") : pluginCard?.pkg ?? t("detail.unavailable")
+							}),
+							pluginCard !== null && pluginCard.version !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.version") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+								className: styles.detailMono,
+								children: pluginCard.version
+							})] }),
+							pluginCard !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entry") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+									className: styles.detailMono,
+									children: pluginCard.entryId
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: pluginCard.enabled ? t("detail.enabled") : t("detail.disabled") }),
+								pluginCard.description !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.purpose") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: pluginCard.description })] })
+							] })
+						]
+					})
 				}),
 				section("args", t("turn.args"), argsBody),
 				section("result", t("turn.result"), resultBody),
@@ -2460,7 +2512,7 @@ function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
 * @param props - projection hook and translator from the slot kit.
 * @returns the view body, or an explicit empty state.
 */
-function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder }) {
+function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo }) {
 	const projected = useProjection("liveTask");
 	/**
 	* The client-side archive: the whole session folded from the resident event
@@ -2597,36 +2649,6 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 								children: state.running ? t("time.seconds", { s: secondsBetween(state.updatedAt ?? now, now) }) : ""
 							})
 						]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
-						className: styles.toolLine,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.toolLineLabel,
-							children: inFlight ? t("head.toolRunning") : t("head.toolLast")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: styles.toolLineValue,
-							children: inFlight ? state.openTools.map((call) => call.name).join(", ") : state.actions.at(-1)?.name ?? t("head.toolNone")
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-						className: styles.summaryLine,
-						children: t("axis.summary", {
-							turns: state.turnsTotal,
-							calls: state.toolCallsTotal,
-							failures: state.failuresTotal,
-							tools: state.toolsAvailable ?? "—",
-							used: distinctTools
-						})
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-						className: styles.usageLine,
-						children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
-							total: compact(state.usage.total),
-							input: compact(state.usage.input),
-							output: compact(state.usage.output),
-							cache: compact(state.usage.cacheRead),
-							pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
-						})
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: styles.bar,
@@ -2791,6 +2813,20 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 									ok: state.health.deltasAccepted,
 									dropped: state.health.deltasDropped
 								}) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("axis.summary", {
+									turns: state.turnsTotal,
+									calls: state.toolCallsTotal,
+									failures: state.failuresTotal,
+									tools: state.toolsAvailable ?? "—",
+									used: distinctTools
+								}) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
+									total: compact(state.usage.total),
+									input: compact(state.usage.input),
+									output: compact(state.usage.output),
+									cache: compact(state.usage.cacheRead),
+									pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
+								}) }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
 									children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
@@ -2805,6 +2841,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 				schema: detailEntry.kind === "tool" ? state.toolSchemas[detailEntry.title] ?? null : null,
 				model: state.model ?? null,
 				provider: state.provider ?? null,
+				loadPluginInfo,
 				onClose: () => setExpanded(null),
 				t
 			})]
@@ -2866,6 +2903,13 @@ const zh = {
 	"overview.caller": "调用方",
 	"overview.callee": "被调用方",
 	"overview.tokens": "Token",
+	"detail.package": "包名",
+	"detail.version": "版本",
+	"detail.entry": "入口",
+	"detail.enabled": "已启用",
+	"detail.disabled": "未启用",
+	"detail.loading": "读取中…",
+	"detail.unavailable": "插件信息不可用",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -2999,6 +3043,13 @@ const en = {
 	"overview.caller": "Caller",
 	"overview.callee": "Callee",
 	"overview.tokens": "Token",
+	"detail.package": "Package",
+	"detail.version": "Version",
+	"detail.entry": "Entry",
+	"detail.enabled": "Enabled",
+	"detail.disabled": "Disabled",
+	"detail.loading": "Loading…",
+	"detail.unavailable": "Plugin info unavailable",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",
@@ -3104,11 +3155,27 @@ const en = {
 };
 //#endregion
 //#region src/client/index.ts
+/**
+* Tool name a patch row registers, by the ecosystem's naming law.
+*
+* `tool-check-ui-size` / `dsh-tool-bash` / `soia-dsh-tool-check-ui-size` all end
+* in the dashed tool name; the row id wins when present.
+* @param id - a row id or module name.
+* @returns the snake-cased tool name, or null when the id names no tool.
+*/
+function deriveToolName(id) {
+	const tail = id.split("/").pop() ?? id;
+	const match = /^(?:soia-)?(?:dsh-)?tool-(.+)$/.exec(tail);
+	if (match === null) return null;
+	return (match[1] ?? "").replaceAll("-", "_");
+}
 const inject = [
 	"slots",
 	"locale",
 	"sessions",
-	"uiConversation"
+	"uiConversation",
+	"remote",
+	"remote.pluginManager"
 ];
 /**
 * Client plugin body: register the dictionaries and the header action.
@@ -3128,10 +3195,24 @@ function apply(ctx) {
 		locale: NS,
 		inject: (sessionId) => {
 			const session = ctx.sessions.binding(sessionId)?.session;
-			if (session === void 0) return {};
+			const remote = ctx.remote;
 			return {
-				eventSource: session.eventSource,
-				loadOlder: () => session.loadOlder()
+				...session === void 0 ? {} : {
+					eventSource: session.eventSource,
+					loadOlder: () => session.loadOlder()
+				},
+				loadPluginInfo: async (toolName) => {
+					const result = await remote?.pluginManager?.listBundles();
+					if (result === void 0 || !result.ok || result.value === void 0) return null;
+					for (const bundle of result.value) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
+						pkg: bundle.name,
+						version: bundle.version ?? null,
+						description: bundle.description ?? null,
+						enabled: bundle.enabled,
+						entryId: row.entryId ?? row.rowId
+					};
+					return null;
+				}
 			};
 		}
 	}, LiveTasksView));

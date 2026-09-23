@@ -1,3 +1,4 @@
+import type { PluginInfoCard } from './index.ts';
 import type { LiveTaskKey } from './locales.ts';
 /** Props the conversation view slot hands a session-scoped view. */
 export interface LiveTasksViewProps {
@@ -20,6 +21,8 @@ export interface LiveTasksViewProps {
     eventSource?: SessionEventSourceLike;
     /** Pull one older history page; injected beside the event source. */
     loadOlder?: () => Promise<void>;
+    /** Look up the bundle a tool comes from (remote plugin manager); optional. */
+    loadPluginInfo?: (toolName: string) => Promise<PluginInfoCard | null>;
 }
 /** The window snapshot shape the view consumes — declared structurally so the
  *  browser bundle does not need a type-only import from the host SDK. */
@@ -60,5 +63,5 @@ interface SessionSnapshotLike {
  * @param props - projection hook and translator from the slot kit.
  * @returns the view body, or an explicit empty state.
  */
-export declare function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder }: LiveTasksViewProps): JSX.Element;
+export declare function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo }: LiveTasksViewProps): JSX.Element;
 export {};

@@ -170,6 +170,15 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
+.lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  font-family: var(--dsw-font-mono, monospace); font-size: inherit; }
+.lt-pluginLink:hover { text-decoration: underline; }
+.lt-pluginCard { margin-top: 6px; padding: 8px 10px; border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
+
 /* 加载更早的历史：官方 historyLoadRow 形态（30px 行 + 居中幽灵按钮）。 */
 .lt-historyRow { display: flex; justify-content: center; align-items: center; min-height: 30px;
   border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
@@ -341,8 +350,8 @@ const CSS = `
 .lt-tlBody { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .lt-tlTitle { flex: none; font-weight: 600; font-family: var(--dsw-font-mono, monospace);
   color: var(--dsw-alias-label-primary); }
-.lt-tlEntryId { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px;
-  font-family: var(--dsw-font-mono, monospace); }
+.lt-tlEntryId { flex: none; color: var(--dsw-alias-state-business-primary, #4078ff); font-size: 11px;
+  font-weight: 600; font-family: var(--dsw-font-mono, monospace); }
 .lt-detailMono { font-family: var(--dsw-font-mono, monospace); }
 .lt-tlArgs { flex: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, monospace); }
@@ -535,6 +544,8 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+    pluginCard: 'lt-pluginCard',
+    pluginLink: 'lt-pluginLink',
     historyButton: 'lt-historyButton',
     historyRow: 'lt-historyRow',
     tlGen: 'lt-tlGen',

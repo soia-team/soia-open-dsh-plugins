@@ -35,6 +35,26 @@ export interface SessionFaceLike {
     readonly eventSource: SessionEventSourceLike;
     loadOlder(): Promise<void>;
 }
+/** Bundle rows as the remote face reports them (structural, see `inject`). */
+export interface BundleInfoLike {
+    readonly name: string;
+    readonly version?: string;
+    readonly description?: string;
+    readonly enabled: boolean;
+    readonly rows?: readonly {
+        readonly rowId: string;
+        readonly moduleName: string;
+        readonly entryId?: string;
+    }[];
+}
+/** What the drawer shows when 插件 ID is clicked. */
+export interface PluginInfoCard {
+    readonly pkg: string;
+    readonly version: string | null;
+    readonly description: string | null;
+    readonly enabled: boolean;
+    readonly entryId: string;
+}
 export declare const inject: string[];
 /**
  * Client plugin body: register the dictionaries and the header action.
