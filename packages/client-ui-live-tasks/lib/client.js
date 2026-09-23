@@ -708,7 +708,9 @@ function argsInline(entry) {
 		const parsed = JSON.parse(entry.argsFull);
 		if (parsed !== null && typeof parsed === "object") return JSON.stringify(parsed);
 		return String(parsed);
-	} catch {}
+	} catch {
+		if (entry.argsFull.trimStart().startsWith("{") || entry.argsFull.trimStart().startsWith("[")) return entry.argsFull.replace(/\s+/g, " ").trim();
+	}
 	return entry.detail;
 }
 /**

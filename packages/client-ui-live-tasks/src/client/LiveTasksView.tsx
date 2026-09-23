@@ -88,7 +88,12 @@ function argsInline(entry: LiveTimelineEntry): string | null {
       if (parsed !== null && typeof parsed === 'object') return JSON.stringify(parsed)
       return String(parsed)
     } catch {
-      // Not JSON (some tools take a raw string): fall through to the summary.
+      // Long arguments are stored truncated, so the JSON may not parse; the text
+      // is still JSON — minify it rather than falling back to the summariser,
+      // because the row must read `bash {"command":…` like the reference.
+      if (entry.argsFull.trimStart().startsWith('{') || entry.argsFull.trimStart().startsWith('[')) {
+        return entry.argsFull.replace(/\s+/g, ' ').trim()
+      }
     }
   }
   return entry.detail
