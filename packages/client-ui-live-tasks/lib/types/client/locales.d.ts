@@ -16,6 +16,7 @@ export declare const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
     readonly 'view.tab': '活动';
+    readonly 'view.status': '运行状况';
     readonly 'view.empty': '本会话还没有动作。';
     readonly 'head.toolRunning': '正在用的工具';
     readonly 'head.toolLast': '最近用的工具';
@@ -59,7 +60,6 @@ export declare const zh: {
     readonly 'detail.loading': '读取中…';
     readonly 'detail.unavailable': '插件信息不可用';
     readonly 'health.tools': '工具：{list}';
-    readonly 'health.diag': '诊断';
     readonly 'detail.name': '名称';
     readonly 'detail.entryId': '插件 ID';
     readonly 'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）';

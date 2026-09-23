@@ -118,7 +118,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'health.tools': '工具：{list}', 'health.diag': '诊断', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+  'detail.name': '名称', 'health.tools': '工具：{list}', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -261,8 +261,11 @@ const useProjection = () => fixture
 const listToolBundles = async () => [
   { tool: 'check_ui_size', pkg: 'soia-dsh-tool-check-ui-size', entryId: 'tool-check-ui-size' },
 ]
+const sharedProps = { useProjection, t, useSession: sessionStub, listToolBundles }
 ReactDOM.createRoot(document.getElementById('root')).render(
-  React.createElement(Component, { useProjection, t, useSession: sessionStub, listToolBundles }),
+  React.createElement(React.Fragment, null,
+    React.createElement(Component, sharedProps),
+    registrations[1] ? React.createElement(registrations[1], sharedProps) : null),
 )
 window.__mounted = true
 </script></body></html>`
@@ -344,23 +347,18 @@ const restFonts = await view.evaluate(() => {
   }
 })
 const fonts = { ...overviewFacts, ...argsFacts, ...restFonts }
-// 运行状况契约：诊断默认收起（内部计数不可见）、名单默认只列咱们的插件。
+// 运行状况契约：数据整块挪进专属页签（内部计数常驻可见），名单默认只列咱们的插件。
 const healthFacts = await view.evaluate(() => {
   const health = globalThis.document.querySelector('[class*="lt-health"]')
-  const btn = globalThis.document.querySelector('[class*="lt-diagToggle"]')
   const text = health?.innerText ?? ''
   const roster = [...(health?.querySelectorAll('span') ?? [])]
     .map((node) => node.textContent ?? '').find((value) => value.startsWith('工具：')) ?? null
   return {
-    diagLabel: btn?.textContent ?? null,
-    diagCollapsed: btn?.getAttribute('aria-expanded') === 'false',
-    internalsHidden: !/已折叠事件/.test(text),
     roster,
+    internalsVisible: /已折叠事件/.test(text),
+    staleVisible: /数据更新/.test(text),
   }
 })
-await view.locator('[class*="lt-diagToggle"]').first().click().catch(() => {})
-await view.waitForTimeout(150)
-const diagOpens = await view.evaluate(() => /已折叠事件/.test(globalThis.document.querySelector('[class*="lt-health"]')?.innerText ?? ''))
 const facts = {
   hierarchy: overviewFacts.hierarchy,
   sections: overviewFacts.sections,
@@ -370,9 +368,8 @@ const facts = {
   callee: overviewFacts.callee,
   // 名单默认只显示咱们的插件：fixture 用过 read/grep/bash + 一个 soia 工具。
   ours: healthFacts.roster === '工具：check_ui_size',
-  diagCollapsed: healthFacts.diagCollapsed,
-  internalsHidden: healthFacts.internalsHidden,
-  diagOpens,
+  internalsVisible: healthFacts.internalsVisible,
+  staleVisible: healthFacts.staleVisible,
 }
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
@@ -434,7 +431,7 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 // pretty-printed and colour-tokenised — the three things the operator called out.
 if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0
   && visuals.facts?.caller && visuals.facts?.callee
-  && visuals.facts?.ours && visuals.facts?.diagCollapsed && visuals.facts?.internalsHidden && visuals.facts?.diagOpens)) {
+  && visuals.facts?.ours && visuals.facts?.internalsVisible && visuals.facts?.staleVisible)) {
   console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)}`)
   process.exit(1)
 }

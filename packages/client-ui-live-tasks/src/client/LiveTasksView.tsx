@@ -34,7 +34,7 @@ import {
   reduceLiveTask,
   TIMELINE_LIMIT,
 } from '../shared/live-task-state.ts'
-import type { LiveSpan, LiveTaskState, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
+import type { LiveSpan, LiveTaskState, LiveTaskView, LiveTimelineEntry, LiveTurnSummary } from '../shared/types.ts'
 import type { PluginInfoCard } from './index.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
@@ -1062,7 +1062,43 @@ function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onC
  * @param props - projection hook and translator from the slot kit.
  * @returns the view body, or an explicit empty state.
  */
-export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element {
+/**
+ * Union two turn-summary lists by turn number.
+ *
+ * The host folds the whole log, so its summaries are complete; the archive's
+ * window may hold turns the host window slid away (and vice versa on sessions
+ * past the host's turn cap). Paging must not make headers vanish: taking the
+ * archive wholesale once it wins on rows dropped the panel from 85 headers to 9
+ * live, because only the turns whose events are resident had summaries.
+ * @param host - the host projection's summaries, when present.
+ * @param archive - the client archive's summaries.
+ * @returns one list, host entries winning on conflict.
+ */
+function mergeTurns(
+  host: readonly LiveTurnSummary[] | undefined,
+  archive: readonly LiveTurnSummary[],
+): readonly LiveTurnSummary[] {
+  if (host === undefined || host.length === 0) return archive
+  const byTurn = new Map<number, LiveTurnSummary>()
+  for (const summary of host) byTurn.set(summary.turn, summary)
+  for (const summary of archive) if (!byTurn.has(summary.turn)) byTurn.set(summary.turn, summary)
+  return [...byTurn.values()].sort((left, right) => left.turn - right.turn)
+}
+
+/**
+ * The shared display state behind both registered views: the host projection,
+ * the client-side archive fold, the paging flags, the live stream, and the
+ * session's tool roster. Extracted so 活动 and the 运行状况 tab read the same
+ * numbers instead of drifting a second copy.
+ * @param props - the projection/session/list sources both views already receive.
+ * @returns the display state plus the roster the status tab reports.
+ */
+function useLiveTaskDisplay({
+  useProjection,
+  useSession,
+  eventSource,
+  listToolBundles,
+}: Pick<LiveTasksViewProps, 'useProjection' | 'useSession' | 'eventSource' | 'listToolBundles'>) {
   const projected = useProjection('liveTask') as LiveTaskView | undefined
   /**
    * The client-side archive: the whole session folded from the resident event
@@ -1169,6 +1205,7 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
     && withCounters.timeline.length >= (hostState?.timeline.length ?? 0)
     ? {
         ...withCounters,
+        turns: mergeTurns(hostState?.turns, withCounters.turns),
         toolsAvailable: withCounters.toolsAvailable ?? hostState?.toolsAvailable ?? null,
         usage: withCounters.usage.reported > 0
           ? withCounters.usage
@@ -1178,17 +1215,14 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         toolSchemas: { ...(hostState?.toolSchemas ?? withCounters.toolSchemas), ...withCounters.toolSchemas },
       }
     : hostState
-  const [selected, setSelected] = useState<number | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  // 轨迹工具栏的 调用 按钮：收起消息行，只留轮次/步骤/调用（对应它的折叠助手块）。
-  const [messagesHidden, setMessagesHidden] = useState(false)
-  // 轨迹的 时长 开关：等宽槽位 vs 实际时长（其隐藏的 实际时间 开关这里保持可见语义：行始终挂钟）。
-  const [actualDuration, setActualDuration] = useState(true)
-  const [failedOnly, setFailedOnly] = useState(false)
-  const [query, setQuery] = useState('')
-  // 运行状况的内部诊断默认收起（面板基本用不到，出问题再展开）；
-  // 未知类型计数常驻在按钮上，折叠态也看得见异常。
-  const [diagOpen, setDiagOpen] = useState(false)
+  // 全会话（含已分页）用过的工具名单，不再只数最近动作：回答"这次会话到底触发过哪些"。
+  const usedToolNames = [...new Set([
+    ...(state?.turns ?? []).flatMap((turn) => turn.tools),
+    ...(state?.openTools ?? []).map((tool) => tool.name),
+    ...(state?.lastTool == null ? [] : [state.lastTool.name]),
+    ...(state?.actions ?? []).map((action) => action.name),
+  ])]
+  const distinctTools = usedToolNames.length
   // 咱们自己的工具名单（包名 soia- 开头的 bundle 注册的工具）；拿不到就退回全量。
   const [ourToolNames, setOurToolNames] = useState<ReadonlySet<string> | null>(null)
   useEffect(() => {
@@ -1201,6 +1235,105 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
     }).catch(() => undefined)
     return () => { alive = false }
   }, [listToolBundles])
+  return { state, hasOlder, loadingOlder, liveStream, usedToolNames, distinctTools, ourToolNames }
+}
+
+/**
+ * The 运行状况 tab: the panel's own telemetry gets its own seat, so the timeline
+ * stays a timeline. Everything the old bottom block reported lives here in full
+ * — session totals, the tool roster (our packages first), usage, freshness, and
+ * the fold's internal counters — without competing for the activity view's space.
+ * @param props - the same standard kit and injected sources as the activity view.
+ * @returns the telemetry panel, or the shared empty state.
+ */
+export function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }: LiveTasksViewProps): JSX.Element {
+  const { state, usedToolNames, distinctTools, ourToolNames } = useLiveTaskDisplay(
+    { useProjection, useSession, eventSource, listToolBundles },
+  )
+  const now = useNow()
+  if (state === undefined || !hasLiveActivity(state)) {
+    return (
+      <div className={styles.empty}>
+        <StateDot state="idle" />
+        <span>{t('view.empty')}</span>
+      </div>
+    )
+  }
+  const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
+  const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
+  const oursOnly = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name))
+  const rosterShown = oursOnly
+    ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false)
+    : usedToolNames
+  return (
+    <div className={styles.view}>
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
+        <div className={styles.health}>
+              <span>{`${t('health.folded')} ${state.health.folded}`}</span>
+          <span>{`${t('health.ignored')} ${state.health.ignored}`}</span>
+          <span className={state.health.unknown > 0 ? styles.healthStale : undefined}>
+            {`${t('health.unknown')} ${state.health.unknown}`}
+          </span>
+          <span>{`${t('health.frames')} ${state.health.frames}`}</span>
+          <span className={state.health.registry < 0 ? styles.healthStale : undefined}>
+            {`${t('health.agents')} ${state.health.agents} / ${t('health.registry')} ${
+              state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
+          </span>
+              <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
+          {/* The header lines moved here: the drawer names tools and rows carry
+              per-call tokens, so the redundant header went — but the session
+              telemetry the operator asked for stays, now beside the other
+              counters where a stale panel is judged. */}
+          <span title={usedToolNames.join('、')}>{t('axis.summary', {
+            turns: state.turnsTotal,
+            calls: state.toolCallsTotal,
+            failures: state.failuresTotal,
+            tools: state.toolsAvailable ?? '—',
+            used: distinctTools,
+          })}</span>
+          {rosterShown.length > 0 && (
+            <span title={usedToolNames.join('、')}>
+              {t('health.tools', {
+                list: rosterShown.slice(0, 4).join('、')
+                  + (rosterShown.length > 4 ? '…' : ''),
+              })}
+            </span>
+          )}
+          <span>{state.usage.reported === 0
+            ? t('usage.unknown')
+            : t('usage.line', {
+                total: compact(state.usage.total),
+                input: compact(state.usage.input),
+                output: compact(state.usage.output),
+                cache: compact(state.usage.cacheRead),
+                pct: state.usage.cacheRead + state.usage.input === 0
+                  ? 0
+                  : Math.round((state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100),
+              })}</span>
+          <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
+            {silentSeconds > 60 && state.running
+              ? t('health.stale', { s: silentSeconds })
+              : `${t('health.lastData')} ${t('health.silence', { s: silentSeconds })}`}
+          </span>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element {
+  const { state, hasOlder, loadingOlder, liveStream } = useLiveTaskDisplay(
+    { useProjection, useSession, eventSource, listToolBundles },
+  )
+  const [selected, setSelected] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  // 轨迹工具栏的 调用 按钮：收起消息行，只留轮次/步骤/调用（对应它的折叠助手块）。
+  const [messagesHidden, setMessagesHidden] = useState(false)
+  // 轨迹的 时长 开关：等宽槽位 vs 实际时长（其隐藏的 实际时间 开关这里保持可见语义：行始终挂钟）。
+  const [actualDuration, setActualDuration] = useState(true)
+  const [failedOnly, setFailedOnly] = useState(false)
+  const [query, setQuery] = useState('')
   const [turnsOpen, setTurnsOpen] = useState(true)
   const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
@@ -1223,16 +1356,6 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
       : settled
         ? t('phase.ended')
         : t('phase.idle')
-  // 全会话（含已分页）用过的工具名单，不再只数最近动作：回答"这次会话到底触发过哪些"。
-  const usedToolNames = [...new Set([
-    ...state.turns.flatMap((turn) => turn.tools),
-    ...state.openTools.map((tool) => tool.name),
-    ...(state.lastTool === null ? [] : [state.lastTool.name]),
-    ...state.actions.map((action) => action.name),
-  ])]
-  const distinctTools = usedToolNames.length
-  const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0)
-  const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now)
   const selectedTurn = state.turns.at(-1)?.turn ?? null
   const shownTurn = selected ?? selectedTurn
   // `selected` is the reader's choice; `shownTurn` falls back to the newest turn so
@@ -1415,78 +1538,6 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h4 className={styles.sectionTitle}>{t('health.title')}</h4>
-        <div className={styles.health}>
-          <button
-            type="button"
-            className={styles.diagToggle}
-            aria-expanded={diagOpen}
-            onClick={() => setDiagOpen((value) => !value)}
-          >
-            {t('health.diag')}
-            {state.health.unknown > 0 ? ` · ${t('health.unknown')} ${state.health.unknown}` : ''}
-          </button>
-          {diagOpen && (
-            <>
-              <span>{`${t('health.folded')} ${state.health.folded}`}</span>
-          <span>{`${t('health.ignored')} ${state.health.ignored}`}</span>
-          <span className={state.health.unknown > 0 ? styles.healthStale : undefined}>
-            {`${t('health.unknown')} ${state.health.unknown}`}
-          </span>
-          <span>{`${t('health.frames')} ${state.health.frames}`}</span>
-          <span className={state.health.registry < 0 ? styles.healthStale : undefined}>
-            {`${t('health.agents')} ${state.health.agents} / ${t('health.registry')} ${
-              state.health.registry < 0 ? t('health.unreachable') : state.health.registry}`}
-          </span>
-              <span>{t('health.deltasValue', { ok: state.health.deltasAccepted, dropped: state.health.deltasDropped })}</span>
-            </>
-          )}
-          {/* The header lines moved here: the drawer names tools and rows carry
-              per-call tokens, so the redundant header went — but the session
-              telemetry the operator asked for stays, now beside the other
-              counters where a stale panel is judged. */}
-          <span>{t('axis.summary', {
-            turns: state.turnsTotal,
-            calls: state.toolCallsTotal,
-            failures: state.failuresTotal,
-            tools: state.toolsAvailable ?? '—',
-            used: distinctTools,
-          })}</span>
-          {usedToolNames.length > 0 && (
-            <span title={usedToolNames.join('、')}>
-              {(() => {
-                // 默认只列咱们插件（soia- 包）注册的工具；没触发过就退回全量，
-                // 完整名单始终在 title 里。
-                const oursOnly = ourToolNames !== null
-                  && usedToolNames.some((name) => ourToolNames.has(name))
-                const shown = oursOnly
-                  ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false)
-                  : usedToolNames
-                return t('health.tools', {
-                  list: shown.slice(0, 4).join('、') + (shown.length > 4 ? '…' : ''),
-                })
-              })()}
-            </span>
-          )}
-          <span>{state.usage.reported === 0
-            ? t('usage.unknown')
-            : t('usage.line', {
-                total: compact(state.usage.total),
-                input: compact(state.usage.input),
-                output: compact(state.usage.output),
-                cache: compact(state.usage.cacheRead),
-                pct: state.usage.cacheRead + state.usage.input === 0
-                  ? 0
-                  : Math.round((state.usage.cacheRead / (state.usage.cacheRead + state.usage.input)) * 100),
-              })}</span>
-          <span className={silentSeconds > 60 && state.running ? styles.healthStale : undefined}>
-            {silentSeconds > 60 && state.running
-              ? t('health.stale', { s: silentSeconds })
-              : `${t('health.lastData')} ${t('health.silence', { s: silentSeconds })}`}
-          </span>
-        </div>
-      </section>
         </div>
         {detailEntry !== null && (
           <DetailDrawer
