@@ -58,6 +58,8 @@ Object.freeze({
 	recent: NO_EVENTS,
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
+	toolSchemas: Object.freeze({}),
+	headerSchemas: Object.freeze({}),
 	turns: NO_TURNS,
 	turnsTotal: 0,
 	actions: NO_ACTIONS,
@@ -1045,7 +1047,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
 			className: styles.contentCell,
 			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: styles.none,
-				children: turn.toolCalls > 0 ? t("turn.windowOnly") : t("turn.empty")
+				children: turn.toolCalls > 0 ? t("turn.windowOnly", { n: 64 }) : t("turn.empty")
 			})
 		})] }) : groupByStep(entries).map((group, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react.Fragment, { children: [group.step !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
 			className: styles.stepRow,
@@ -1077,7 +1079,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
 * every later row down and could not be compared side by side with the row it
 * described.
 */
-function DetailDrawer({ entry, now, onClose, t }) {
+function DetailDrawer({ entry, now, schema, onClose, t }) {
 	const [tab, setTab] = (0, react.useState)("overview");
 	const running = entry.status === "running";
 	const failed = entry.status === "failed";
@@ -1122,9 +1124,12 @@ function DetailDrawer({ entry, now, onClose, t }) {
 		{
 			id: "schema",
 			label: t("detail.schema"),
-			body: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+			body: schema === null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 				className: styles.none,
 				children: t("detail.schemaUnavailable")
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+				className: styles.detailPre,
+				children: schema
 			})
 		},
 		{
@@ -1234,7 +1239,8 @@ function LiveTasksView({ useProjection, t }) {
 			reasoning: 0,
 			total: 0
 		},
-		spans: projected.spans ?? []
+		spans: projected.spans ?? [],
+		toolSchemas: projected.toolSchemas ?? {}
 	};
 	const [selected, setSelected] = (0, react.useState)(null);
 	const [expanded, setExpanded] = (0, react.useState)(null);
@@ -1466,6 +1472,7 @@ function LiveTasksView({ useProjection, t }) {
 			}), detailEntry !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DetailDrawer, {
 				entry: detailEntry,
 				now,
+				schema: detailEntry.kind === "tool" ? state.toolSchemas[detailEntry.title] ?? null : null,
 				onClose: () => setExpanded(null),
 				t
 			})]
@@ -1506,7 +1513,7 @@ const zh = {
 	"detail.timing": "计时",
 	"detail.close": "关闭详情",
 	"timing.ended": "结束时间",
-	"turn.windowOnly": "更早的明细未保留（仅保留最近 20 行）",
+	"turn.windowOnly": "更早的明细未保留（仅保留最近 {n} 行）",
 	"detail.schema": "Schema",
 	"detail.schemaUnavailable": "Schema 不可用",
 	"timing.ms": "毫秒",
@@ -1637,7 +1644,7 @@ const en = {
 	"detail.timing": "Timing",
 	"detail.close": "Close details",
 	"timing.ended": "Ended",
-	"turn.windowOnly": "Earlier detail not retained (last 20 rows kept)",
+	"turn.windowOnly": "Earlier detail not retained (last {n} rows kept)",
 	"usage.line": "{total} tok this session · in {input} · out {output} · cache read {cache} ({pct}%)",
 	"usage.unknown": "No usage reported yet",
 	"usage.turn": "{t} tok",

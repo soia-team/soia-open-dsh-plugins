@@ -1013,6 +1013,7 @@ function datetime(args) {
 	return new RegExp(`^${dateSource}T(?:${timeRegex})$`);
 }
 const anyString = /^[\s\S]{0,}$/;
+const integer = /^-?\d+$/;
 const number$1 = /^-?\d+(?:\.\d+)?$/;
 const boolean$1 = /^(?:true|false)$/i;
 const lowercase = /^[^A-Z]*$/;
@@ -2330,6 +2331,138 @@ function handleIntersectionResults(result, left, right) {
 	result.value = merged.data;
 	return result;
 }
+const $ZodRecord = /*@__PURE__*/ $constructor("$ZodRecord", (inst, def) => {
+	$ZodType.init(inst, def);
+	const memo = globalConfig.memoizer;
+	memo?.attach(inst);
+	inst._zod.parse = (payload, ctx) => {
+		const input = payload.value;
+		if (!isPlainObject(input)) {
+			payload.issues.push({
+				expected: "record",
+				code: "invalid_type",
+				input,
+				inst
+			});
+			return payload;
+		}
+		const proms = [];
+		const values = def.keyType._zod.values;
+		if (values && !def.partial) {
+			payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+			const recordKeys = /* @__PURE__ */ new Set();
+			for (const key of values) if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
+				recordKeys.add(typeof key === "number" ? key.toString() : key);
+				if (key === "__proto__") continue;
+				const keyResult = def.keyType._zod.run({
+					value: key,
+					issues: []
+				}, ctx);
+				if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+				if (keyResult.issues.length) {
+					payload.issues.push({
+						code: "invalid_key",
+						origin: "record",
+						issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+						input: key,
+						path: [key],
+						inst
+					});
+					continue;
+				}
+				const outKey = keyResult.value;
+				if (outKey === "__proto__") continue;
+				const result = def.valueType._zod.run({
+					value: input[key],
+					issues: []
+				}, ctx);
+				if (result instanceof Promise) proms.push(result.then((result) => {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[outKey] = result.value;
+				}));
+				else {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[outKey] = result.value;
+				}
+			}
+			let unrecognized;
+			for (const key in input) if (!recordKeys.has(key)) {
+				if (def.mode === "loose") {
+					if (key === "__proto__") continue;
+					payload.value[key] = input[key];
+				} else {
+					unrecognized = unrecognized ?? [];
+					unrecognized.push(key);
+				}
+			}
+			if (unrecognized && unrecognized.length > 0) payload.issues.push({
+				code: "unrecognized_keys",
+				input,
+				inst,
+				keys: unrecognized,
+				continue: true
+			});
+		} else {
+			payload.value = memo ? memo.alloc(inst, payload, {}, ctx) : {};
+			let unrecognized;
+			for (const key of Reflect.ownKeys(input)) {
+				if (key === "__proto__") continue;
+				if (!Object.prototype.propertyIsEnumerable.call(input, key)) continue;
+				let keyResult = def.keyType._zod.run({
+					value: key,
+					issues: []
+				}, ctx);
+				if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+				if (typeof key === "string" && number$1.test(key) && keyResult.issues.length) {
+					const retryResult = def.keyType._zod.run({
+						value: Number(key),
+						issues: []
+					}, ctx);
+					if (retryResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
+					if (retryResult.issues.length === 0) keyResult = retryResult;
+				}
+				if (keyResult.issues.length) {
+					if (def.mode === "loose") payload.value[key] = input[key];
+					else if (values) {
+						unrecognized = unrecognized ?? [];
+						unrecognized.push(key);
+					} else payload.issues.push({
+						code: "invalid_key",
+						origin: "record",
+						issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
+						input: key,
+						path: [key],
+						inst
+					});
+					continue;
+				}
+				const outKey = keyResult.value;
+				if (outKey === "__proto__") continue;
+				const result = def.valueType._zod.run({
+					value: input[key],
+					issues: []
+				}, ctx);
+				if (result instanceof Promise) proms.push(result.then((result) => {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[outKey] = result.value;
+				}));
+				else {
+					if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
+					payload.value[outKey] = result.value;
+				}
+			}
+			if (unrecognized && unrecognized.length > 0) payload.issues.push({
+				code: "unrecognized_keys",
+				input,
+				inst,
+				keys: unrecognized,
+				continue: true
+			});
+		}
+		if (proms.length) return Promise.all(proms).then(() => payload);
+		return payload;
+	};
+});
 const $ZodEnum = /*@__PURE__*/ $constructor("$ZodEnum", (inst, def) => {
 	$ZodType.init(inst, def);
 	const values = getEnumValues(def.entries);
@@ -4172,6 +4305,107 @@ const intersectionProcessor = (schema, ctx, json, params) => {
 	json.allOf = allOf;
 	ctx.intersections.push(allOf);
 };
+/** JSON object keys are always strings, so a numeric record key schema is re-expressed over the
+* numeric-string form the record parser matches. Deferred to `finalize`, after the flatten: a key
+* behind a wrapper only carries its own `type` before then, and a union key only has its branches.
+*
+* A numeric bound cannot apply to a property name, so `minimum` and its siblings are dropped rather
+* than carried over: keeping them beside `type: "string"` reproduces the match-nothing schema this
+* exists to fix. A key that carries one therefore emits wider than the record parses — `z.record(z.number().min(5), V)`
+* accepts `"3"` — which is the deliberate trade, since throwing on it would reject an ordinary schema
+* outright. */
+function stringifyKeyNames(bySchema, json, visited) {
+	if (json.$ref) {
+		if (visited.has(json)) return json;
+		visited.add(json);
+		const def = bySchema.get(json)?.def;
+		if (!def) return json;
+		const inlined = stringifyKeyNames(bySchema, def, visited);
+		return inlined === def ? json : inlined;
+	}
+	for (const keyword of ["anyOf", "oneOf"]) {
+		const branches = json[keyword];
+		if (!Array.isArray(branches)) continue;
+		const mapped = branches.map((branch) => stringifyKeyNames(bySchema, branch, visited));
+		if (mapped.some((branch, i) => branch !== branches[i])) json = {
+			...json,
+			[keyword]: mapped
+		};
+	}
+	const types = Array.isArray(json.type) ? json.type : [json.type];
+	const numericType = !types.includes("string") && types.some((t) => t === "number" || t === "integer");
+	const values = json.enum ?? (json.const !== void 0 ? [json.const] : void 0);
+	if (!numericType && !values?.some((v) => typeof v === "number")) return json;
+	const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format, id, ...rest } = json;
+	if (rest.enum) rest.enum = rest.enum.map((v) => typeof v === "number" ? String(v) : v);
+	else if (typeof rest.const === "number") rest.const = String(rest.const);
+	if (!numericType) return rest;
+	rest.type = "string";
+	if (!values) rest.pattern = (types.includes("number") ? number$1 : integer).source;
+	return rest;
+}
+/** Every record of one conversion, so the carriers are found in a single pass rather than once per record. */
+const pendingRecords = /* @__PURE__ */ new WeakMap();
+function rewriteKeyNames(ctx) {
+	const bySchema = /* @__PURE__ */ new Map();
+	for (const entry of ctx.seen.values()) if (entry.def && !bySchema.has(entry.schema)) bySchema.set(entry.schema, entry);
+	const rewrites = /* @__PURE__ */ new Map();
+	for (const record of pendingRecords.get(ctx) ?? []) {
+		const seen = ctx.seen.get(record);
+		const names = (seen?.def ?? seen?.schema)?.propertyNames;
+		if (!names || names === true || rewrites.has(names)) continue;
+		const rewritten = stringifyKeyNames(bySchema, names, /* @__PURE__ */ new Set());
+		if (rewritten !== names) rewrites.set(names, rewritten);
+	}
+	if (!rewrites.size) return;
+	for (const entry of ctx.seen.values()) for (const carrier of [entry.schema, entry.def]) {
+		const rewritten = carrier && rewrites.get(carrier.propertyNames);
+		if (rewritten) carrier.propertyNames = rewritten;
+	}
+}
+const recordProcessor = (schema, ctx, _json, params) => {
+	const json = _json;
+	const def = schema._zod.def;
+	json.type = "object";
+	const keyType = def.keyType;
+	const patterns = aggregateChecks(keyType).patterns;
+	if (def.mode === "loose" && patterns && patterns.size > 0) {
+		const valueSchema = processSchema(def.valueType, ctx, {
+			...params,
+			path: [
+				...params.path,
+				"patternProperties",
+				"*"
+			]
+		});
+		json.patternProperties = {};
+		for (const pattern of patterns) assignProp(json.patternProperties, exactPattern(pattern).source, valueSchema);
+	} else {
+		if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
+			json.propertyNames = processSchema(def.keyType, ctx, {
+				...params,
+				path: [...params.path, "propertyNames"]
+			});
+			let pending = pendingRecords.get(ctx);
+			if (!pending) {
+				pending = [];
+				pendingRecords.set(ctx, pending);
+				ctx.deferred.push(() => rewriteKeyNames(ctx));
+			}
+			pending.push(schema);
+		}
+		json.additionalProperties = processSchema(def.valueType, ctx, {
+			...params,
+			path: [...params.path, "additionalProperties"]
+		});
+	}
+	const keyValues = keyType._zod.values;
+	const omittableOnInput = ctx.io === "input" && inputOptin(def.valueType) !== void 0;
+	if (keyValues && !def.partial && !omittableOnInput) {
+		const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
+		if (validKeyValues.length > 0) json.required = validKeyValues.map(String);
+	}
+};
 const nullableProcessor = (schema, ctx, json, params) => {
 	const def = schema._zod.def;
 	const inner = processSchema(def.innerType, ctx, params);
@@ -4947,6 +5181,28 @@ function intersection(left, right) {
 		right
 	});
 }
+const ZodRecord = /*@__PURE__*/ $constructor("ZodRecord", (inst, def) => {
+	_ensureDefaultMemoizer();
+	$ZodRecord.init(inst, def);
+	ZodType.init(inst, def);
+	inst._zod.processJSONSchema = (ctx, json, params) => recordProcessor(inst, ctx, json, params);
+	inst.keyType = def.keyType;
+	inst.valueType = def.valueType;
+});
+function record(keyType, valueType, params) {
+	if (!valueType || !valueType._zod) return new ZodRecord({
+		type: "record",
+		keyType: string(),
+		valueType: keyType,
+		...normalizeParams(valueType)
+	});
+	return new ZodRecord({
+		type: "record",
+		keyType,
+		valueType,
+		...normalizeParams(params)
+	});
+}
 const ZodEnum = /*@__PURE__*/ $constructor("ZodEnum", (inst, def) => {
 	$ZodEnum.init(inst, def);
 	ZodType.init(inst, def);
@@ -5175,7 +5431,7 @@ function addCallToTurn(turns, turn, time, name) {
 		failures: 0,
 		tools: [name],
 		tokens: 0
-	}].slice(-20);
+	}].slice(-32);
 	return turns.map((summary) => summary.turn === turn ? {
 		...summary,
 		toolCalls: summary.toolCalls + 1,
@@ -5198,7 +5454,7 @@ function settleTurn(turns, turn, time, failed) {
 * @returns a new bounded array.
 */
 function pushTimeline(timeline, entry) {
-	return [...timeline, entry].slice(-20);
+	return [...timeline, entry].slice(-64);
 }
 /** Replace one row in place, keeping its position in the narrative. */
 function settleTimeline(timeline, id, patch) {
@@ -5326,6 +5582,46 @@ const KNOWN_TYPES = /* @__PURE__ */ new Set([
 	"request/header"
 ]);
 /**
+* Schema trim: a per-tool definition is capped before it can reach the wire.
+* The drawer shows a schema as text; a definition past this cap is cut with an
+* ellipsis rather than ballooning every projection publish.
+*/
+const SCHEMA_TRIM = 1800;
+/**
+* Fold a request header's tool list into a name → schema map, reusing entries
+* whose definition is unchanged.
+* @param tools - the header's tool array (or anything that is not one).
+* @param previous - the map from the last header.
+* @returns the new map (same reference when nothing changed).
+*/
+/**
+* Publish one tool's schema into the view (once per tool, only for tools a row
+* actually called).
+* @param state - current state.
+* @param name - the tool that was just called.
+* @returns `toolSchemas` updates, or an empty object when already present.
+*/
+function ensureToolSchema(state, name) {
+	const known = state.toolSchemas[name];
+	const schema = state.headerSchemas[name];
+	if (known !== void 0 || schema === void 0) return {};
+	return { toolSchemas: {
+		...state.toolSchemas,
+		[name]: schema
+	} };
+}
+function collectToolSchemas(tools, previous) {
+	if (!Array.isArray(tools)) return previous;
+	const next = {};
+	for (const entry of tools) {
+		const name = recordOf(entry)?.["name"];
+		if (typeof name !== "string" || name === "") continue;
+		const body = JSON.stringify(entry);
+		next[name] = body.length > SCHEMA_TRIM ? `${body.slice(0, SCHEMA_TRIM)}…` : body;
+	}
+	return Object.keys(next).length === 0 ? previous : next;
+}
+/**
 * The state before any observation. Frozen and exported so callers and tests
 * share one identity instead of rebuilding an equal-looking literal.
 */
@@ -5349,6 +5645,8 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	recent: NO_EVENTS,
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
+	toolSchemas: Object.freeze({}),
+	headerSchemas: Object.freeze({}),
 	turns: NO_TURNS,
 	turnsTotal: 0,
 	actions: NO_ACTIONS,
@@ -5666,12 +5964,14 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 	};
 	const data = recordOf(event.data);
 	if (event.type === "request/header") {
-		const tools = recordOf(recordOf(data?.["header"])?.["config"])?.["tools"];
+		const header = recordOf(data?.["header"]);
+		const tools = header?.["tools"] ?? recordOf(header?.["config"])?.["tools"];
 		const count = Array.isArray(tools) ? tools.length : void 0;
 		return {
 			...state,
 			...envelope,
 			...count === void 0 ? {} : { toolsAvailable: count },
+			headerSchemas: collectToolSchemas(tools, state.headerSchemas),
 			...observed(state, event, null)
 		};
 	}
@@ -5694,7 +5994,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 					failures: 0,
 					tools: [],
 					tokens: 0
-				}].slice(-20),
+				}].slice(-32),
 				timeline: turn === null ? state.timeline : pushTimeline(state.timeline, {
 					id: `turn-${turn}`,
 					kind: "turn",
@@ -5776,6 +6076,7 @@ function foldEvent(state, event, agentAttached = false, registrySize) {
 			return {
 				...state,
 				...envelope,
+				...ensureToolSchema(state, name),
 				lastTool: call,
 				openTools: [...state.openTools, call],
 				toolCallsInTurn: state.toolCallsInTurn + 1,
@@ -6101,6 +6402,8 @@ const liveTaskStateSchema = object({
 	health: liveTaskHealthSchema,
 	endedReason: string().nullable(),
 	streamedTextLength: number().int().nonnegative(),
+	toolSchemas: record(string(), string()),
+	headerSchemas: record(string(), string()),
 	streamedAt: number().nullable()
 }).strict();
 /**
@@ -6122,6 +6425,7 @@ const liveTaskViewSchema = object({
 	toolCallsTotal: number().int().nonnegative(),
 	failuresTotal: number().int().nonnegative(),
 	toolsAvailable: number().int().nonnegative().nullable(),
+	toolSchemas: record(string(), string()),
 	lastEvent: liveEventSummarySchema.nullable(),
 	recent: array(liveEventSummarySchema),
 	actions: array(liveTaskActionSchema),
@@ -6164,6 +6468,7 @@ function viewOf(state) {
 		toolCallsTotal: state.toolCallsTotal,
 		failuresTotal: state.failuresTotal,
 		toolsAvailable: state.toolsAvailable,
+		toolSchemas: state.toolSchemas,
 		lastEvent: state.lastEvent,
 		recent: state.recent,
 		actions: state.actions,
@@ -6191,7 +6496,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 1,
+	stateVersion: 2,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {

@@ -38,9 +38,9 @@ export declare const RECENT_EVENT_LIMIT = 6;
  */
 export declare function entryIdOfTool(toolName: string): string | null;
 /** How many timeline rows the view keeps. */
-export declare const TIMELINE_LIMIT = 20;
+export declare const TIMELINE_LIMIT = 64;
 /** How many turns the axis keeps. */
-export declare const TURN_LIMIT = 20;
+export declare const TURN_LIMIT = 32;
 /** How many finished calls the activity log keeps. */
 export declare const ACTION_LIMIT = 8;
 /**
