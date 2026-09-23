@@ -36,6 +36,12 @@ export declare const styles: {
     readonly badgeFailed: 'lt-badgeFailed';
     readonly bar: 'lt-bar';
     readonly search: 'lt-search';
+    readonly searchInput: 'lt-searchInput';
+    readonly toggleIcon: 'lt-toggleIcon';
+    readonly actionIcon: 'lt-actionIcon';
+    readonly actionOn: 'lt-actionOn';
+    readonly action: 'lt-action';
+    readonly control: 'lt-control';
     readonly barButton: 'lt-barButton';
     readonly barOn: 'lt-barOn';
     readonly barHint: 'lt-barHint';

@@ -20,7 +20,7 @@ export declare const zh: {
     readonly 'head.toolRunning': '正在用的工具';
     readonly 'head.toolLast': '最近用的工具';
     readonly 'head.toolNone': '还没有用过工具';
-    readonly 'bar.search': '搜索工具或命令';
+    readonly 'bar.search': '搜索轨迹';
     readonly 'bar.expandAll': '展开全部';
     readonly 'bar.collapseAll': '收起全部';
     readonly 'bar.failedOnly': '只看失败';
@@ -47,6 +47,15 @@ export declare const zh: {
     readonly 'axis.turn': '第 {n} 轮';
     readonly 'axis.summary': '本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）';
     readonly 'turn.stepN': '第 {n} 步';
+    readonly 'bar.aria': '活动工具栏';
+    readonly 'bar.durationMode': '时长';
+    readonly 'bar.useActual': '使用实际时长';
+    readonly 'bar.useEqual': '使用等宽操作';
+    readonly 'bar.turnsMode': '轮次';
+    readonly 'bar.callsMode': '调用';
+    readonly 'bar.expandCalls': '展开所有调用';
+    readonly 'bar.collapseCalls': '收起所有调用';
+    readonly 'bar.searchPlaceholder': '搜索';
     readonly 'detail.overview': '概述';
     readonly 'timing.duration': '时长';
     readonly 'timing.started': '开始时间';

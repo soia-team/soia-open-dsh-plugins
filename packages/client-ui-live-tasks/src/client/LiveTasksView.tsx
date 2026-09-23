@@ -83,14 +83,10 @@ function argsInline(entry: LiveTimelineEntry): string | null {
   if (entry.argsFull !== null) {
     try {
       const parsed: unknown = JSON.parse(entry.argsFull)
-      if (parsed !== null && typeof parsed === 'object') {
-        const first = Object.entries(parsed as Record<string, unknown>)[0]
-        if (first !== undefined) {
-          const [key, value] = first
-          const rendered = typeof value === 'string' ? value : JSON.stringify(value)
-          return `${key}: ${rendered}`
-        }
-      }
+      // The trajectory view prints arguments as compact JSON on the row itself
+      // (`bash {"command":…`), cut by the cell's ellipsis — not a first pair.
+      if (parsed !== null && typeof parsed === 'object') return JSON.stringify(parsed)
+      return String(parsed)
     } catch {
       // Not JSON (some tools take a raw string): fall through to the summary.
     }
@@ -141,8 +137,9 @@ function secondsBetween(from: number, to: number): number {
  * @param props - the rows to plot, the turns to mark, and the interaction state.
  * @returns the chart.
  */
-function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }: {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSelect, onRange }: {
   spans: readonly LiveSpan[]
+  actualDuration: boolean
   turns: LiveTaskView['turns']
   now: number
   selected: number | null
@@ -168,6 +165,46 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }:
     kind === 'assistant' ? 1 : kind === 'tool' ? 2 : 0
 
   const minWidth = 560
+  // 等宽模式（工具栏 时长 开关）：每轮一个等宽槽，槽内每次调用等宽——这是轨迹另一条轴。
+  const turnIndex = new Map(turns.map((turn, index) => [turn.turn, index]))
+  const countsPerTurn = new Map<number, number>()
+  for (const segment of plotted) countsPerTurn.set(segment.turn, (countsPerTurn.get(segment.turn) ?? 0) + 1)
+  const slotCount = Math.max(1, turns.length)
+  const pctOfSegment = (segment: LiveSpan): number => {
+    if (actualDuration) return at(segment.startedAt)
+    const index = turnIndex.get(segment.turn) ?? 0
+    const turn = turns[index]
+    if (turn === undefined) return 0
+    const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt)
+    const frac = Math.min(1, Math.max(0, (segment.startedAt - turn.startedAt) / duration))
+    return ((index + frac) / slotCount) * 100
+  }
+  const widthOfSegment = (segment: LiveSpan): number => {
+    if (actualDuration) return Math.max(0.2, at(segment.endedAt ?? now) - at(segment.startedAt))
+    return Math.max(0.2, ((100 / slotCount) / Math.max(1, countsPerTurn.get(segment.turn) ?? 1)) * 0.82)
+  }
+  const pctOfTime = (time: number): number => {
+    if (actualDuration) return at(time)
+    let index = 0
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const turn = turns[i]
+      if (turn !== undefined && turn.startedAt <= time) { index = i; break }
+    }
+    const turn = turns[index]
+    if (turn === undefined) return 0
+    const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt)
+    const frac = Math.min(1, Math.max(0, (time - turn.startedAt) / duration))
+    return ((index + frac) / slotCount) * 100
+  }
+  const timeOfPct = (pct: number): number => {
+    if (actualDuration) return from + (pct / 100) * span
+    const index = Math.min(turns.length - 1, Math.max(0, Math.floor((pct / 100) * slotCount)))
+    const frac = (pct / 100) * slotCount - index
+    const turn = turns[index]
+    if (turn === undefined) return from
+    const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt)
+    return turn.startedAt + frac * duration
+  }
   return (
     <div className={styles.chartScroll}>
     <div className={styles.chart} style={{ minWidth: `${minWidth}px` }}>
@@ -195,14 +232,14 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }:
           const lo = Math.min(drag.startPct, drag.endPct)
           const hi = Math.max(drag.startPct, drag.endPct)
           // A click, not a drag: clear the selection instead of selecting a sliver.
-          onRange(hi - lo < 1.5 ? null : { from: from + (lo / 100) * span, to: from + (hi / 100) * span })
+          onRange(hi - lo < 1.5 ? null : { from: timeOfPct(lo), to: timeOfPct(hi) })
           setDrag(null)
         }}
       >
         {range !== null && (
           <div
             className={styles.chartSelection}
-            style={{ left: `${at(range.from)}%`, width: `${Math.max(0.2, at(range.to) - at(range.from))}%` }}
+            style={{ left: `${pctOfTime(range.from)}%`, width: `${Math.max(0.2, pctOfTime(range.to) - pctOfTime(range.from))}%` }}
             aria-hidden="true"
           />
         )}
@@ -228,8 +265,8 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }:
               data-selected={selected === null || selected === segment.turn}
               style={{
                 top: `${laneOf(segment.kind) * 14}px`,
-                left: `${at(segment.startedAt)}%`,
-                width: `max(2px, ${Math.max(0.2, at(segment.endedAt ?? now) - at(segment.startedAt))}%)`,
+                left: `${pctOfSegment(segment)}%`,
+                width: `max(2px, ${widthOfSegment(segment)}%)`,
               }}
               title={`${segment.kind} · ${clockOf(segment.startedAt)}`}
               aria-label={`${segment.kind} · ${clockOf(segment.startedAt)}`}
@@ -238,8 +275,12 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }:
           ))}
         </div>
         <div className={styles.chartBoundaries} aria-hidden="true">
-          {turns.map((turn) => (
-            <span key={turn.turn} className={styles.chartBoundary} style={{ left: `${at(turn.startedAt)}%` }} />
+          {turns.map((turn, index) => (
+            <span
+              key={turn.turn}
+              className={styles.chartBoundary}
+              style={{ left: `${actualDuration ? at(turn.startedAt) : (index / slotCount) * 100}%` }}
+            />
           ))}
         </div>
       </div>
@@ -249,11 +290,9 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }:
 }
 
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, onToggle, t }: {
+function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }: {
   entry: LiveTimelineEntry
   now: number
-  showClock: boolean
-  turnStart: number
   expanded: boolean
   selected: boolean
   dim: boolean
@@ -270,7 +309,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
       : entry.kind === 'context'
         ? t('lane.context')
         : t('timeline.assistant')
-  const clock = showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`
+  const clock = clockOf(entry.startedAt)
 
   return (
     <>
@@ -300,7 +339,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
             {(entry.entryId ?? null) !== null && <span className={styles.tlEntryId}>{entry.entryId}</span>}
             {entry.kind === 'tool' && argsInline(entry) !== null && (
               <span className={styles.tlArgs} title={argsInline(entry) ?? ''}>
-                {`（${argsInline(entry)}）`}
+                {argsInline(entry)}
               </span>
             )}
             {entry.kind !== 'tool' && (
@@ -355,13 +394,12 @@ function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | nu
  * boundaries — and the rail that marks them — inside the table, the way the
  * trajectory view draws them.
  */
-function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, dimmed, onToggle, t }: {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
   /** True only when the reader picked this turn; the newest turn is not "picked". */
   picked: boolean
   now: number
-  showClock: boolean
   open: boolean
   expandedId: string | null
   dimmed: boolean
@@ -419,9 +457,7 @@ function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, 
                 key={entry.id}
                 entry={entry}
                 now={now}
-                showClock={showClock}
-                turnStart={turn.startedAt}
-                expanded={expandedId === '__all__' || expandedId === entry.id}
+                expanded={expandedId === entry.id}
                 selected={picked}
                 dim={dimmed}
                 onToggle={() => onToggle(entry.id)}
@@ -584,10 +620,12 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
       }
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [expandAll, setExpandAll] = useState(false)
+  // 轨迹工具栏的 调用 按钮：收起消息行，只留轮次/步骤/调用（对应它的折叠助手块）。
+  const [messagesHidden, setMessagesHidden] = useState(false)
+  // 轨迹的 时长 开关：等宽槽位 vs 实际时长（其隐藏的 实际时间 开关这里保持可见语义：行始终挂钟）。
+  const [actualDuration, setActualDuration] = useState(true)
   const [failedOnly, setFailedOnly] = useState(false)
   const [query, setQuery] = useState('')
-  const [showClock, setShowClock] = useState(true)
   const [turnsOpen, setTurnsOpen] = useState(true)
   const [range, setRange] = useState<{ from: number, to: number } | null>(null)
   const now = useNow()
@@ -626,6 +664,8 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
   // the built-in 轨迹 view presents it.
   const entriesOfTurn = (turn: number): readonly LiveTimelineEntry[] =>
     state.timeline.filter((entry) => entry.turn === turn && entry.kind !== 'turn')
+      // 调用 按钮收起消息行，只留轮次/步骤/调用（对应轨迹折叠助手块的效果）。
+      .filter((entry) => !messagesHidden || entry.kind === 'tool')
       .filter((entry) => !failedOnly || entry.status === 'failed')
       .filter((entry) => needle === ''
         || entry.title.toLowerCase().includes(needle)
@@ -635,9 +675,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
       .filter((entry) => range === null
         || ((entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to))
 
-  const detailEntry = expandAll
-    ? null
-    : state.timeline.find((entry) => entry.id === expanded) ?? null
+  const detailEntry = state.timeline.find((entry) => entry.id === expanded) ?? null
 
   return (
     <div className={styles.view}>
@@ -694,40 +732,69 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
             })}
       </p>
 
-      <div className={styles.bar}>
-        <input
-          className={styles.search}
-          type="search"
-          value={query}
-          placeholder={t('bar.search')}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <button type="button" className={failedOnly ? styles.barOn : styles.barButton} onClick={() => setFailedOnly(!failedOnly)}>
-          {t('bar.failedOnly')}
+      {/* Toolbar copied from the trajectory view: a duration switch, the turns and
+          calls actions with their icons, and the search pinned to the right. */}
+      <div className={styles.bar} role="toolbar" aria-label={t('bar.aria')}>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={actualDuration}
+          aria-label={t('bar.durationMode')}
+          className={styles.control}
+          title={actualDuration ? t('bar.useActual') : t('bar.useEqual')}
+          onClick={() => setActualDuration(!actualDuration)}
+        >
+          <svg className={styles.toggleIcon} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.25" />
+            <path d="M8 4.75V8l2.25 1.5" />
+          </svg>
+          {t('bar.durationMode')}
         </button>
         <button
           type="button"
-          className={styles.barButton}
-          onClick={() => {
-            // Leaving the single-row selection behind avoids the state where
-            // clicking a row changes nothing visible.
-            setExpanded(null)
-            setExpandAll(!expandAll)
-          }}
+          className={styles.action}
+          aria-pressed={!turnsOpen}
+          aria-label={!turnsOpen ? t('bar.expandTurns') : t('bar.collapseTurns')}
+          title={!turnsOpen ? t('bar.expandTurns') : t('bar.collapseTurns')}
+          onClick={() => setTurnsOpen(!turnsOpen)}
         >
-          {expandAll ? t('bar.collapseAll') : t('bar.expandAll')}
+          <span className={styles.actionIcon} aria-hidden="true">{!turnsOpen ? '⊞' : '⊟'}</span>
+          {t('bar.turnsMode')}
         </button>
-        <button type="button" className={showClock ? styles.barOn : styles.barButton} onClick={() => setShowClock(!showClock)}>
-          {showClock ? t('bar.clock') : t('bar.duration')}
+        <button
+          type="button"
+          className={styles.action}
+          aria-pressed={messagesHidden}
+          aria-label={messagesHidden ? t('bar.expandCalls') : t('bar.collapseCalls')}
+          title={messagesHidden ? t('bar.expandCalls') : t('bar.collapseCalls')}
+          onClick={() => setMessagesHidden(!messagesHidden)}
+        >
+          <span className={styles.actionIcon} aria-hidden="true">{messagesHidden ? '⊞' : '⊟'}</span>
+          {t('bar.callsMode')}
         </button>
-        <button type="button" className={styles.barButton} onClick={() => setTurnsOpen(!turnsOpen)}>
-          {turnsOpen ? t('bar.collapseTurns') : t('bar.expandTurns')}
+        <button
+          type="button"
+          className={failedOnly ? styles.actionOn : styles.action}
+          aria-pressed={failedOnly}
+          onClick={() => setFailedOnly(!failedOnly)}
+        >
+          {t('bar.failedOnly')}
         </button>
         {range !== null && (
-          <button type="button" className={styles.barOn} onClick={() => setRange(null)}>
+          <button type="button" className={styles.action} onClick={() => setRange(null)}>
             {t('bar.clearRange')}
           </button>
         )}
+        <div className={styles.search}>
+          <input
+            className={styles.searchInput}
+            type="search"
+            aria-label={t('bar.search')}
+            placeholder={t('bar.searchPlaceholder')}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
       </div>
 
       <section className={styles.section}>
@@ -738,6 +805,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         </h4>
         <LaneChart
           spans={state.spans}
+          actualDuration={actualDuration}
           turns={state.turns}
           now={now}
           selected={shownTurn}
@@ -766,16 +834,10 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
                 entries={entriesOfTurn(turn.turn)}
                 picked={pickedTurn !== null && turn.turn === pickedTurn}
                 now={now}
-                showClock={showClock}
                 open={turnsOpen}
-                expandedId={expandAll ? '__all__' : expanded}
+                expandedId={expanded}
                 dimmed={pickedTurn !== null && turn.turn !== pickedTurn}
-                onToggle={(id) => {
-                  // A row click always leaves "expand all": otherwise, with every
-                  // row expanded, clicking one looks like nothing happened.
-                  setExpandAll(false)
-                  setExpanded(expanded === id ? null : id)
-                }}
+                onToggle={(id) => setExpanded(expanded === id ? null : id)}
                 t={t}
               />
             ))}

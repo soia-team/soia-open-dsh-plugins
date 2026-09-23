@@ -112,9 +112,16 @@ const CSS = `
 /* 工具栏：与内置「轨迹」同样的控件位置（左搜索、右按钮），吸顶以保持可用 */
 .lt-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
   padding: 4px 0; background: var(--dsw-alias-bg-base, #fff); }
-.lt-search { flex: 1 1 220px; min-width: 140px; height: 26px; padding: 0 8px; border-radius: 6px;
-  border: 1px solid var(--dsw-alias-separator, rgb(0 0 0 / 16%)); background: transparent;
-  color: var(--dsw-alias-label-primary); font-size: 12px; }
+.lt-search { border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); min-width: 84px; height: 22px;
+  color: var(--dsw-alias-label-caption); background: var(--dsw-alias-bg-layer-2, rgb(0 0 0 / 3%));
+  border-radius: 4px; flex: 0 164px; align-items: center; gap: 4px; margin-left: auto; padding: 0 6px;
+  display: flex; }
+.lt-search:hover { border-color: var(--dsw-alias-label-caption); }
+.lt-search:focus-within { border-color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-bg-layer-1, #fff); }
+.lt-searchInput { width: 100%; min-width: 0; color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; outline: 0; padding: 0; }
+.lt-searchInput::placeholder { color: var(--dsw-alias-label-caption); }
 .lt-barButton, .lt-barOn { height: 26px; padding: 0 9px; border: 0; border-radius: 6px; cursor: pointer;
   font-size: 12px; background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 5%));
   color: var(--dsw-alias-label-secondary); }
@@ -229,6 +236,26 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* ── Toolbar, copied from the trajectory view's toolbar module ──────────────
+   The duration switch is 88px with the clock glyph, the two actions are 20px
+   pills with ⊞/⊟ icons, and the search box floats to the right edge. */
+.lt-control { box-sizing: border-box; width: 88px; height: 20px; color: var(--dsw-alias-label-tertiary);
+  cursor: pointer; font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0;
+  border-radius: 0; flex: none; justify-content: center; align-items: center; gap: 4px; padding: 0 5px;
+  display: inline-flex; }
+.lt-control[aria-checked='true'] { color: var(--dsw-alias-label-primary); }
+.lt-control:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.lt-toggleIcon { stroke: currentColor; stroke-width: 1.25px; stroke-linecap: round; stroke-linejoin: round;
+  flex: none; width: 12px; height: 12px; }
+.lt-action, .lt-actionOn { height: 20px; color: var(--dsw-alias-label-tertiary); cursor: pointer;
+  font: var(--dsw-font-xxs-12, 12px/16px inherit); background: transparent; border: 0; border-radius: 3px;
+  flex: none; align-items: center; gap: 4px; padding: 0 5px; display: inline-flex; }
+.lt-action:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+.lt-action[aria-pressed='true'], .lt-actionOn { color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active, rgb(64 120 255 / 10%)); }
+.lt-action:focus-visible { outline: 1px solid var(--dsw-alias-state-business-primary); outline-offset: 1px; }
+.lt-actionIcon { color: var(--dsw-alias-label-tertiary); font: 14px/14px var(--dsw-font-mono, monospace); }
 
 /* ── Panes and the detail drawer ────────────────────────────────────────────
    The trajectory view opens a row's detail as a right-hand pane with a 42px
@@ -466,6 +493,12 @@ const styles = {
 	badgeFailed: "lt-badgeFailed",
 	bar: "lt-bar",
 	search: "lt-search",
+	searchInput: "lt-searchInput",
+	toggleIcon: "lt-toggleIcon",
+	actionIcon: "lt-actionIcon",
+	actionOn: "lt-actionOn",
+	action: "lt-action",
+	control: "lt-control",
 	barButton: "lt-barButton",
 	barOn: "lt-barOn",
 	barHint: "lt-barHint",
@@ -673,13 +706,8 @@ function argsInline(entry) {
 	if (entry.kind !== "tool") return null;
 	if (entry.argsFull !== null) try {
 		const parsed = JSON.parse(entry.argsFull);
-		if (parsed !== null && typeof parsed === "object") {
-			const first = Object.entries(parsed)[0];
-			if (first !== void 0) {
-				const [key, value] = first;
-				return `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`;
-			}
-		}
+		if (parsed !== null && typeof parsed === "object") return JSON.stringify(parsed);
+		return String(parsed);
 	} catch {}
 	return entry.detail;
 }
@@ -720,7 +748,7 @@ function secondsBetween(from, to) {
 * @param props - the rows to plot, the turns to mark, and the interaction state.
 * @returns the chart.
 */
-function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange }) {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSelect, onRange }) {
 	const [drag, setDrag] = (0, react.useState)(null);
 	const plotted = spans;
 	const starts = plotted.map((segment) => segment.startedAt);
@@ -730,11 +758,53 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 	const span = Math.max(1e3, to - from);
 	const at = (time) => (time - from) / span * 100;
 	const laneOf = (kind) => kind === "assistant" ? 1 : kind === "tool" ? 2 : 0;
+	const minWidth = 560;
+	const turnIndex = new Map(turns.map((turn, index) => [turn.turn, index]));
+	const countsPerTurn = /* @__PURE__ */ new Map();
+	for (const segment of plotted) countsPerTurn.set(segment.turn, (countsPerTurn.get(segment.turn) ?? 0) + 1);
+	const slotCount = Math.max(1, turns.length);
+	const pctOfSegment = (segment) => {
+		if (actualDuration) return at(segment.startedAt);
+		const index = turnIndex.get(segment.turn) ?? 0;
+		const turn = turns[index];
+		if (turn === void 0) return 0;
+		const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt);
+		return (index + Math.min(1, Math.max(0, (segment.startedAt - turn.startedAt) / duration))) / slotCount * 100;
+	};
+	const widthOfSegment = (segment) => {
+		if (actualDuration) return Math.max(.2, at(segment.endedAt ?? now) - at(segment.startedAt));
+		return Math.max(.2, 100 / slotCount / Math.max(1, countsPerTurn.get(segment.turn) ?? 1) * .82);
+	};
+	const pctOfTime = (time) => {
+		if (actualDuration) return at(time);
+		let index = 0;
+		for (let i = turns.length - 1; i >= 0; i -= 1) {
+			const turn = turns[i];
+			if (turn !== void 0 && turn.startedAt <= time) {
+				index = i;
+				break;
+			}
+		}
+		const turn = turns[index];
+		if (turn === void 0) return 0;
+		const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt);
+		const frac = Math.min(1, Math.max(0, (time - turn.startedAt) / duration));
+		return (index + frac) / slotCount * 100;
+	};
+	const timeOfPct = (pct) => {
+		if (actualDuration) return from + pct / 100 * span;
+		const index = Math.min(turns.length - 1, Math.max(0, Math.floor(pct / 100 * slotCount)));
+		const frac = pct / 100 * slotCount - index;
+		const turn = turns[index];
+		if (turn === void 0) return from;
+		const duration = Math.max(1, (turn.endedAt ?? now) - turn.startedAt);
+		return turn.startedAt + frac * duration;
+	};
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: styles.chartScroll,
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.chart,
-			style: { minWidth: `560px` },
+			style: { minWidth: `${minWidth}px` },
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: styles.chartLabels,
 				"aria-hidden": "true",
@@ -768,8 +838,8 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 					const lo = Math.min(drag.startPct, drag.endPct);
 					const hi = Math.max(drag.startPct, drag.endPct);
 					onRange(hi - lo < 1.5 ? null : {
-						from: from + lo / 100 * span,
-						to: from + hi / 100 * span
+						from: timeOfPct(lo),
+						to: timeOfPct(hi)
 					});
 					setDrag(null);
 				},
@@ -777,8 +847,8 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 					range !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: styles.chartSelection,
 						style: {
-							left: `${at(range.from)}%`,
-							width: `${Math.max(.2, at(range.to) - at(range.from))}%`
+							left: `${pctOfTime(range.from)}%`,
+							width: `${Math.max(.2, pctOfTime(range.to) - pctOfTime(range.from))}%`
 						},
 						"aria-hidden": "true"
 					}),
@@ -801,8 +871,8 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 							"data-selected": selected === null || selected === segment.turn,
 							style: {
 								top: `${laneOf(segment.kind) * 14}px`,
-								left: `${at(segment.startedAt)}%`,
-								width: `max(2px, ${Math.max(.2, at(segment.endedAt ?? now) - at(segment.startedAt))}%)`
+								left: `${pctOfSegment(segment)}%`,
+								width: `max(2px, ${widthOfSegment(segment)}%)`
 							},
 							title: `${segment.kind} · ${clockOf(segment.startedAt)}`,
 							"aria-label": `${segment.kind} · ${clockOf(segment.startedAt)}`,
@@ -812,9 +882,9 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 						className: styles.chartBoundaries,
 						"aria-hidden": "true",
-						children: turns.map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						children: turns.map((turn, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: styles.chartBoundary,
-							style: { left: `${at(turn.startedAt)}%` }
+							style: { left: `${actualDuration ? at(turn.startedAt) : index / slotCount * 100}%` }
 						}, turn.turn))
 					})
 				]
@@ -823,12 +893,12 @@ function LaneChart({ spans, turns, now, selected, range, t, onSelect, onRange })
 	});
 }
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, onToggle, t }) {
+function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }) {
 	const running = entry.status === "running";
 	const failed = entry.status === "failed";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
 	const kind = entry.kind === "tool" ? t("timeline.tool") : entry.kind === "user" ? t("timeline.user") : entry.kind === "context" ? t("lane.context") : t("timeline.assistant");
-	const clock = showClock ? clockOf(entry.startedAt) : `+${secondsBetween(turnStart, entry.startedAt)}s`;
+	const clock = clockOf(entry.startedAt);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
 		className: styles.row,
 		"data-kind": entry.kind,
@@ -870,7 +940,7 @@ function ToolRow({ entry, now, showClock, turnStart, expanded, selected, dim, on
 					entry.kind === "tool" && argsInline(entry) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlArgs,
 						title: argsInline(entry) ?? "",
-						children: `（${argsInline(entry)}）`
+						children: argsInline(entry)
 					}),
 					entry.kind !== "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlDetail,
@@ -922,7 +992,7 @@ function groupByStep(entries) {
 * boundaries — and the rail that marks them — inside the table, the way the
 * trajectory view draws them.
 */
-function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, dimmed, onToggle, t }) {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onToggle, t }) {
 	const started = clockOf(turn.startedAt);
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", {
@@ -990,9 +1060,7 @@ function TurnSection({ turn, entries, picked, now, showClock, open, expandedId, 
 		}), group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
 			entry,
 			now,
-			showClock,
-			turnStart: turn.startedAt,
-			expanded: expandedId === "__all__" || expandedId === entry.id,
+			expanded: expandedId === entry.id,
 			selected: picked,
 			dim: dimmed,
 			onToggle: () => onToggle(entry.id),
@@ -1168,10 +1236,10 @@ function LiveTasksView({ useProjection, t }) {
 	};
 	const [selected, setSelected] = (0, react.useState)(null);
 	const [expanded, setExpanded] = (0, react.useState)(null);
-	const [expandAll, setExpandAll] = (0, react.useState)(false);
+	const [messagesHidden, setMessagesHidden] = (0, react.useState)(false);
+	const [actualDuration, setActualDuration] = (0, react.useState)(true);
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
-	const [showClock, setShowClock] = (0, react.useState)(true);
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
@@ -1189,8 +1257,8 @@ function LiveTasksView({ useProjection, t }) {
 	const shownTurn = selected ?? selectedTurn;
 	const pickedTurn = selected;
 	const needle = query.trim().toLowerCase();
-	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
-	const detailEntry = expandAll ? null : state.timeline.find((entry) => entry.id === expanded) ?? null;
+	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
+	const detailEntry = state.timeline.find((entry) => entry.id === expanded) ?? null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
 		className: styles.view,
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -1244,46 +1312,78 @@ function LiveTasksView({ useProjection, t }) {
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: styles.bar,
+						role: "toolbar",
+						"aria-label": t("bar.aria"),
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-								className: styles.search,
-								type: "search",
-								value: query,
-								placeholder: t("bar.search"),
-								onChange: (event) => setQuery(event.target.value)
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								role: "switch",
+								"aria-checked": actualDuration,
+								"aria-label": t("bar.durationMode"),
+								className: styles.control,
+								title: actualDuration ? t("bar.useActual") : t("bar.useEqual"),
+								onClick: () => setActualDuration(!actualDuration),
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("svg", {
+									className: styles.toggleIcon,
+									viewBox: "0 0 16 16",
+									fill: "none",
+									"aria-hidden": "true",
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("circle", {
+										cx: "8",
+										cy: "8",
+										r: "5.25"
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("path", { d: "M8 4.75V8l2.25 1.5" })]
+								}), t("bar.durationMode")]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: styles.action,
+								"aria-pressed": !turnsOpen,
+								"aria-label": !turnsOpen ? t("bar.expandTurns") : t("bar.collapseTurns"),
+								title: !turnsOpen ? t("bar.expandTurns") : t("bar.collapseTurns"),
+								onClick: () => setTurnsOpen(!turnsOpen),
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: styles.actionIcon,
+									"aria-hidden": "true",
+									children: !turnsOpen ? "⊞" : "⊟"
+								}), t("bar.turnsMode")]
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+								type: "button",
+								className: styles.action,
+								"aria-pressed": messagesHidden,
+								"aria-label": messagesHidden ? t("bar.expandCalls") : t("bar.collapseCalls"),
+								title: messagesHidden ? t("bar.expandCalls") : t("bar.collapseCalls"),
+								onClick: () => setMessagesHidden(!messagesHidden),
+								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: styles.actionIcon,
+									"aria-hidden": "true",
+									children: messagesHidden ? "⊞" : "⊟"
+								}), t("bar.callsMode")]
 							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
-								className: failedOnly ? styles.barOn : styles.barButton,
+								className: failedOnly ? styles.actionOn : styles.action,
+								"aria-pressed": failedOnly,
 								onClick: () => setFailedOnly(!failedOnly),
 								children: t("bar.failedOnly")
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: styles.barButton,
-								onClick: () => {
-									setExpanded(null);
-									setExpandAll(!expandAll);
-								},
-								children: expandAll ? t("bar.collapseAll") : t("bar.expandAll")
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: showClock ? styles.barOn : styles.barButton,
-								onClick: () => setShowClock(!showClock),
-								children: showClock ? t("bar.clock") : t("bar.duration")
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-								type: "button",
-								className: styles.barButton,
-								onClick: () => setTurnsOpen(!turnsOpen),
-								children: turnsOpen ? t("bar.collapseTurns") : t("bar.expandTurns")
-							}),
 							range !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
-								className: styles.barOn,
+								className: styles.action,
 								onClick: () => setRange(null),
 								children: t("bar.clearRange")
+							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+								className: styles.search,
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+									className: styles.searchInput,
+									type: "search",
+									"aria-label": t("bar.search"),
+									placeholder: t("bar.searchPlaceholder"),
+									value: query,
+									onChange: (event) => setQuery(event.target.value)
+								})
 							})
 						]
 					}),
@@ -1297,6 +1397,7 @@ function LiveTasksView({ useProjection, t }) {
 							}) : t("axis.title")
 						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LaneChart, {
 							spans: state.spans,
+							actualDuration,
 							turns: state.turns,
 							now,
 							selected: shownTurn,
@@ -1320,14 +1421,10 @@ function LiveTasksView({ useProjection, t }) {
 									entries: entriesOfTurn(turn.turn),
 									picked: pickedTurn !== null && turn.turn === pickedTurn,
 									now,
-									showClock,
 									open: turnsOpen,
-									expandedId: expandAll ? "__all__" : expanded,
+									expandedId: expanded,
 									dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
-									onToggle: (id) => {
-										setExpandAll(false);
-										setExpanded(expanded === id ? null : id);
-									},
+									onToggle: (id) => setExpanded(expanded === id ? null : id),
 									t
 								}, turn.turn))]
 							})
@@ -1397,7 +1494,7 @@ const zh = {
 	"head.toolRunning": "正在用的工具",
 	"head.toolLast": "最近用的工具",
 	"head.toolNone": "还没有用过工具",
-	"bar.search": "搜索工具或命令",
+	"bar.search": "搜索轨迹",
 	"bar.expandAll": "展开全部",
 	"bar.collapseAll": "收起全部",
 	"bar.failedOnly": "只看失败",
@@ -1424,6 +1521,15 @@ const zh = {
 	"axis.turn": "第 {n} 轮",
 	"axis.summary": "本会话 {turns} 轮 · {calls} 次调用 · 失败 {failures} · 可用工具 {tools}（用到 {used} 种）",
 	"turn.stepN": "第 {n} 步",
+	"bar.aria": "活动工具栏",
+	"bar.durationMode": "时长",
+	"bar.useActual": "使用实际时长",
+	"bar.useEqual": "使用等宽操作",
+	"bar.turnsMode": "轮次",
+	"bar.callsMode": "调用",
+	"bar.expandCalls": "展开所有调用",
+	"bar.collapseCalls": "收起所有调用",
+	"bar.searchPlaceholder": "搜索",
 	"detail.overview": "概述",
 	"timing.duration": "时长",
 	"timing.started": "开始时间",
@@ -1538,6 +1644,15 @@ const en = {
 	"axis.turn": "turn {n}",
 	"axis.summary": "{turns} turns · {calls} calls · {failures} failed · {tools} tools offered ({used} used)",
 	"turn.stepN": "step {n}",
+	"bar.aria": "Activity toolbar",
+	"bar.durationMode": "Duration",
+	"bar.useActual": "Use actual duration",
+	"bar.useEqual": "Use equal width",
+	"bar.turnsMode": "Turns",
+	"bar.callsMode": "Calls",
+	"bar.expandCalls": "Expand all calls",
+	"bar.collapseCalls": "Collapse all calls",
+	"bar.searchPlaceholder": "Search",
 	"detail.overview": "Summary",
 	"timing.duration": "Duration",
 	"timing.started": "Started",
