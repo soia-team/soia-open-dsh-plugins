@@ -37,6 +37,17 @@ export declare const RECENT_EVENT_LIMIT = 6;
  * @returns the entry id, or null when the name carries nothing to derive from.
  */
 export declare function entryIdOfTool(toolName: string): string | null;
+/** Bounded windows: the host projection's wire shape. */
+export interface LiveTaskWindows {
+    /** Rows retained in the published timeline. */
+    readonly timeline: number;
+    /** Turn summaries retained. */
+    readonly turns: number;
+    /** Lane segments retained. */
+    readonly spans: number;
+    /** Newest rows keeping full payloads, or null to demote nothing. */
+    readonly fullDetail: number | null;
+}
 /** How many timeline rows the view keeps. */
 export declare const TIMELINE_LIMIT = 384;
 /**
@@ -54,6 +65,20 @@ export declare const FULL_DETAIL_WINDOW = 64;
 export declare const TURN_LIMIT = 96;
 /** How many finished calls the activity log keeps. */
 export declare const ACTION_LIMIT = 8;
+/**
+ * The host projection's windows: bounded so the wire stays a fixed size.
+ */
+export declare const HOST_WINDOWS: LiveTaskWindows;
+/**
+ * Windows for the client-side archive fold over the resident event window.
+ *
+ * The client keeps records in browser memory — no wire, no checkpoint — so the
+ * caps that exist purely to bound bytes are lifted and the whole session folds:
+ * every row, every turn, every span. This is the paging path the reference view
+ * takes through `session.loadOlder()`; here the same reducer just runs unbounded
+ * over whatever the window holds.
+ */
+export declare const CLIENT_WINDOWS: LiveTaskWindows;
 /**
  * Turn a tool call's arguments into one display line.
  *
@@ -86,7 +111,7 @@ export declare function summarizeToolResult(data: Record<string, unknown> | unde
  * @param observation - one durable event or one transient text delta.
  * @returns the next state; the same reference when the observation changes nothing.
  */
-export declare function reduceLiveTask(state: LiveTaskState, observation: LiveTaskObservation): LiveTaskState;
+export declare function reduceLiveTask(state: LiveTaskState, observation: LiveTaskObservation, windows?: LiveTaskWindows): LiveTaskState;
 /**
  * Fold a whole observation stream from the initial state.
  * @param observations - observations in arrival order.

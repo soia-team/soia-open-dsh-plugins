@@ -49,6 +49,7 @@ function addCallToTurn(
   turn: number | null,
   time: number,
   name: string,
+  windows: LiveTaskWindows,
 ): readonly LiveTurnSummary[] {
   if (turn === null) return turns
   const existing = turns.find((summary) => summary.turn === turn)
@@ -61,7 +62,7 @@ function addCallToTurn(
       failures: 0,
       tools: [name],
       tokens: 0,
-    }].slice(-TURN_LIMIT)
+    }].slice(-windows.turns)
   }
   return turns.map((summary) => (summary.turn === turn
     ? {
@@ -94,9 +95,11 @@ function settleTurn(
 function pushTimeline(
   timeline: readonly LiveTimelineEntry[],
   entry: LiveTimelineEntry,
+  windows: LiveTaskWindows,
 ): readonly LiveTimelineEntry[] {
-  const windowed = [...timeline, entry].slice(-TIMELINE_LIMIT)
-  const keepFrom = windowed.length - Math.min(FULL_DETAIL_WINDOW, windowed.length)
+  const windowed = [...timeline, entry].slice(-windows.timeline)
+  if (windows.fullDetail === null) return windowed
+  const keepFrom = windowed.length - Math.min(windows.fullDetail, windowed.length)
   return windowed.map((row, index) => (index < keepFrom ? demoteRow(row) : row))
 }
 
@@ -154,8 +157,12 @@ const INITIAL_USAGE = Object.freeze({ reported: 0, input: 0, output: 0, cacheRea
 function foldTimeline(
   state: LiveTaskState,
   entry: LiveTimelineEntry,
+  windows: LiveTaskWindows,
 ): Pick<LiveTaskState, 'timeline' | 'spans'> {
-  return { timeline: pushTimeline(state.timeline, entry), spans: pushSpan(state.spans, entry) }
+  return {
+    timeline: pushTimeline(state.timeline, entry, windows),
+    spans: pushSpan(state.spans, entry, windows),
+  }
 }
 
 /**
@@ -167,6 +174,7 @@ function foldTimeline(
 function pushSpan(
   spans: readonly LiveSpan[],
   entry: LiveTimelineEntry,
+  windows: LiveTaskWindows,
 ): readonly LiveSpan[] {
   if (entry.kind === 'turn') return spans
   return [
@@ -180,7 +188,7 @@ function pushSpan(
       endedAt: entry.endedAt,
       title: entry.kind === 'tool' ? entry.title : null,
     },
-  ].slice(-SPAN_LIMIT)
+  ].slice(-windows.spans)
 }
 
 function usageField(usage: Record<string, unknown> | undefined, key: string): number {
@@ -340,6 +348,18 @@ export function entryIdOfTool(toolName: string): string | null {
   return `tool-${trimmed.replaceAll('_', '-')}`
 }
 
+/** Bounded windows: the host projection's wire shape. */
+export interface LiveTaskWindows {
+  /** Rows retained in the published timeline. */
+  readonly timeline: number
+  /** Turn summaries retained. */
+  readonly turns: number
+  /** Lane segments retained. */
+  readonly spans: number
+  /** Newest rows keeping full payloads, or null to demote nothing. */
+  readonly fullDetail: number | null
+}
+
 /** How many lane segments the view keeps (the chart wants density, not rows). */
 const SPAN_LIMIT = 1600
 
@@ -380,6 +400,32 @@ const DETAIL_LIMIT = 80
 
 /** How many finished calls the activity log keeps. */
 export const ACTION_LIMIT = 8
+
+/**
+ * The host projection's windows: bounded so the wire stays a fixed size.
+ */
+export const HOST_WINDOWS: LiveTaskWindows = {
+  timeline: TIMELINE_LIMIT,
+  turns: TURN_LIMIT,
+  spans: SPAN_LIMIT,
+  fullDetail: FULL_DETAIL_WINDOW,
+}
+
+/**
+ * Windows for the client-side archive fold over the resident event window.
+ *
+ * The client keeps records in browser memory — no wire, no checkpoint — so the
+ * caps that exist purely to bound bytes are lifted and the whole session folds:
+ * every row, every turn, every span. This is the paging path the reference view
+ * takes through `session.loadOlder()`; here the same reducer just runs unbounded
+ * over whatever the window holds.
+ */
+export const CLIENT_WINDOWS: LiveTaskWindows = {
+  timeline: Number.POSITIVE_INFINITY,
+  turns: Number.POSITIVE_INFINITY,
+  spans: Number.POSITIVE_INFINITY,
+  fullDetail: null,
+}
 
 /** Longest result line carried to the client. */
 const RESULT_LIMIT = 60
@@ -658,6 +704,7 @@ function foldEvent(
   event: LiveEventLike,
   agentAttached = false,
   registrySize?: number,
+  windows: LiveTaskWindows = HOST_WINDOWS,
 ): LiveTaskState {
   const seq = numberOf(event.seq)
   const time = numberOf(event.time)
@@ -723,7 +770,7 @@ function foldEvent(
           : state.turnsTotal + 1,
         turns: turn === null || state.turns.some((summary) => summary.turn === turn)
           ? state.turns
-          : [...state.turns, { turn, startedAt: time, endedAt: null, toolCalls: 0, failures: 0, tools: [], tokens: 0 }].slice(-TURN_LIMIT),
+          : [...state.turns, { turn, startedAt: time, endedAt: null, toolCalls: 0, failures: 0, tools: [], tokens: 0 }].slice(-windows.turns),
         timeline: turn === null
           ? state.timeline
           : pushTimeline(state.timeline, {
@@ -740,7 +787,7 @@ function foldEvent(
               resultFull: null,
               result: null,
               status: 'ok',
-            }),
+            }, windows),
         toolCallsInTurn: 0,
         // Session-scope counters deliberately survive a new turn: only what
         // belongs to the turn resets here.
@@ -820,7 +867,7 @@ function foldEvent(
         openTools: [...state.openTools, call],
         toolCallsInTurn: state.toolCallsInTurn + 1,
         toolCallsTotal: state.toolCallsTotal + 1,
-        turns: addCallToTurn(state.turns, call.turn, time, name),
+        turns: addCallToTurn(state.turns, call.turn, time, name, windows),
         ...foldTimeline(state, {
           id: callId,
           kind: 'tool',
@@ -835,7 +882,7 @@ function foldEvent(
           argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null, EXPAND_ARGS_LIMIT),
           resultFull: null,
           status: 'running',
-        }),
+        }, windows),
         ...observed(state, event, name),
       }
     }
@@ -904,7 +951,7 @@ function foldEvent(
           argsFull: null,
           resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
           status: 'ok',
-        }),
+        }, windows),
         ...observed(state, event, null),
       }
     }
@@ -951,7 +998,7 @@ function foldEvent(
               argsFull: null,
               resultFull: expandable(fullToolResult(data), EXPAND_RESULT_LIMIT),
               status: 'ok',
-            })
+            }, windows)
           : { timeline: state.timeline, spans: state.spans }),
         ...observed(state, event, null),
       }
@@ -1007,6 +1054,7 @@ function foldTextDelta(
 export function reduceLiveTask(
   state: LiveTaskState,
   observation: LiveTaskObservation,
+  windows: LiveTaskWindows = HOST_WINDOWS,
 ): LiveTaskState {
   if (observation.kind === 'stream-frame') {
     // Liveness only: the frame is recorded as received, then normalization
@@ -1014,7 +1062,7 @@ export function reduceLiveTask(
     return { ...state, health: { ...state.health, frames: state.health.frames + 1 } }
   }
   return observation.kind === 'event'
-    ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize)
+    ? foldEvent(state, observation.event, observation.agentAttached === true, observation.registrySize, windows)
     : foldTextDelta(state, observation)
 }
 

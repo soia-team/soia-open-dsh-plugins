@@ -116,7 +116,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'detail.entryId': '插件 ID', 'detail.content': '内容',
+  'detail.name': '名称', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -222,6 +222,10 @@ const requireStub = (name) => {
   throw new Error('unexpected require(' + name + ')')
 }
 const fixture = ${JSON.stringify(fixture)}
+// The shell's standard kit hands the view a session selector; the preview has no
+// session, so it answers the paging flags the way an open session with nothing
+// older would — the archive stays absent and the view uses its projection path.
+const sessionStub = (selector) => selector({ hasMore: false, loadingOlder: false, openState: 'open' })
 const mod = window.__spec.factory(requireStub)
 const View = mod.apply && mod.__view
 window.__mounted = false
@@ -251,7 +255,7 @@ const t = (key, params) => {
 }
 const useProjection = () => fixture
 ReactDOM.createRoot(document.getElementById('root')).render(
-  React.createElement(Component, { useProjection, t }),
+  React.createElement(Component, { useProjection, t, useSession: sessionStub }),
 )
 window.__mounted = true
 </script></body></html>`

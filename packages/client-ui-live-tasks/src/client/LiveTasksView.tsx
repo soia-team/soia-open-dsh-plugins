@@ -25,9 +25,15 @@
  * @module soia-dsh-client-ui-live-tasks/client/view
  */
 import { StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
-import { hasLiveActivity, TIMELINE_LIMIT } from '../shared/live-task-state.ts'
+import {
+  CLIENT_WINDOWS,
+  hasLiveActivity,
+  INITIAL_LIVE_TASK_STATE,
+  reduceLiveTask,
+  TIMELINE_LIMIT,
+} from '../shared/live-task-state.ts'
 import type { LiveSpan, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
@@ -38,6 +44,42 @@ export interface LiveTasksViewProps {
   useProjection: (key: string) => unknown
   /** Namespace-bound translator for this view's copy. */
   t: (key: LiveTaskKey, params?: Record<string, string | number>) => string
+  /**
+   * Selector hook over the session snapshot (the shell's standard kit).
+   *
+   * Supplies the paging flags; the offline preview passes a stub, so every read
+   * must go through the selector rather than assuming the field exists.
+   */
+  useSession: <Selected>(selector: (snapshot: SessionSnapshotLike) => Selected) => Selected
+  /**
+   * Resident event window for the client-side archive fold, injected by the
+   * session-scoped registration. Absent in the offline preview, where the view
+   * falls back to the host projection alone.
+   */
+  eventSource?: SessionEventSourceLike
+  /** Pull one older history page; injected beside the event source. */
+  loadOlder?: () => Promise<void>
+}
+
+/** The window snapshot shape the view consumes — declared structurally so the
+ *  browser bundle does not need a type-only import from the host SDK. */
+interface SessionWindowLike {
+  readonly entries: readonly ({ readonly type: 'event', readonly event: unknown } | { readonly type: 'transient', readonly event: unknown })[]
+  readonly hasMore: boolean
+  readonly revision: number
+}
+
+/** Observable face of one session's resident event window. */
+export interface SessionEventSourceLike {
+  subscribe(listener: () => void): () => void
+  getSnapshot(): SessionWindowLike
+}
+
+/** Selector target for the paging flags, matching the shell's session snapshot. */
+interface SessionSnapshotLike {
+  readonly hasMore: boolean
+  readonly loadingOlder: boolean
+  readonly openState?: 'cold' | 'loading' | 'open' | 'error'
 }
 
 /** Translator alias, to keep component signatures short. */
@@ -844,8 +886,35 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
  * @param props - projection hook and translator from the slot kit.
  * @returns the view body, or an explicit empty state.
  */
-export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Element {
+export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder }: LiveTasksViewProps): JSX.Element {
   const projected = useProjection('liveTask') as LiveTaskView | undefined
+  /**
+   * The client-side archive: the whole session folded from the resident event
+   * window in browser memory.
+   *
+   * This is the paging path the reference view takes through `session.loadOlder()`:
+   * the window prepends older pages, and the same reducer that drives the host
+   * projection runs here unbounded (`CLIENT_WINDOWS`) — every row, turn and span
+   * the window holds, with no wire cost. The host projection stays as the
+   * fallback (preview fixture, or a session whose window has not opened yet).
+   */
+  const subscribe = useMemo(
+    () => (eventSource === undefined ? () => () => {} : (listener: () => void) => eventSource.subscribe(listener)),
+    [eventSource],
+  )
+  const readWindow = useMemo(() => () => eventSource?.getSnapshot() ?? null, [eventSource])
+  const windowSnapshot = useSyncExternalStore(subscribe, readWindow, readWindow)
+  const hasOlder = useSession((snapshot) => snapshot.hasMore)
+  const loadingOlder = useSession((snapshot) => snapshot.loadingOlder)
+  const archive = useMemo(() => {
+    if (windowSnapshot === null) return null
+    let folded = INITIAL_LIVE_TASK_STATE
+    for (const entry of windowSnapshot.entries) {
+      if (entry.type !== 'event') continue
+      folded = reduceLiveTask(folded, { kind: 'event', event: entry.event } as never, CLIENT_WINDOWS)
+    }
+    return folded
+  }, [windowSnapshot])
   /**
    * Tolerate a host running an older build than this bundle.
    *
@@ -856,7 +925,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
    * missing line instead of an empty page. `--stale-host` in
    * `scripts/panel-preview.mjs` renders exactly that pairing.
    */
-  const state = projected === undefined
+  const hostState = projected === undefined
     ? undefined
     : {
         ...projected,
@@ -869,6 +938,31 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
         // unmounted the whole view — the panel collapsed to a zero-height box.
         toolSchemas: projected.toolSchemas ?? {},
       }
+  /**
+   * Display state: the archive (whole session, browser-side) when it has rows,
+   * otherwise the normalized host projection.
+   *
+   * Scalars prefer whichever side actually carries them: a freshly paged window
+   * may predate this session's `request/header` (no tool count), while an older
+   * host may lack fields this bundle knows. Neither gap is allowed to blank the
+   * panel — both sides already degrade per field.
+   */
+  // The archive takes over only once it carries at least as many rows as the
+  // host window it replaces: a fresh window can be *shorter* than the projection's
+  // 384-row cap, and switching then would look like history disappearing. After
+  // one page-back it always wins — and grows without bound as pages load.
+  const state = archive !== null
+    && archive.timeline.length > 0
+    && archive.timeline.length >= (hostState?.timeline.length ?? 0)
+    ? {
+        ...archive,
+        toolsAvailable: archive.toolsAvailable ?? hostState?.toolsAvailable ?? null,
+        usage: archive.usage.reported > 0
+          ? archive.usage
+          : hostState?.usage ?? archive.usage,
+        toolSchemas: { ...(hostState?.toolSchemas ?? {}), ...archive.toolSchemas },
+      }
+    : hostState
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   // 轨迹工具栏的 调用 按钮：收起消息行，只留轮次/步骤/调用（对应它的折叠助手块）。
@@ -1076,6 +1170,18 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           </div>
 
           <h4 className={styles.sectionTitle}>{t('timeline.title')}</h4>
+          {(hasOlder || loadingOlder) && (
+            <div className={styles.historyRow}>
+              <button
+                type="button"
+                className={styles.historyButton}
+                disabled={loadingOlder}
+                onClick={() => { void loadOlder?.() }}
+              >
+                {loadingOlder ? t('history.loadingEarlier') : t('history.loadEarlier')}
+              </button>
+            </div>
+          )}
           <table className={styles.table}>
             <colgroup>
               <col className={styles.eventColumn} />
