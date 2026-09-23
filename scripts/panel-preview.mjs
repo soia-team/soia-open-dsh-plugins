@@ -50,6 +50,8 @@ const staleFields = ['usage', 'turnsTotal', 'spans']
 
 const fixture = {
   turnsTotal: 64,
+  model: 'MiMo-V2.6-Flash',
+  provider: 'xiaomi',
   usage: { reported: 12, input: 1_240_000, output: 38_000, cacheRead: 1_120_000, reasoning: 4_200, total: 1_402_000 },
   turn: 2,
   step: 2,
@@ -73,7 +75,7 @@ const fixture = {
     { id: 'turn-1', kind: 'turn', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: null, title: '1', entryId: null, detail: null, result: null, argsFull: null, resultFull: null, status: 'ok' },
     { id: 'u1', kind: 'user', turn: 1, step: null, startedAt: Date.now() - 70_000, endedAt: Date.now() - 70_000, title: '', entryId: null, detail: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', result: null, argsFull: null, resultFull: '请做三件事：读 /etc/hosts、量 #pill、跑 echo ok', status: 'ok' },
     { id: 'x1', kind: 'context', turn: 1, step: null, startedAt: Date.now() - 69_500, endedAt: Date.now() - 69_500, title: '', entryId: null, detail: '<system-reminder> The following workspace instructions may be relevant …', result: null, argsFull: null, resultFull: null, status: 'ok' },
-    { id: 'a1', kind: 'assistant', turn: 1, step: 1, startedAt: Date.now() - 69_000, endedAt: Date.now() - 69_000, title: '', entryId: null, detail: "I'll run all three checks in parallel.", result: null, argsFull: null, resultFull: null, status: 'ok' },
+    { id: 'a1', kind: 'assistant', turn: 1, step: 1, startedAt: Date.now() - 69_000, endedAt: Date.now() - 69_000, title: '', entryId: null, tokens: 5_120, model: 'MiMo-V2.6-Flash', detail: "I'll run all three checks in parallel.", result: null, argsFull: null, resultFull: null, status: 'ok' },
     { id: 'c1', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 60_000, endedAt: Date.now() - 59_800, title: 'read', entryId: 'tool-read', detail: '/etc/hosts', result: '<path>/etc/hosts</path>', argsFull: '{\n  "file_path": "/etc/hosts",\n  "limit": 3\n}', resultFull: '<path>/etc/hosts</path>', status: 'ok' },
     { id: 'c2', kind: 'tool', turn: 1, step: 1, startedAt: Date.now() - 59_000, endedAt: Date.now() - 58_000, title: 'check_ui_size', entryId: 'tool-check-ui-size', detail: '#pill @ http://127.0.0.1:8899/second-case.html', result: 'selector=#pill, matched=1, visible=true, status=ok', argsFull: null, resultFull: null, status: 'ok' },
     { id: 'c3', kind: 'tool', turn: 1, step: 2, startedAt: Date.now() - 30_000, endedAt: Date.now() - 29_000, title: 'grep', entryId: 'tool-grep', detail: 'rg __no_such_symbol__ fixture.html', result: 'Error: grep search failed (exit 2)', argsFull: null, resultFull: null, status: 'failed' },
@@ -116,7 +118,7 @@ const DICTIONARY = {
   'turn.tools': '{n} 个工具', 'turn.stepN': '第 {n} 步', 'turn.empty': '这一轮没有工具调用',
   'turn.args': '参数', 'turn.result': '结果', 'turn.failed': '{n} 次失败', 'turn.expand': '点击查看详情',
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
-  'detail.name': '名称', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容',
+  'detail.name': '名称', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -125,7 +127,7 @@ const DICTIONARY = {
   'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
   'detail.hierarchy': '层级', 'level.user': '用户消息', 'level.assistant': '助手消息', 'level.tool': '工具调用',
-  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…',
+  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…', 'gen.reasoning': '思考中…',
   'detail.purpose': '说明', 'row.called': '调用: ',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
@@ -299,6 +301,9 @@ const overviewFacts = await view.evaluate(() => {
     label: size('[class*="lt-detailLabel"]'),
     hierarchy: (body?.innerText ?? '').includes('层级'),
     sections: globalThis.document.querySelectorAll('[class*="lt-sectionToggle"]').length,
+    // 调用方/被调用方在概览页签（此刻可见）
+    caller: (body?.innerText ?? '').includes('调用方') && (body?.innerText ?? '').includes('MiMo'),
+    callee: (body?.innerText ?? '').includes('被调用方'),
   }
 })
 // The payload lives on the 参数 tab; read its size there, then switch to 计时 so
@@ -331,7 +336,7 @@ const restFonts = await view.evaluate(() => {
   }
 })
 const fonts = { ...overviewFacts, ...argsFacts, ...restFonts }
-const facts = { hierarchy: overviewFacts.hierarchy, sections: overviewFacts.sections, pretty: argsFacts.pretty, colored: argsFacts.colored }
+const facts = { hierarchy: overviewFacts.hierarchy, sections: overviewFacts.sections, pretty: argsFacts.pretty, colored: argsFacts.colored, caller: overviewFacts.caller, callee: overviewFacts.callee }
 
 const mounted = await view.evaluate(() => globalThis.__mounted === true)
 // A missing translation renders as its raw key, which is exactly how the first
@@ -390,7 +395,8 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 // block at xs-13, payloads at 12, rows at 12.5, meta no longer inheriting 14.
 // Drawer contract: 概述 stacks 层级 + four collapsed sections, payloads are
 // pretty-printed and colour-tokenised — the three things the operator called out.
-if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0)) {
+if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0
+  && visuals.facts?.caller && visuals.facts?.callee)) {
   console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)}`)
   process.exit(1)
 }

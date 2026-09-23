@@ -5540,6 +5540,16 @@ function pushSpan(spans, entry, windows) {
 		title: entry.kind === "tool" ? entry.title : null
 	}].slice(-windows.spans);
 }
+/**
+* Total tokens an assistant message reported, or null when it reported none.
+* @param usage - the message's usage record, when present.
+* @returns the total, or null.
+*/
+function assistantTokens(usage) {
+	if (usage === void 0) return null;
+	const total = usage["totalTokens"];
+	return typeof total === "number" && Number.isFinite(total) ? total : null;
+}
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
 	const value = usage[key];
@@ -5663,6 +5673,8 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
 	toolSchemas: Object.freeze({}),
+	model: null,
+	provider: null,
 	headerSchemas: Object.freeze({}),
 	turns: NO_TURNS,
 	turnsTotal: 0,
@@ -6002,13 +6014,16 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 	const data = recordOf(event.data);
 	if (event.type === "request/header") {
 		const header = recordOf(data?.["header"]);
-		const tools = header?.["tools"] ?? recordOf(header?.["config"])?.["tools"];
+		const config = recordOf(header?.["config"]);
+		const tools = header?.["tools"] ?? config?.["tools"];
 		const count = Array.isArray(tools) ? tools.length : void 0;
 		return {
 			...state,
 			...envelope,
 			...count === void 0 ? {} : { toolsAvailable: count },
 			headerSchemas: collectToolSchemas(tools, state.headerSchemas),
+			model: typeof config?.["model"] === "string" ? config["model"] : state.model,
+			provider: typeof config?.["provider"] === "string" ? config["provider"] : state.provider,
 			...observed(state, event, null)
 		};
 	}
@@ -6041,6 +6056,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: null,
 					title: "",
 					entryId: null,
+					tokens: null,
+					model: null,
 					detail: null,
 					argsFull: null,
 					resultFull: null,
@@ -6128,6 +6145,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: null,
 					title: name,
 					entryId: entryIdOfTool(name),
+					tokens: null,
+					model: null,
 					detail: call.detail,
 					result: null,
 					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null, EXPAND_ARGS_LIMIT),
@@ -6180,6 +6199,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: time,
 					title: "",
 					entryId: null,
+					tokens: null,
+					model: null,
 					detail,
 					result: null,
 					argsFull: null,
@@ -6221,6 +6242,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: time,
 					title: "",
 					entryId: null,
+					tokens: assistantTokens(usage),
+					model: state.model,
 					detail: firstLineOfMessage(data),
 					result: null,
 					argsFull: null,
@@ -6369,6 +6392,8 @@ const liveTimelineEntrySchema = object({
 	endedAt: number().nullable(),
 	title: string(),
 	entryId: string().nullable(),
+	tokens: number().nullable(),
+	model: string().nullable(),
 	detail: string().nullable(),
 	result: string().nullable(),
 	argsFull: string().nullable(),
@@ -6442,6 +6467,8 @@ const liveTaskStateSchema = object({
 	streamedTextLength: number().int().nonnegative(),
 	toolSchemas: record(string(), string()),
 	headerSchemas: record(string(), string()),
+	model: string().nullable(),
+	provider: string().nullable(),
 	streamedAt: number().nullable()
 }).strict();
 /**
@@ -6464,6 +6491,8 @@ const liveTaskViewSchema = object({
 	failuresTotal: number().int().nonnegative(),
 	toolsAvailable: number().int().nonnegative().nullable(),
 	toolSchemas: record(string(), string()),
+	model: string().nullable(),
+	provider: string().nullable(),
 	lastEvent: liveEventSummarySchema.nullable(),
 	recent: array(liveEventSummarySchema),
 	actions: array(liveTaskActionSchema),
@@ -6507,6 +6536,8 @@ function viewOf(state) {
 		failuresTotal: state.failuresTotal,
 		toolsAvailable: state.toolsAvailable,
 		toolSchemas: state.toolSchemas,
+		model: state.model,
+		provider: state.provider,
 		lastEvent: state.lastEvent,
 		recent: state.recent,
 		actions: state.actions,
@@ -6534,7 +6565,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 4,
+	stateVersion: 5,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {

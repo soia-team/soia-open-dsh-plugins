@@ -191,6 +191,17 @@ function pushSpan(
   ].slice(-windows.spans)
 }
 
+/**
+ * Total tokens an assistant message reported, or null when it reported none.
+ * @param usage - the message's usage record, when present.
+ * @returns the total, or null.
+ */
+function assistantTokens(usage: Record<string, unknown> | undefined): number | null {
+  if (usage === undefined) return null
+  const total = usage['totalTokens']
+  return typeof total === 'number' && Number.isFinite(total) ? total : null
+}
+
 function usageField(usage: Record<string, unknown> | undefined, key: string): number {
   if (usage === undefined) return 0
   const value = usage[key]
@@ -304,6 +315,8 @@ export const INITIAL_LIVE_TASK_STATE: LiveTaskState = Object.freeze({
   timeline: NO_TIMELINE,
   spans: NO_SPANS,
   toolSchemas: Object.freeze({}),
+  model: null,
+  provider: null,
   headerSchemas: Object.freeze({}),
   turns: NO_TURNS,
   turnsTotal: 0,
@@ -740,7 +753,8 @@ function foldEvent(
     // `toolsAvailable` null — the panel displayed `可用工具 —` for every live
     // session — and no schema for the drawer to show.
     const header = recordOf(data?.['header'])
-    const tools = header?.['tools'] ?? recordOf(header?.['config'])?.['tools']
+    const config = recordOf(header?.['config'])
+    const tools = header?.['tools'] ?? config?.['tools']
     const count = Array.isArray(tools) ? tools.length : undefined
     return {
       ...state,
@@ -751,6 +765,10 @@ function foldEvent(
       // actually calls is published to the wire, so a 60-tool header costs a few
       // kilobytes instead of sixty.
       headerSchemas: collectToolSchemas(tools, state.headerSchemas),
+      // Who is calling: the request's model/provider, read per request so a
+      // mid-session model switch is reflected at the next header.
+      model: typeof config?.['model'] === 'string' ? config['model'] as string : state.model,
+      provider: typeof config?.['provider'] === 'string' ? config['provider'] as string : state.provider,
       ...observed(state, event, null),
     }
   }
@@ -782,6 +800,8 @@ function foldEvent(
               endedAt: null,
               title: '',
               entryId: null,
+              tokens: null,
+              model: null,
               detail: null,
               argsFull: null,
               resultFull: null,
@@ -877,6 +897,8 @@ function foldEvent(
           endedAt: null,
           title: name,
           entryId: entryIdOfTool(name),
+          tokens: null,
+          model: null,
           detail: call.detail,
           result: null,
           argsFull: expandable(typeof data?.['arguments'] === 'string' ? data['arguments'] as string : null, EXPAND_ARGS_LIMIT),
@@ -946,6 +968,8 @@ function foldEvent(
           endedAt: time,
           title: '',
           entryId: null,
+          tokens: null,
+          model: null,
           detail,
           result: null,
           argsFull: null,
@@ -993,6 +1017,8 @@ function foldEvent(
               endedAt: time,
               title: '',
               entryId: null,
+              tokens: assistantTokens(usage),
+              model: state.model,
               detail: firstLineOfMessage(data),
               result: null,
               argsFull: null,
