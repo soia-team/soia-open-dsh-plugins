@@ -74,6 +74,8 @@ const liveTimelineEntrySchema = z.object({
   endedAt: z.number().nullable(),
   title: z.string(),
   entryId: z.string().nullable(),
+  tokens: z.number().nullable(),
+  model: z.string().nullable(),
   detail: z.string().nullable(),
   result: z.string().nullable(),
   argsFull: z.string().nullable(),
@@ -143,6 +145,8 @@ export const liveTaskStateSchema: z.ZodType<LiveTaskState> = z.object({
   streamedTextLength: z.number().int().nonnegative(),
   toolSchemas: z.record(z.string(), z.string()),
   headerSchemas: z.record(z.string(), z.string()),
+  model: z.string().nullable(),
+  provider: z.string().nullable(),
   streamedAt: z.number().nullable(),
 }).strict()
 
@@ -166,6 +170,8 @@ export const liveTaskViewSchema: z.ZodType<LiveTaskView> = z.object({
   failuresTotal: z.number().int().nonnegative(),
   toolsAvailable: z.number().int().nonnegative().nullable(),
   toolSchemas: z.record(z.string(), z.string()),
+  model: z.string().nullable(),
+  provider: z.string().nullable(),
   lastEvent: liveEventSummarySchema.nullable(),
   recent: z.array(liveEventSummarySchema),
   actions: z.array(liveTaskActionSchema),
@@ -211,6 +217,8 @@ function viewOf(state: LiveTaskState): LiveTaskView {
     failuresTotal: state.failuresTotal,
     toolsAvailable: state.toolsAvailable,
     toolSchemas: state.toolSchemas,
+    model: state.model,
+    provider: state.provider,
     lastEvent: state.lastEvent,
     recent: state.recent,
     actions: state.actions,
@@ -239,7 +247,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
  */
 export const liveTaskProjectionDefinition = {
   key: LIVE_TASK_PROJECTION_KEY,
-  stateVersion: 4,
+  stateVersion: 5,
   stateSchema: liveTaskStateSchema,
   // The initial state is built from constants alone, so both arguments the
   // registry passes — the session header and the fork-inherited prefix length —

@@ -143,6 +143,16 @@ function pushSpan(spans, entry, windows) {
 		title: entry.kind === "tool" ? entry.title : null
 	}].slice(-windows.spans);
 }
+/**
+* Total tokens an assistant message reported, or null when it reported none.
+* @param usage - the message's usage record, when present.
+* @returns the total, or null.
+*/
+function assistantTokens(usage) {
+	if (usage === void 0) return null;
+	const total = usage["totalTokens"];
+	return typeof total === "number" && Number.isFinite(total) ? total : null;
+}
 function usageField(usage, key) {
 	if (usage === void 0) return 0;
 	const value = usage[key];
@@ -266,6 +276,8 @@ const INITIAL_LIVE_TASK_STATE = Object.freeze({
 	timeline: NO_TIMELINE,
 	spans: NO_SPANS,
 	toolSchemas: Object.freeze({}),
+	model: null,
+	provider: null,
 	headerSchemas: Object.freeze({}),
 	turns: NO_TURNS,
 	turnsTotal: 0,
@@ -620,13 +632,16 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 	const data = recordOf(event.data);
 	if (event.type === "request/header") {
 		const header = recordOf(data?.["header"]);
-		const tools = header?.["tools"] ?? recordOf(header?.["config"])?.["tools"];
+		const config = recordOf(header?.["config"]);
+		const tools = header?.["tools"] ?? config?.["tools"];
 		const count = Array.isArray(tools) ? tools.length : void 0;
 		return {
 			...state,
 			...envelope,
 			...count === void 0 ? {} : { toolsAvailable: count },
 			headerSchemas: collectToolSchemas(tools, state.headerSchemas),
+			model: typeof config?.["model"] === "string" ? config["model"] : state.model,
+			provider: typeof config?.["provider"] === "string" ? config["provider"] : state.provider,
 			...observed(state, event, null)
 		};
 	}
@@ -659,6 +674,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: null,
 					title: "",
 					entryId: null,
+					tokens: null,
+					model: null,
 					detail: null,
 					argsFull: null,
 					resultFull: null,
@@ -746,6 +763,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: null,
 					title: name,
 					entryId: entryIdOfTool(name),
+					tokens: null,
+					model: null,
 					detail: call.detail,
 					result: null,
 					argsFull: expandable(typeof data?.["arguments"] === "string" ? data["arguments"] : null, EXPAND_ARGS_LIMIT),
@@ -798,6 +817,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: time,
 					title: "",
 					entryId: null,
+					tokens: null,
+					model: null,
 					detail,
 					result: null,
 					argsFull: null,
@@ -839,6 +860,8 @@ function foldEvent(state, event, agentAttached = false, registrySize, windows = 
 					endedAt: time,
 					title: "",
 					entryId: null,
+					tokens: assistantTokens(usage),
+					model: state.model,
 					detail: firstLineOfMessage(data),
 					result: null,
 					argsFull: null,
@@ -1593,6 +1616,83 @@ function LiveTasksHeaderAction({ useProjection, t }) {
 * @module soia-dsh-client-ui-live-tasks/client/view
 */
 /**
+* Per-source archive cache, outside React's render purity rules.
+*
+* A `useRef` cache inside the component is what the hooks rules forbid (refs are
+* not readable during render); a module-level WeakMap keyed by the event source
+* gives the same memoization with an identical result for identical inputs — the
+* cache only decides whether a live `append` folds one event or the whole
+* window, never what the fold computes.
+*/
+const ARCHIVE_CACHE = /* @__PURE__ */ new WeakMap();
+/**
+* Fold durable events AND the session's transient live chunks.
+*
+* The transport already carries decoded `text-delta`/`reasoning-delta` chunks as
+* transient window entries — no host change and no new event shape are needed to
+* show text while it generates; the durable `assistant/message` that supersedes
+* the attempt clears it. The returned state feeds the panel exactly as before.
+* @param base - state before this batch.
+* @param baseStream - live text carried from earlier batches (null when idle).
+* @param entries - window entries in order.
+* @returns the folded state plus the current live stream, if any.
+*/
+function foldWindow(base, entries, baseStream = null) {
+	let folded = base;
+	let stream = baseStream;
+	for (const entry of entries) {
+		if (entry.type !== "event") {
+			const event = entry.event;
+			if (event.type === "assistant/live-chunk") {
+				const data = event.data;
+				const chunk = recordOfChunk(data?.["chunk"]);
+				const turn = numberOfLocal(data?.["turn"]) ?? stream?.turn ?? 0;
+				const step = numberOfLocal(data?.["step"]) ?? stream?.step ?? 0;
+				if (chunk.type === "text-delta" || chunk.type === "reasoning-delta") {
+					const prior = stream !== null && stream.turn === turn && stream.step === step ? stream : {
+						turn,
+						step,
+						text: "",
+						reasoning: ""
+					};
+					stream = chunk.type === "text-delta" ? {
+						...prior,
+						text: `${prior.text}${chunk.text}`
+					} : {
+						...prior,
+						reasoning: `${prior.reasoning}${chunk.text}`
+					};
+				} else if (chunk.type === "finish") stream = null;
+			}
+			continue;
+		}
+		folded = reduceLiveTask(folded, {
+			kind: "event",
+			event: entry.event
+		}, CLIENT_WINDOWS);
+		if (entry.event.type === "assistant/message") stream = null;
+	}
+	return {
+		state: folded,
+		stream
+	};
+}
+/** Read one chunk's shape without trusting the transport blindly. */
+function recordOfChunk(value) {
+	if (value !== null && typeof value === "object") {
+		const record = value;
+		return {
+			type: typeof record["type"] === "string" ? record["type"] : "",
+			text: typeof record["text"] === "string" ? record["text"] : void 0
+		};
+	}
+	return { type: "" };
+}
+/** Narrow an unknown field to a finite number. */
+function numberOfLocal(value) {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+/**
 * Re-render once a second so elapsed times stay true.
 * @returns the current epoch milliseconds.
 */
@@ -2022,7 +2122,7 @@ function ToolRow({ entry, now, expanded, selected, dim, secondLine, onToggle, t 
 					})] }),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: failed ? styles.tlTookFailed : styles.tlTook,
-						children: entry.kind !== "tool" ? "" : `${running ? t("status.running") : failed ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
+						children: (entry.tokens ?? null) !== null && entry.kind === "assistant" ? `${compact(entry.tokens ?? 0)} tok` : `${running ? t("status.running") : failed ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
 					})
 				]
 			}), secondLine !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -2060,7 +2160,7 @@ function groupByStep(entries) {
 * boundaries — and the rail that marks them — inside the table, the way the
 * trajectory view draws them.
 */
-function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, generating, onToggle, t }) {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, generating, liveText, onToggle, t }) {
 	const started = clockOf(turn.startedAt);
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", {
@@ -2123,7 +2223,8 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
 					className: styles.contentCell,
 					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: styles.tlGen,
-						children: t("gen.running")
+						title: liveText ?? void 0,
+						children: liveText ?? t("gen.running")
 					})
 				})]
 			}),
@@ -2168,7 +2269,7 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
 * every later row down and could not be compared side by side with the row it
 * described.
 */
-function DetailDrawer({ entry, now, schema, onClose, t }) {
+function DetailDrawer({ entry, now, schema, model, provider, onClose, t }) {
 	const [tab, setTab] = (0, react.useState)("overview");
 	const [open, setOpen] = (0, react.useState)({
 		args: false,
@@ -2257,8 +2358,13 @@ function DetailDrawer({ entry, now, schema, onClose, t }) {
 					children: [
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.hierarchy") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("dd", { children: [levelText, " ›"] }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.name") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : kind }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: entry.kind === "tool" ? t("overview.callee") : t("detail.name") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.kind === "tool" ? entry.title : entry.kind === "assistant" && (entry.model ?? null) !== null ? `${entry.model}${provider !== null ? ` · ${provider}` : ""}` : kind }),
+						entry.kind === "tool" && (model ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.caller") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
+							className: styles.detailMono,
+							children: `${model}${provider !== null ? ` · ${provider}` : ""}`
+						})] }),
+						(entry.tokens ?? null) !== null && entry.kind === "assistant" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.tokens") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: `${compact(entry.tokens ?? 0)} tok` })] }),
 						(entry.entryId ?? null) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.entryId") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", {
 							className: styles.detailMono,
 							children: entry.entryId
@@ -2373,16 +2479,23 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 	const loadingOlder = useSession((snapshot) => snapshot.loadingOlder);
 	const archive = (0, react.useMemo)(() => {
 		if (windowSnapshot === null) return null;
-		let folded = INITIAL_LIVE_TASK_STATE;
-		for (const entry of windowSnapshot.entries) {
-			if (entry.type !== "event") continue;
-			folded = reduceLiveTask(folded, {
-				kind: "event",
-				event: entry.event
-			}, CLIENT_WINDOWS);
+		const cached = eventSource === void 0 ? void 0 : ARCHIVE_CACHE.get(eventSource);
+		const cache = cached?.packed ?? null;
+		if (eventSource !== void 0 && cached !== void 0 && cache !== null && cached.revision + 1 === windowSnapshot.revision && windowSnapshot.change.kind === "append") {
+			const next = foldWindow(cache.state, windowSnapshot.change.entries, cache.stream);
+			ARCHIVE_CACHE.set(eventSource, {
+				revision: windowSnapshot.revision,
+				packed: next
+			});
+			return next;
 		}
-		return folded;
-	}, [windowSnapshot]);
+		const fresh = foldWindow(INITIAL_LIVE_TASK_STATE, windowSnapshot.entries, null);
+		if (eventSource !== void 0) ARCHIVE_CACHE.set(eventSource, {
+			revision: windowSnapshot.revision,
+			packed: fresh
+		});
+		return fresh;
+	}, [windowSnapshot, eventSource]);
 	/**
 	* Tolerate a host running an older build than this bundle.
 	*
@@ -2405,7 +2518,9 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 			total: 0
 		},
 		spans: projected.spans ?? [],
-		toolSchemas: projected.toolSchemas ?? {}
+		toolSchemas: projected.toolSchemas ?? {},
+		model: projected.model ?? null,
+		provider: projected.provider ?? null
 	};
 	/**
 	* Display state: the archive (whole session, browser-side) when it has rows,
@@ -2416,13 +2531,25 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 	* host may lack fields this bundle knows. Neither gap is allowed to blank the
 	* panel — both sides already degrade per field.
 	*/
-	const state = archive !== null && archive.timeline.length > 0 && archive.timeline.length >= (hostState?.timeline.length ?? 0) ? {
-		...archive,
-		toolsAvailable: archive.toolsAvailable ?? hostState?.toolsAvailable ?? null,
-		usage: archive.usage.reported > 0 ? archive.usage : hostState?.usage ?? archive.usage,
+	const fullyPaged = windowSnapshot !== null && !windowSnapshot.hasMore;
+	const liveStream = archive === null ? null : archive.stream;
+	const archiveState = archive === null ? null : archive.state;
+	const withCounters = archiveState === null ? null : hostState === void 0 || fullyPaged ? archiveState : {
+		...archiveState,
+		turnsTotal: hostState.turnsTotal,
+		failuresTotal: hostState.failuresTotal,
+		toolCallsTotal: hostState.toolCallsTotal,
+		toolsAvailable: archiveState.toolsAvailable ?? hostState.toolsAvailable,
+		usage: hostState.usage.reported > 0 ? hostState.usage : archiveState.usage,
+		health: hostState.health.folded >= archiveState.health.folded ? hostState.health : archiveState.health
+	};
+	const state = withCounters !== null && withCounters.timeline.length > 0 && withCounters.timeline.length >= (hostState?.timeline.length ?? 0) ? {
+		...withCounters,
+		toolsAvailable: withCounters.toolsAvailable ?? hostState?.toolsAvailable ?? null,
+		usage: withCounters.usage.reported > 0 ? withCounters.usage : hostState?.usage ?? withCounters.usage,
 		toolSchemas: {
-			...hostState?.toolSchemas ?? {},
-			...archive.toolSchemas
+			...hostState?.toolSchemas ?? withCounters.toolSchemas,
+			...withCounters.toolSchemas
 		}
 	} : hostState;
 	const [selected, setSelected] = (0, react.useState)(null);
@@ -2632,6 +2759,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 										expandedId: expanded,
 										dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
 										toolSchemas: state.toolSchemas,
+										liveText: liveStream !== null && liveStream.turn === turn.turn ? liveStream.text !== "" ? liveStream.text : liveStream.reasoning !== "" ? t("gen.reasoning") : null : null,
 										generating: state.running && state.openTools.length === 0 && turn.turn === state.turn && state.step !== null && !state.timeline.some((row) => row.kind === "assistant" && row.turn === turn.turn && row.step === state.step),
 										onToggle: (id) => setExpanded(expanded === id ? null : id),
 										t
@@ -2675,6 +2803,8 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder })
 				entry: detailEntry,
 				now,
 				schema: detailEntry.kind === "tool" ? state.toolSchemas[detailEntry.title] ?? null : null,
+				model: state.model ?? null,
+				provider: state.provider ?? null,
 				onClose: () => setExpanded(null),
 				t
 			})]
@@ -2730,8 +2860,12 @@ const zh = {
 	"level.tool": "工具调用",
 	"detail.pending": "运行中，结果完成后显示",
 	"gen.running": "生成中…",
+	"gen.reasoning": "思考中…",
 	"history.loadEarlier": "加载更早的历史",
 	"history.loadingEarlier": "正在加载更早的历史…",
+	"overview.caller": "调用方",
+	"overview.callee": "被调用方",
+	"overview.tokens": "Token",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -2859,8 +2993,12 @@ const en = {
 	"level.tool": "Tool call",
 	"detail.pending": "Running — the result appears when the call settles",
 	"gen.running": "Generating…",
+	"gen.reasoning": "Thinking…",
 	"history.loadEarlier": "Load earlier history",
 	"history.loadingEarlier": "Loading earlier history…",
+	"overview.caller": "Caller",
+	"overview.callee": "Callee",
+	"overview.tokens": "Token",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",

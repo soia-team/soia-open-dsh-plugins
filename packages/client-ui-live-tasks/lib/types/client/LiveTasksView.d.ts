@@ -33,6 +33,16 @@ interface SessionWindowLike {
     })[];
     readonly hasMore: boolean;
     readonly revision: number;
+    /** How the latest revision arrived — append is the live hot path. */
+    readonly change: {
+        readonly kind: 'append' | 'prepend' | 'replace';
+        readonly entries: readonly {
+            readonly type: string;
+            readonly event: unknown;
+        }[];
+    } | {
+        readonly kind: 'settle-assistant';
+    };
 }
 /** Observable face of one session's resident event window. */
 export interface SessionEventSourceLike {

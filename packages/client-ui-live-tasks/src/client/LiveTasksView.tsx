@@ -88,19 +88,81 @@ export interface SessionEventSourceLike {
  * cache only decides whether a live `append` folds one event or the whole
  * window, never what the fold computes.
  */
-const ARCHIVE_CACHE = new WeakMap<object, { revision: number, state: LiveTaskState }>()
+const ARCHIVE_CACHE = new WeakMap<object, { revision: number, packed: { state: LiveTaskState, stream: LiveStreamState | null } }>()
 
 /** Fold one batch of window entries into a live-task state. */
+/** Live text for the step being generated, decoded by the host before it ships. */
+interface LiveStreamState {
+  readonly turn: number
+  readonly step: number
+  readonly text: string
+  readonly reasoning: string
+}
+
+/**
+ * Fold durable events AND the session's transient live chunks.
+ *
+ * The transport already carries decoded `text-delta`/`reasoning-delta` chunks as
+ * transient window entries — no host change and no new event shape are needed to
+ * show text while it generates; the durable `assistant/message` that supersedes
+ * the attempt clears it. The returned state feeds the panel exactly as before.
+ * @param base - state before this batch.
+ * @param baseStream - live text carried from earlier batches (null when idle).
+ * @param entries - window entries in order.
+ * @returns the folded state plus the current live stream, if any.
+ */
 function foldWindow(
   base: LiveTaskState,
   entries: readonly { readonly type: string, readonly event: unknown }[],
-): LiveTaskState {
+  baseStream: LiveStreamState | null = null,
+): { state: LiveTaskState, stream: LiveStreamState | null } {
   let folded = base
+  let stream = baseStream
   for (const entry of entries) {
-    if (entry.type !== 'event') continue
+    if (entry.type !== 'event') {
+      // Transient presentation of a live attempt: decoded text, kept until the
+      // durable message for the same step lands.
+      const event = entry.event as { type: string, data?: Record<string, unknown> }
+      if (event.type === 'assistant/live-chunk') {
+        const data = event.data
+        const chunk = recordOfChunk(data?.['chunk'])
+        const turn = numberOfLocal(data?.['turn']) ?? stream?.turn ?? 0
+        const step = numberOfLocal(data?.['step']) ?? stream?.step ?? 0
+        if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
+          const prior = stream !== null && stream.turn === turn && stream.step === step
+            ? stream
+            : { turn, step, text: '', reasoning: '' }
+          stream = chunk.type === 'text-delta'
+            ? { ...prior, text: `${prior.text}${chunk.text}` }
+            : { ...prior, reasoning: `${prior.reasoning}${chunk.text}` }
+        } else if (chunk.type === 'finish') {
+          stream = null
+        }
+      }
+      continue
+    }
     folded = reduceLiveTask(folded, { kind: 'event', event: entry.event } as never, CLIENT_WINDOWS)
+    const durable = entry.event as { type?: string }
+    if (durable.type === 'assistant/message') stream = null
   }
-  return folded
+  return { state: folded, stream }
+}
+
+/** Read one chunk's shape without trusting the transport blindly. */
+function recordOfChunk(value: unknown): { type: string, text?: string } {
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return {
+      type: typeof record['type'] === 'string' ? record['type'] : '',
+      text: typeof record['text'] === 'string' ? record['text'] : undefined,
+    }
+  }
+  return { type: '' }
+}
+
+/** Narrow an unknown field to a finite number. */
+function numberOfLocal(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 /** Selector target for the paging flags, matching the shell's session snapshot. */
@@ -608,8 +670,8 @@ function ToolRow({ entry, now, expanded, selected, dim, secondLine, onToggle, t 
               </>
             )}
             <span className={failed ? styles.tlTookFailed : styles.tlTook}>
-              {entry.kind !== 'tool'
-                ? ''
+              {(entry.tokens ?? null) !== null && entry.kind === 'assistant'
+                ? `${compact(entry.tokens ?? 0)} tok`
                 : `${running ? t('status.running') : failed ? t('status.failed') : t('status.ok')} ${t('time.seconds', { s: took })}`}
             </span>
           </button>
@@ -647,7 +709,7 @@ function groupByStep(entries: readonly LiveTimelineEntry[]): { step: number | nu
  * boundaries — and the rail that marks them — inside the table, the way the
  * trajectory view draws them.
  */
-function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, generating, onToggle, t }: {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, generating, liveText, onToggle, t }: {
   turn: LiveTaskView['turns'][number]
   entries: readonly LiveTimelineEntry[]
   /** True only when the reader picked this turn; the newest turn is not "picked". */
@@ -659,6 +721,8 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
   toolSchemas: Readonly<Record<string, string>>
   /** The model is mid-generation for this turn's open step (client-derived). */
   generating: boolean
+  /** Decoded live text for this turn's open step, when the transport carries it. */
+  liveText: string | null
   onToggle: (id: string) => void
   t: T
 }): JSX.Element {
@@ -690,7 +754,9 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
             </span>
           </td>
           <td className={styles.contentCell}>
-            <span className={styles.tlGen}>{t('gen.running')}</span>
+            <span className={styles.tlGen} title={liveText ?? undefined}>
+              {liveText ?? t('gen.running')}
+            </span>
           </td>
         </tr>
       )}
@@ -748,11 +814,14 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, too
  * every later row down and could not be compared side by side with the row it
  * described.
  */
-function DetailDrawer({ entry, now, schema, onClose, t }: {
+function DetailDrawer({ entry, now, schema, model, provider, onClose, t }: {
   entry: LiveTimelineEntry
   now: number
   /** The definition this tool was registered with, from the request header. */
   schema: string | null
+  /** Model/provider of the request that drove this row (the caller identity). */
+  model: string | null
+  provider: string | null
   onClose: () => void
   t: T
 }): JSX.Element {
@@ -835,8 +904,26 @@ function DetailDrawer({ entry, now, schema, onClose, t }: {
           <dl className={styles.detailGrid}>
             <dt>{t('detail.hierarchy')}</dt>
             <dd>{levelText} ›</dd>
-            <dt>{t('detail.name')}</dt>
-            <dd>{entry.kind === 'tool' ? entry.title : kind}</dd>
+            <dt>{entry.kind === 'tool' ? t('overview.callee') : t('detail.name')}</dt>
+            <dd>{entry.kind === 'tool'
+              ? entry.title
+              : entry.kind === 'assistant' && (entry.model ?? null) !== null
+                ? `${entry.model}${provider !== null ? ` · ${provider}` : ''}`
+                : kind}</dd>
+            {entry.kind === 'tool' && (model ?? null) !== null && (
+              <>
+                <dt>{t('overview.caller')}</dt>
+                <dd className={styles.detailMono}>
+                  {`${model}${provider !== null ? ` · ${provider}` : ''}`}
+                </dd>
+              </>
+            )}
+            {(entry.tokens ?? null) !== null && entry.kind === 'assistant' && (
+              <>
+                <dt>{t('overview.tokens')}</dt>
+                <dd>{`${compact(entry.tokens ?? 0)} tok`}</dd>
+              </>
+            )}
             {(entry.entryId ?? null) !== null && (
               <>
                 <dt>{t('detail.entryId')}</dt>
@@ -936,22 +1023,24 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   const loadingOlder = useSession((snapshot) => snapshot.loadingOlder)
   const archive = useMemo(() => {
     if (windowSnapshot === null) return null
-    const cache = eventSource === undefined ? null : ARCHIVE_CACHE.get(eventSource) ?? null
+    const cached = eventSource === undefined ? undefined : ARCHIVE_CACHE.get(eventSource)
+    const cache = cached?.packed ?? null
     // Live appends fold incrementally — one event, not a whole-window replay —
     // because a full refold inside render scales with the session (Codex review
     // P2). Prepends (paging), replaces and settlements refold whole: older events
     // cannot be folded after newer ones.
     if (eventSource !== undefined
+      && cached !== undefined
       && cache !== null
-      && cache.revision + 1 === windowSnapshot.revision
+      && cached.revision + 1 === windowSnapshot.revision
       && windowSnapshot.change.kind === 'append') {
-      const next = foldWindow(cache.state, windowSnapshot.change.entries)
-      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, state: next })
+      const next = foldWindow(cache.state, windowSnapshot.change.entries, cache.stream)
+      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, packed: next })
       return next
     }
-    const fresh = foldWindow(INITIAL_LIVE_TASK_STATE, windowSnapshot.entries)
+    const fresh = foldWindow(INITIAL_LIVE_TASK_STATE, windowSnapshot.entries, null)
     if (eventSource !== undefined) {
-      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, state: fresh })
+      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, packed: fresh })
     }
     return fresh
   }, [windowSnapshot, eventSource])
@@ -977,6 +1066,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         // default the drawer threw `undefined[…]` on the first row click and React
         // unmounted the whole view — the panel collapsed to a zero-height box.
         toolSchemas: projected.toolSchemas ?? {},
+        model: projected.model ?? null,
+        provider: projected.provider ?? null,
       }
   /**
    * Display state: the archive (whole session, browser-side) when it has rows,
@@ -997,18 +1088,20 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   // loss. Rows still come from the archive — that is what paging is for — and
   // once `hasMore` clears both sides describe the same events.
   const fullyPaged = windowSnapshot !== null && !windowSnapshot.hasMore
-  const withCounters = archive === null
+  const liveStream = archive === null ? null : archive.stream
+  const archiveState = archive === null ? null : archive.state
+  const withCounters = archiveState === null
     ? null
     : hostState === undefined || fullyPaged
-      ? archive
+      ? archiveState
       : {
-          ...archive,
+          ...archiveState,
           turnsTotal: hostState.turnsTotal,
           failuresTotal: hostState.failuresTotal,
           toolCallsTotal: hostState.toolCallsTotal,
-          toolsAvailable: archive.toolsAvailable ?? hostState.toolsAvailable,
-          usage: hostState.usage.reported > 0 ? hostState.usage : archive.usage,
-          health: hostState.health.folded >= archive.health.folded ? hostState.health : archive.health,
+          toolsAvailable: archiveState.toolsAvailable ?? hostState.toolsAvailable,
+          usage: hostState.usage.reported > 0 ? hostState.usage : archiveState.usage,
+          health: hostState.health.folded >= archiveState.health.folded ? hostState.health : archiveState.health,
         }
   const state = withCounters !== null
     && withCounters.timeline.length > 0
@@ -1259,6 +1352,11 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
                 expandedId={expanded}
                 dimmed={pickedTurn !== null && turn.turn !== pickedTurn}
                 toolSchemas={state.toolSchemas}
+                liveText={liveStream !== null && liveStream.turn === turn.turn
+                  ? (liveStream.text !== ''
+                    ? liveStream.text
+                    : liveStream.reasoning !== '' ? t('gen.reasoning') : null)
+                  : null}
                 generating={
                   state.running
                   && state.openTools.length === 0
@@ -1304,6 +1402,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
             schema={detailEntry.kind === 'tool'
               ? state.toolSchemas[detailEntry.title] ?? null
               : null}
+            model={state.model ?? null}
+            provider={state.provider ?? null}
             onClose={() => setExpanded(null)}
             t={t}
           />

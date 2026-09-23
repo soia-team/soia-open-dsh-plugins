@@ -146,6 +146,17 @@ export interface LiveTimelineEntry {
     /** Headline: the tool name, or a human word for the other kinds. */
     readonly title: string;
     /**
+     * Tokens this assistant message billed, or null when the message carried no
+     * usage (and for rows that are not model output).
+     */
+    readonly tokens: number | null;
+    /**
+     * Model that produced this assistant row, captured when it folded — a session
+     * that switches models mid-run then names each row by the model that actually
+     * wrote it, not just the latest header.
+     */
+    readonly model: string | null;
+    /**
      * Entry id of the plugin that registered this row's tool, or null for rows the
      * session itself produced (`user/message` and the like).
      *
@@ -319,6 +330,10 @@ export interface LiveTaskView {
     readonly usage: LiveTaskUsage;
     /** Schemas of the tools rows actually called — name → trimmed definition. */
     readonly toolSchemas: Readonly<Record<string, string>>;
+    /** Model id of the most recent request this session made. */
+    readonly model: string | null;
+    /** Provider of the most recent request, when the header records one. */
+    readonly provider: string | null;
     /** Fold counters, so the panel can report its own freshness. */
     readonly health: LiveTaskHealth;
     /**
