@@ -127,7 +127,7 @@ const DICTIONARY = {
   'bar.searchPlaceholder': '搜索',
   'detail.schema': 'Schema', 'detail.schemaUnavailable': 'Schema 不可用',
   'detail.hierarchy': '层级', 'level.user': '用户消息', 'level.assistant': '助手消息', 'level.tool': '工具调用',
-  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…', 'gen.reasoning': '思考中…',
+  'detail.pending': '运行中，结果完成后显示', 'gen.running': '生成中…', 'detail.package': '包名', 'detail.version': '版本', 'detail.entry': '入口', 'detail.enabled': '已启用', 'detail.disabled': '未启用', 'detail.loading': '读取中…', 'detail.unavailable': '插件信息不可用', 'gen.reasoning': '思考中…',
   'detail.purpose': '说明', 'row.called': '调用: ',
   'timing.ms': '毫秒', 'timing.source': '计时来源', 'timing.sourceSession': '会话时间戳',
   'timeline.toolCallsOnly': '（仅工具调用）',
@@ -302,7 +302,10 @@ const overviewFacts = await view.evaluate(() => {
     hierarchy: (body?.innerText ?? '').includes('层级'),
     sections: globalThis.document.querySelectorAll('[class*="lt-sectionToggle"]').length,
     // 调用方/被调用方在概览页签（此刻可见）
-    caller: (body?.innerText ?? '').includes('调用方') && (body?.innerText ?? '').includes('MiMo'),
+    caller: (() => {
+      const match = /调用方\s*\n([^\n]+)/.exec(body?.innerText ?? '')
+      return match !== null && (match[1]?.length ?? 0) > 0
+    })(),
     callee: (body?.innerText ?? '').includes('被调用方'),
   }
 })
