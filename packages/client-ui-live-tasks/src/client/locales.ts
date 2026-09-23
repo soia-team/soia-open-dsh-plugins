@@ -19,6 +19,7 @@ export const NS = 'liveTasks'
 export const zh = {
   // 页签名取「活动」而不是「任务」：待办类插件已经占用了「任务」，而这里是实时活动时间线。
   'view.tab': '活动',
+  'view.status': '运行状况',
   'view.empty': '本会话还没有动作。',
 
   // 模块一：概览
@@ -64,7 +65,6 @@ export const zh = {
   'detail.loading': '读取中…',
   'detail.unavailable': '插件信息不可用',
   'health.tools': '工具：{list}',
-  'health.diag': '诊断',
   'detail.name': '名称',
   'detail.entryId': '插件 ID',
   'usage.line': '本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）',
@@ -183,6 +183,7 @@ export type LiveTaskKey = keyof typeof zh
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<LiveTaskKey, string> = {
   'view.tab': 'Activity',
+  'view.status': 'Status',
   'view.empty': 'This session has no actions yet.',
 
   'head.toolRunning': 'Tool in use',
@@ -223,7 +224,6 @@ export const en: Record<LiveTaskKey, string> = {
   'detail.loading': 'Loading…',
   'detail.unavailable': 'Plugin info unavailable',
   'health.tools': 'Tools: {list}',
-  'health.diag': 'Diagnostics',
   'detail.name': 'Name',
   'detail.entryId': 'Plugin id',
   'detail.timing': 'Timing',

@@ -1120,11 +1120,6 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
-/* 运行状况的诊断开关：收起时只留名字与异常计数，展开才给内部计数。 */
-.lt-diagToggle { height: 20px; padding: 0 8px; border: 0; border-radius: 3px; cursor: pointer;
-  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); color: var(--dsw-alias-label-secondary);
-  font-size: 12px; }
-.lt-diagToggle[aria-expanded='true'] { color: var(--dsw-alias-state-business-primary, #4078ff); }
 
 /* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
 .lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
@@ -1499,7 +1494,6 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
-	diagToggle: "lt-diagToggle",
 	pluginCard: "lt-pluginCard",
 	pluginLink: "lt-pluginLink",
 	historyButton: "lt-historyButton",
@@ -2519,7 +2513,34 @@ function DetailDrawer({ entry, now, schema, model, provider, loadPluginInfo, onC
 * @param props - projection hook and translator from the slot kit.
 * @returns the view body, or an explicit empty state.
 */
-function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }) {
+/**
+* Union two turn-summary lists by turn number.
+*
+* The host folds the whole log, so its summaries are complete; the archive's
+* window may hold turns the host window slid away (and vice versa on sessions
+* past the host's turn cap). Paging must not make headers vanish: taking the
+* archive wholesale once it wins on rows dropped the panel from 85 headers to 9
+* live, because only the turns whose events are resident had summaries.
+* @param host - the host projection's summaries, when present.
+* @param archive - the client archive's summaries.
+* @returns one list, host entries winning on conflict.
+*/
+function mergeTurns(host, archive) {
+	if (host === void 0 || host.length === 0) return archive;
+	const byTurn = /* @__PURE__ */ new Map();
+	for (const summary of host) byTurn.set(summary.turn, summary);
+	for (const summary of archive) if (!byTurn.has(summary.turn)) byTurn.set(summary.turn, summary);
+	return [...byTurn.values()].sort((left, right) => left.turn - right.turn);
+}
+/**
+* The shared display state behind both registered views: the host projection,
+* the client-side archive fold, the paging flags, the live stream, and the
+* session's tool roster. Extracted so 活动 and the 运行状况 tab read the same
+* numbers instead of drifting a second copy.
+* @param props - the projection/session/list sources both views already receive.
+* @returns the display state plus the roster the status tab reports.
+*/
+function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBundles }) {
 	const projected = useProjection("liveTask");
 	/**
 	* The client-side archive: the whole session folded from the resident event
@@ -2604,6 +2625,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	};
 	const state = withCounters !== null && withCounters.timeline.length > 0 && withCounters.timeline.length >= (hostState?.timeline.length ?? 0) ? {
 		...withCounters,
+		turns: mergeTurns(hostState?.turns, withCounters.turns),
 		toolsAvailable: withCounters.toolsAvailable ?? hostState?.toolsAvailable ?? null,
 		usage: withCounters.usage.reported > 0 ? withCounters.usage : hostState?.usage ?? withCounters.usage,
 		toolSchemas: {
@@ -2611,13 +2633,13 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 			...withCounters.toolSchemas
 		}
 	} : hostState;
-	const [selected, setSelected] = (0, react.useState)(null);
-	const [expanded, setExpanded] = (0, react.useState)(null);
-	const [messagesHidden, setMessagesHidden] = (0, react.useState)(false);
-	const [actualDuration, setActualDuration] = (0, react.useState)(true);
-	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
-	const [query, setQuery] = (0, react.useState)("");
-	const [diagOpen, setDiagOpen] = (0, react.useState)(false);
+	const usedToolNames = [.../* @__PURE__ */ new Set([
+		...(state?.turns ?? []).flatMap((turn) => turn.tools),
+		...(state?.openTools ?? []).map((tool) => tool.name),
+		...state?.lastTool == null ? [] : [state.lastTool.name],
+		...(state?.actions ?? []).map((action) => action.name)
+	])];
+	const distinctTools = usedToolNames.length;
 	const [ourToolNames, setOurToolNames] = (0, react.useState)(null);
 	(0, react.useEffect)(() => {
 		if (listToolBundles === void 0) return;
@@ -2631,6 +2653,107 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 			alive = false;
 		};
 	}, [listToolBundles]);
+	return {
+		state,
+		hasOlder,
+		loadingOlder,
+		liveStream,
+		usedToolNames,
+		distinctTools,
+		ourToolNames
+	};
+}
+/**
+* The 运行状况 tab: the panel's own telemetry gets its own seat, so the timeline
+* stays a timeline. Everything the old bottom block reported lives here in full
+* — session totals, the tool roster (our packages first), usage, freshness, and
+* the fold's internal counters — without competing for the activity view's space.
+* @param props - the same standard kit and injected sources as the activity view.
+* @returns the telemetry panel, or the shared empty state.
+*/
+function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }) {
+	const { state, usedToolNames, distinctTools, ourToolNames } = useLiveTaskDisplay({
+		useProjection,
+		useSession,
+		eventSource,
+		listToolBundles
+	});
+	const now = useNow();
+	if (state === void 0 || !hasLiveActivity(state)) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+		className: styles.empty,
+		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: "idle" }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("view.empty") })]
+	});
+	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
+	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
+	const rosterShown = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name)) ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false) : usedToolNames;
+	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+		className: styles.view,
+		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			className: styles.section,
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+				className: styles.sectionTitle,
+				children: t("health.title")
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: styles.health,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: state.health.unknown > 0 ? styles.healthStale : void 0,
+						children: `${t("health.unknown")} ${state.health.unknown}`
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: state.health.registry < 0 ? styles.healthStale : void 0,
+						children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
+						ok: state.health.deltasAccepted,
+						dropped: state.health.deltasDropped
+					}) }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						title: usedToolNames.join("、"),
+						children: t("axis.summary", {
+							turns: state.turnsTotal,
+							calls: state.toolCallsTotal,
+							failures: state.failuresTotal,
+							tools: state.toolsAvailable ?? "—",
+							used: distinctTools
+						})
+					}),
+					rosterShown.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						title: usedToolNames.join("、"),
+						children: t("health.tools", { list: rosterShown.slice(0, 4).join("、") + (rosterShown.length > 4 ? "…" : "") })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
+						total: compact(state.usage.total),
+						input: compact(state.usage.input),
+						output: compact(state.usage.output),
+						cache: compact(state.usage.cacheRead),
+						pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
+					}) }),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
+						children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
+					})
+				]
+			})]
+		})
+	});
+}
+function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }) {
+	const { state, hasOlder, loadingOlder, liveStream } = useLiveTaskDisplay({
+		useProjection,
+		useSession,
+		eventSource,
+		listToolBundles
+	});
+	const [selected, setSelected] = (0, react.useState)(null);
+	const [expanded, setExpanded] = (0, react.useState)(null);
+	const [messagesHidden, setMessagesHidden] = (0, react.useState)(false);
+	const [actualDuration, setActualDuration] = (0, react.useState)(true);
+	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
+	const [query, setQuery] = (0, react.useState)("");
 	const [turnsOpen, setTurnsOpen] = (0, react.useState)(true);
 	const [range, setRange] = (0, react.useState)(null);
 	const now = useNow();
@@ -2641,15 +2764,6 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const inFlight = state.openTools.length > 0;
 	const settled = state.endedReason !== null && !state.running;
 	const phase = inFlight ? t("phase.tool") : state.running ? t("phase.running") : settled ? t("phase.ended") : t("phase.idle");
-	const usedToolNames = [.../* @__PURE__ */ new Set([
-		...state.turns.flatMap((turn) => turn.tools),
-		...state.openTools.map((tool) => tool.name),
-		...state.lastTool === null ? [] : [state.lastTool.name],
-		...state.actions.map((action) => action.name)
-	])];
-	const distinctTools = usedToolNames.length;
-	const lastDataAt = Math.max(state.updatedAt ?? 0, state.streamedAt ?? 0);
-	const silentSeconds = lastDataAt === 0 ? 0 : secondsBetween(lastDataAt, now);
 	const selectedTurn = state.turns.at(-1)?.turn ?? null;
 	const shownTurn = selected ?? selectedTurn;
 	const pickedTurn = selected;
@@ -2816,66 +2930,6 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 								})
 							]
 						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-						className: styles.section,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-							className: styles.sectionTitle,
-							children: t("health.title")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: styles.health,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
-									type: "button",
-									className: styles.diagToggle,
-									"aria-expanded": diagOpen,
-									onClick: () => setDiagOpen((value) => !value),
-									children: [t("health.diag"), state.health.unknown > 0 ? ` · ${t("health.unknown")} ${state.health.unknown}` : ""]
-								}),
-								diagOpen && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.folded")} ${state.health.folded}` }),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.ignored")} ${state.health.ignored}` }),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: state.health.unknown > 0 ? styles.healthStale : void 0,
-										children: `${t("health.unknown")} ${state.health.unknown}`
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: `${t("health.frames")} ${state.health.frames}` }),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: state.health.registry < 0 ? styles.healthStale : void 0,
-										children: `${t("health.agents")} ${state.health.agents} / ${t("health.registry")} ${state.health.registry < 0 ? t("health.unreachable") : state.health.registry}`
-									}),
-									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("health.deltasValue", {
-										ok: state.health.deltasAccepted,
-										dropped: state.health.deltasDropped
-									}) })
-								] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("axis.summary", {
-									turns: state.turnsTotal,
-									calls: state.toolCallsTotal,
-									failures: state.failuresTotal,
-									tools: state.toolsAvailable ?? "—",
-									used: distinctTools
-								}) }),
-								usedToolNames.length > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									title: usedToolNames.join("、"),
-									children: (() => {
-										const shown = ourToolNames !== null && usedToolNames.some((name) => ourToolNames.has(name)) ? usedToolNames.filter((name) => ourToolNames?.has(name) ?? false) : usedToolNames;
-										return t("health.tools", { list: shown.slice(0, 4).join("、") + (shown.length > 4 ? "…" : "") });
-									})()
-								}),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: state.usage.reported === 0 ? t("usage.unknown") : t("usage.line", {
-									total: compact(state.usage.total),
-									input: compact(state.usage.input),
-									output: compact(state.usage.output),
-									cache: compact(state.usage.cacheRead),
-									pct: state.usage.cacheRead + state.usage.input === 0 ? 0 : Math.round(state.usage.cacheRead / (state.usage.cacheRead + state.usage.input) * 100)
-								}) }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: silentSeconds > 60 && state.running ? styles.healthStale : void 0,
-									children: silentSeconds > 60 && state.running ? t("health.stale", { s: silentSeconds }) : `${t("health.lastData")} ${t("health.silence", { s: silentSeconds })}`
-								})
-							]
-						})]
 					})
 				]
 			}), detailEntry !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(DetailDrawer, {
@@ -2911,6 +2965,7 @@ const NS = "liveTasks";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 const zh = {
 	"view.tab": "活动",
+	"view.status": "运行状况",
 	"view.empty": "本会话还没有动作。",
 	"head.toolRunning": "正在用的工具",
 	"head.toolLast": "最近用的工具",
@@ -2954,7 +3009,6 @@ const zh = {
 	"detail.loading": "读取中…",
 	"detail.unavailable": "插件信息不可用",
 	"health.tools": "工具：{list}",
-	"health.diag": "诊断",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -3057,6 +3111,7 @@ const zh = {
 /** English dictionary, key-identical to the Chinese source of truth. */
 const en = {
 	"view.tab": "Activity",
+	"view.status": "Status",
 	"view.empty": "This session has no actions yet.",
 	"head.toolRunning": "Tool in use",
 	"head.toolLast": "Last tool used",
@@ -3096,7 +3151,6 @@ const en = {
 	"detail.loading": "Loading…",
 	"detail.unavailable": "Plugin info unavailable",
 	"health.tools": "Tools: {list}",
-	"health.diag": "Diagnostics",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",
@@ -3235,56 +3289,65 @@ function apply(ctx) {
 		zh,
 		en
 	}), "ui-live-tasks: dictionaries");
+	const sessionExtras = (sessionId) => {
+		const session = ctx.sessions.binding(sessionId)?.session;
+		const remote = ctx.remote;
+		const fetchBundles = () => {
+			if (bundlesCache === null) bundlesCache = (async () => {
+				const result = await remote?.pluginManager?.listBundles();
+				return result !== void 0 && result.ok && result.value !== void 0 ? result.value : null;
+			})();
+			return bundlesCache;
+		};
+		return {
+			...session === void 0 ? {} : {
+				eventSource: session.eventSource,
+				loadOlder: () => session.loadOlder()
+			},
+			listToolBundles: async () => {
+				const bundles = await fetchBundles();
+				if (bundles === null) return [];
+				const rows = [];
+				for (const bundle of bundles) for (const row of bundle.rows ?? []) {
+					const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName);
+					if (derived !== null) rows.push({
+						tool: derived,
+						pkg: bundle.name,
+						entryId: row.entryId ?? row.rowId
+					});
+				}
+				return rows;
+			},
+			loadPluginInfo: async (toolName) => {
+				const bundles = await fetchBundles();
+				if (bundles === null) return null;
+				for (const bundle of bundles) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
+					pkg: bundle.name,
+					version: bundle.version ?? null,
+					description: bundle.description ?? null,
+					enabled: bundle.enabled,
+					entryId: row.entryId ?? row.rowId
+				};
+				return null;
+			}
+		};
+	};
 	ctx.slots.inject("conversation.view", () => ctx.slots.register({
 		name: "conversation.view",
 		id: "live-tasks",
 		order: 20,
 		label: () => t("view.tab"),
 		locale: NS,
-		inject: (sessionId) => {
-			const session = ctx.sessions.binding(sessionId)?.session;
-			const remote = ctx.remote;
-			const fetchBundles = () => {
-				if (bundlesCache === null) bundlesCache = (async () => {
-					const result = await remote?.pluginManager?.listBundles();
-					return result !== void 0 && result.ok && result.value !== void 0 ? result.value : null;
-				})();
-				return bundlesCache;
-			};
-			return {
-				...session === void 0 ? {} : {
-					eventSource: session.eventSource,
-					loadOlder: () => session.loadOlder()
-				},
-				listToolBundles: async () => {
-					const bundles = await fetchBundles();
-					if (bundles === null) return [];
-					const rows = [];
-					for (const bundle of bundles) for (const row of bundle.rows ?? []) {
-						const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName);
-						if (derived !== null) rows.push({
-							tool: derived,
-							pkg: bundle.name,
-							entryId: row.entryId ?? row.rowId
-						});
-					}
-					return rows;
-				},
-				loadPluginInfo: async (toolName) => {
-					const bundles = await fetchBundles();
-					if (bundles === null) return null;
-					for (const bundle of bundles) for (const row of bundle.rows ?? []) if ((deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)) === toolName) return {
-						pkg: bundle.name,
-						version: bundle.version ?? null,
-						description: bundle.description ?? null,
-						enabled: bundle.enabled,
-						entryId: row.entryId ?? row.rowId
-					};
-					return null;
-				}
-			};
-		}
+		inject: sessionExtras
 	}, LiveTasksView));
+	ctx.slots.inject("conversation.view", () => ctx.slots.register({
+		name: "conversation.view",
+		id: "live-status",
+		order: 30,
+		label: () => t("view.status"),
+		locale: NS,
+		inject: sessionExtras
+	}, LiveStatusView));
 	ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
 		name: "conversation.session.header.actions",
 		id: "live-tasks",

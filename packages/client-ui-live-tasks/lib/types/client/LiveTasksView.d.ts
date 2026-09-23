@@ -65,9 +65,13 @@ interface SessionSnapshotLike {
     readonly openState?: 'cold' | 'loading' | 'open' | 'error';
 }
 /**
- * Render the live task view for the current session.
- * @param props - projection hook and translator from the slot kit.
- * @returns the view body, or an explicit empty state.
+ * The 运行状况 tab: the panel's own telemetry gets its own seat, so the timeline
+ * stays a timeline. Everything the old bottom block reported lives here in full
+ * — session totals, the tool roster (our packages first), usage, freshness, and
+ * the fold's internal counters — without competing for the activity view's space.
+ * @param props - the same standard kit and injected sources as the activity view.
+ * @returns the telemetry panel, or the shared empty state.
  */
+export declare function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }: LiveTasksViewProps): JSX.Element;
 export declare function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element;
 export {};

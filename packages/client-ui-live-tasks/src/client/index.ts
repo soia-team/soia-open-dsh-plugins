@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 import type { LiveTaskKey } from './locales.ts'
 import { LiveTasksHeaderAction } from './LiveTasksHeaderAction.tsx'
-import { LiveTasksView } from './LiveTasksView.tsx'
+import { LiveStatusView, LiveTasksView } from './LiveTasksView.tsx'
 import { en, NS, zh } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -109,6 +109,76 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS) as unknown as (key: LiveTaskKey) => string
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-live-tasks: dictionaries')
+  // Session-scoped extras, the same shape the trajectory view registers:
+    // the resident event window (for the client-side archive fold), the page pull
+    // that extends it, and the remote bundle lookup (one read per page, cached).
+  const sessionExtras = (sessionId: string) => {
+    // Structural cast: the program carries two `sessions` declaration merges —
+    // the host's `SessionStore` (from `dsh-session`) wins the union and hides
+    // the client face's `binding`. The runtime object is the client controller
+    // (the shell injects it), so the cast states the shape we use instead of
+    // importing a package this workspace cannot resolve the way the official
+    // monorepo does.
+    const sessions = ctx.sessions as unknown as {
+      binding(id: string): { session?: SessionFaceLike } | undefined
+    }
+    const session = sessions.binding(sessionId)?.session
+    // Structural cast again: `remote.pluginManager`'s typert face is generated
+    // per install, and this workspace cannot resolve its package the way the
+    // official monorepo does. The shape used here is what the manager page
+    // itself calls.
+    const remote = (ctx as unknown as {
+      remote?: { pluginManager?: { listBundles(): Promise<{ ok: boolean, value?: BundleInfoLike[] }> } }
+    }).remote
+    const fetchBundles = (): Promise<BundleInfoLike[] | null> => {
+      if (bundlesCache === null) {
+        bundlesCache = (async () => {
+          const result = await remote?.pluginManager?.listBundles()
+          return result !== undefined && result.ok && result.value !== undefined ? result.value : null
+        })()
+      }
+      return bundlesCache
+    }
+    return {
+      ...(session === undefined
+        ? {}
+        : { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }),
+      // Tool → package rows, derived by naming law; the roster's
+      // default filter keeps only `soia-`-namespaced packages (this
+      // workspace's own plugins), with the full list still on hover.
+      listToolBundles: async (): Promise<{ tool: string, pkg: string, entryId: string }[]> => {
+        const bundles = await fetchBundles()
+        if (bundles === null) return []
+        const rows: { tool: string, pkg: string, entryId: string }[] = []
+        for (const bundle of bundles) {
+          for (const row of bundle.rows ?? []) {
+            const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
+            if (derived !== null) rows.push({ tool: derived, pkg: bundle.name, entryId: row.entryId ?? row.rowId })
+          }
+        }
+        return rows
+      },
+      loadPluginInfo: async (toolName: string): Promise<PluginInfoCard | null> => {
+        const bundles = await fetchBundles()
+        if (bundles === null) return null
+        for (const bundle of bundles) {
+          for (const row of bundle.rows ?? []) {
+            const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
+            if (derived === toolName) {
+              return {
+                pkg: bundle.name,
+                version: bundle.version ?? null,
+                description: bundle.description ?? null,
+                enabled: bundle.enabled,
+                entryId: row.entryId ?? row.rowId,
+              }
+            }
+          }
+        }
+        return null
+      },
+    }
+  }
   ctx.slots.inject('conversation.view', () => ctx.slots.register({
     name: 'conversation.view',
     id: 'live-tasks',
@@ -117,78 +187,18 @@ export function apply(ctx: ClientContext): void {
     order: 20,
     label: () => t('view.tab'),
     locale: NS,
-    // Session-scoped extras, the same shape the trajectory view registers: the
-    // resident event window (for the client-side archive fold) and the page pull
-    // that extends it. The view degrades to the host projection when either is
-    // absent — the offline preview passes neither.
-    inject: (sessionId: string) => {
-      // Structural cast: the program carries two `sessions` declaration merges —
-      // the host's `SessionStore` (from `dsh-session`) wins the union and hides
-      // the client face's `binding`. The runtime object is the client controller
-      // (the shell injects it), so the cast states the shape we use instead of
-      // importing a package this workspace cannot resolve the way the official
-      // monorepo does.
-      const sessions = ctx.sessions as unknown as {
-        binding(id: string): { session?: SessionFaceLike } | undefined
-      }
-      const session = sessions.binding(sessionId)?.session
-      // Structural cast again: `remote.pluginManager`'s typert face is generated
-      // per install, and this workspace cannot resolve its package the way the
-      // official monorepo does. The shape used here is what the manager page
-      // itself calls.
-      const remote = (ctx as unknown as {
-        remote?: { pluginManager?: { listBundles(): Promise<{ ok: boolean, value?: BundleInfoLike[] }> } }
-      }).remote
-      const fetchBundles = (): Promise<BundleInfoLike[] | null> => {
-        if (bundlesCache === null) {
-          bundlesCache = (async () => {
-            const result = await remote?.pluginManager?.listBundles()
-            return result !== undefined && result.ok && result.value !== undefined ? result.value : null
-          })()
-        }
-        return bundlesCache
-      }
-      return {
-        ...(session === undefined
-          ? {}
-          : { eventSource: session.eventSource, loadOlder: () => session.loadOlder() }),
-        // Tool → package rows, derived by naming law; the roster's
-        // default filter keeps only `soia-`-namespaced packages (this
-        // workspace's own plugins), with the full list still on hover.
-        listToolBundles: async (): Promise<{ tool: string, pkg: string, entryId: string }[]> => {
-          const bundles = await fetchBundles()
-          if (bundles === null) return []
-          const rows: { tool: string, pkg: string, entryId: string }[] = []
-          for (const bundle of bundles) {
-            for (const row of bundle.rows ?? []) {
-              const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
-              if (derived !== null) rows.push({ tool: derived, pkg: bundle.name, entryId: row.entryId ?? row.rowId })
-            }
-          }
-          return rows
-        },
-        loadPluginInfo: async (toolName: string): Promise<PluginInfoCard | null> => {
-          const bundles = await fetchBundles()
-          if (bundles === null) return null
-          for (const bundle of bundles) {
-            for (const row of bundle.rows ?? []) {
-              const derived = deriveToolName(row.rowId) ?? deriveToolName(row.moduleName)
-              if (derived === toolName) {
-                return {
-                  pkg: bundle.name,
-                  version: bundle.version ?? null,
-                  description: bundle.description ?? null,
-                  enabled: bundle.enabled,
-                  entryId: row.entryId ?? row.rowId,
-                }
-              }
-            }
-          }
-          return null
-        },
-      }
-    },
+    inject: sessionExtras,
   }, LiveTasksView))
+  // The 运行状况 tab: everything the activity view's bottom block used to
+  // report, seated right after 活动 so the timeline stays a timeline.
+  ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    name: 'conversation.view',
+    id: 'live-status',
+    order: 30,
+    label: () => t('view.status'),
+    locale: NS,
+    inject: sessionExtras,
+  }, LiveStatusView))
   // A second, smaller surface: the running tool in the session header, readable
   // from the conversation view as well. The full panel is one tab away; the name
   // of the tool should not require going there.

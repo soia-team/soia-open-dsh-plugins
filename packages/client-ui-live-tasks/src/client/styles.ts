@@ -170,11 +170,6 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
-/* 运行状况的诊断开关：收起时只留名字与异常计数，展开才给内部计数。 */
-.lt-diagToggle { height: 20px; padding: 0 8px; border: 0; border-radius: 3px; cursor: pointer;
-  background: var(--dsw-alias-interactive-bg-hover, rgb(0 0 0 / 4%)); color: var(--dsw-alias-label-secondary);
-  font-size: 12px; }
-.lt-diagToggle[aria-expanded='true'] { color: var(--dsw-alias-state-business-primary, #4078ff); }
 
 /* 插件 ID 本身是入口：蓝色半粗（与行内 ID 一致），点击展开插件信息卡。 */
 .lt-pluginLink { padding: 0; border: 0; background: transparent; cursor: pointer;
@@ -550,8 +545,7 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
-    diagToggle: 'lt-diagToggle',
-    pluginCard: 'lt-pluginCard',
+      pluginCard: 'lt-pluginCard',
     pluginLink: 'lt-pluginLink',
     historyButton: 'lt-historyButton',
     historyRow: 'lt-historyRow',
