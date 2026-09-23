@@ -34,7 +34,7 @@ import {
   reduceLiveTask,
   TIMELINE_LIMIT,
 } from '../shared/live-task-state.ts'
-import type { LiveSpan, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
+import type { LiveSpan, LiveTaskState, LiveTaskView, LiveTimelineEntry } from '../shared/types.ts'
 import type { LiveTaskKey } from './locales.ts'
 import { styles } from './styles.ts'
 
@@ -67,12 +67,40 @@ interface SessionWindowLike {
   readonly entries: readonly ({ readonly type: 'event', readonly event: unknown } | { readonly type: 'transient', readonly event: unknown })[]
   readonly hasMore: boolean
   readonly revision: number
+  /** How the latest revision arrived — append is the live hot path. */
+  readonly change:
+    | { readonly kind: 'append' | 'prepend' | 'replace', readonly entries: readonly { readonly type: string, readonly event: unknown }[] }
+    | { readonly kind: 'settle-assistant' }
 }
 
 /** Observable face of one session's resident event window. */
 export interface SessionEventSourceLike {
   subscribe(listener: () => void): () => void
   getSnapshot(): SessionWindowLike
+}
+
+/**
+ * Per-source archive cache, outside React's render purity rules.
+ *
+ * A `useRef` cache inside the component is what the hooks rules forbid (refs are
+ * not readable during render); a module-level WeakMap keyed by the event source
+ * gives the same memoization with an identical result for identical inputs — the
+ * cache only decides whether a live `append` folds one event or the whole
+ * window, never what the fold computes.
+ */
+const ARCHIVE_CACHE = new WeakMap<object, { revision: number, state: LiveTaskState }>()
+
+/** Fold one batch of window entries into a live-task state. */
+function foldWindow(
+  base: LiveTaskState,
+  entries: readonly { readonly type: string, readonly event: unknown }[],
+): LiveTaskState {
+  let folded = base
+  for (const entry of entries) {
+    if (entry.type !== 'event') continue
+    folded = reduceLiveTask(folded, { kind: 'event', event: entry.event } as never, CLIENT_WINDOWS)
+  }
+  return folded
 }
 
 /** Selector target for the paging flags, matching the shell's session snapshot. */
@@ -908,13 +936,25 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   const loadingOlder = useSession((snapshot) => snapshot.loadingOlder)
   const archive = useMemo(() => {
     if (windowSnapshot === null) return null
-    let folded = INITIAL_LIVE_TASK_STATE
-    for (const entry of windowSnapshot.entries) {
-      if (entry.type !== 'event') continue
-      folded = reduceLiveTask(folded, { kind: 'event', event: entry.event } as never, CLIENT_WINDOWS)
+    const cache = eventSource === undefined ? null : ARCHIVE_CACHE.get(eventSource) ?? null
+    // Live appends fold incrementally — one event, not a whole-window replay —
+    // because a full refold inside render scales with the session (Codex review
+    // P2). Prepends (paging), replaces and settlements refold whole: older events
+    // cannot be folded after newer ones.
+    if (eventSource !== undefined
+      && cache !== null
+      && cache.revision + 1 === windowSnapshot.revision
+      && windowSnapshot.change.kind === 'append') {
+      const next = foldWindow(cache.state, windowSnapshot.change.entries)
+      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, state: next })
+      return next
     }
-    return folded
-  }, [windowSnapshot])
+    const fresh = foldWindow(INITIAL_LIVE_TASK_STATE, windowSnapshot.entries)
+    if (eventSource !== undefined) {
+      ARCHIVE_CACHE.set(eventSource, { revision: windowSnapshot.revision, state: fresh })
+    }
+    return fresh
+  }, [windowSnapshot, eventSource])
   /**
    * Tolerate a host running an older build than this bundle.
    *
@@ -951,18 +991,37 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   // host window it replaces: a fresh window can be *shorter* than the projection's
   // 384-row cap, and switching then would look like history disappearing. After
   // one page-back it always wins — and grows without bound as pages load.
-  const state = archive !== null
-    && archive.timeline.length > 0
-    && archive.timeline.length >= (hostState?.timeline.length ?? 0)
+  // Codex review P1: session-wide counters prefer the host while pages are still
+  // loading. The host replays the whole log; a partial window has not seen the
+  // old failures and usage yet, and counters dropping mid-paging read as data
+  // loss. Rows still come from the archive — that is what paging is for — and
+  // once `hasMore` clears both sides describe the same events.
+  const fullyPaged = windowSnapshot !== null && !windowSnapshot.hasMore
+  const withCounters = archive === null
+    ? null
+    : hostState === undefined || fullyPaged
+      ? archive
+      : {
+          ...archive,
+          turnsTotal: hostState.turnsTotal,
+          failuresTotal: hostState.failuresTotal,
+          toolCallsTotal: hostState.toolCallsTotal,
+          toolsAvailable: archive.toolsAvailable ?? hostState.toolsAvailable,
+          usage: hostState.usage.reported > 0 ? hostState.usage : archive.usage,
+          health: hostState.health.folded >= archive.health.folded ? hostState.health : archive.health,
+        }
+  const state = withCounters !== null
+    && withCounters.timeline.length > 0
+    && withCounters.timeline.length >= (hostState?.timeline.length ?? 0)
     ? {
-        ...archive,
-        toolsAvailable: archive.toolsAvailable ?? hostState?.toolsAvailable ?? null,
-        usage: archive.usage.reported > 0
-          ? archive.usage
-          : hostState?.usage ?? archive.usage,
+        ...withCounters,
+        toolsAvailable: withCounters.toolsAvailable ?? hostState?.toolsAvailable ?? null,
+        usage: withCounters.usage.reported > 0
+          ? withCounters.usage
+          : hostState?.usage ?? withCounters.usage,
         // No empty-object fallback: CI flags `?? {}` inside a spread as
         // unnecessary — seed from whichever side exists, archive still wins.
-        toolSchemas: { ...(hostState?.toolSchemas ?? archive.toolSchemas), ...archive.toolSchemas },
+        toolSchemas: { ...(hostState?.toolSchemas ?? withCounters.toolSchemas), ...withCounters.toolSchemas },
       }
     : hostState
   const [selected, setSelected] = useState<number | null>(null)
