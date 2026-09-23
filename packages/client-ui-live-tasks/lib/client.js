@@ -143,15 +143,24 @@ const CSS = `
 .lt-chartTrack { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
 .lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
 .lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
-.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 4; pointer-events: none;
+.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none;
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 14%, transparent);
-  border-left: 2px solid var(--dsw-alias-state-business-primary, #4078ff);
-  border-right: 2px solid var(--dsw-alias-state-business-primary, #4078ff); }
+  border-left: 3px solid var(--dsw-alias-state-business-primary, #4078ff);
+  border-right: 3px solid var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
 .lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
   cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
 .lt-span[data-kind='user'] { background: var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-span[data-kind='context'] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 68%, var(--dsw-alias-label-secondary)); }
+/* The reference colors every lane; ours only had user/context, so the model and
+   tool lanes rendered as grey bars. Both values come from its own tokens:
+   assistant = its decoding colour mix, tool = the bright warn it draws calls in. */
+.lt-span[data-kind='assistant'] { background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color, #7c5cff) 60%, var(--dsw-alias-state-error-secondary, #f97066)); }
+.lt-span[data-kind='tool'] { background: var(--dsw-alias-state-warn-primary, #f59e0b); opacity: 1; }
+/* The reference rings the span whose row is open; the ring is what makes the
+   selection readable when forty bars share a lane. */
+.lt-span[data-current='true'] { z-index: 1; opacity: 1;
+  box-shadow: 0 0 0 1px var(--dsw-alias-bg-layer-2), 0 0 0 2px var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-span[data-error='true'] { background: var(--dsw-alias-state-error-primary, #b42318); opacity: 1; }
 .lt-span[data-selected='false'] { opacity: .2; }
 
@@ -238,6 +247,18 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* The strip is pinned inside the scrolling pane: one horizontal scroll box moves
+   the chart and the rows together (they used to be two contexts and slid apart
+   in narrow windows), and the strip stays visible while rows scroll vertically. */
+.lt-chartSticky { position: sticky; top: 0; z-index: 3; }
+.lt-chartSticky .lt-chartScroll { overflow: visible; padding-bottom: 0; }
+.lt-chartSticky .lt-chart { min-width: 640px; }
+/* Two-line rows: a tool's purpose sits under its payload, so the cell grows past
+   the single-line 30px rhythm instead of clipping it. */
+.lt-table tr[data-lines='2'] td { height: auto; min-height: 30px; padding-top: 3px; padding-bottom: 3px; }
+.lt-tlSecond { display: block; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Toolbar, copied from the trajectory view's toolbar module ──────────────
    The duration switch is 88px with the clock glyph, the two actions are 20px
@@ -511,6 +532,8 @@ const styles = {
 	detailBlock: "lt-detailBlock",
 	detailLabel: "lt-detailLabel",
 	detailPre: "lt-detailPre",
+	chartSticky: "lt-chartSticky",
+	tlSecond: "lt-tlSecond",
 	chartScroll: "lt-chartScroll",
 	chart: "lt-chart",
 	chartLabels: "lt-chartLabels",
@@ -716,6 +739,51 @@ function argsInline(entry) {
 	return entry.detail;
 }
 /**
+* Read a tool's one-line purpose out of the schema the header carried.
+* @param schema - JSON text of `{name, description, parameters}`, or null.
+* @returns the trimmed description, or null when there is none.
+*/
+function descriptionOf(schema) {
+	if (schema === null) return null;
+	try {
+		const parsed = JSON.parse(schema);
+		if (parsed !== null && typeof parsed === "object") {
+			const raw = parsed["description"];
+			if (typeof raw === "string" && raw.trim() !== "") {
+				const text = raw.trim().replace(/\s+/g, " ");
+				return text.length > 140 ? `${text.slice(0, 140)}…` : text;
+			}
+		}
+	} catch {}
+	return null;
+}
+/**
+* The second line a row carries: a tool's purpose, or the tools an assistant
+* message dispatched in the same step.
+*
+* A row saying only `check_ui_size` tells a reader nothing about what the tool
+* does; a model row quoting only its text hides which tools it reached for. Both
+* answers come from data already on the panel — no new wire field.
+* @param entry - the row.
+* @param siblings - every row of its turn.
+* @param toolSchemas - header schemas keyed by tool name.
+* @param tLabel - locale prefix for the dispatched-tools line.
+* @returns the line, or null when the row needs none.
+*/
+function secondLineOf(entry, siblings, toolSchemas, tLabel) {
+	if (entry.kind === "tool") return descriptionOf(toolSchemas[entry.title] ?? null);
+	if (entry.kind !== "assistant") return null;
+	const called = siblings.filter((row) => row.kind === "tool" && row.turn === entry.turn && (row.step === entry.step || row.step === null || entry.step === null));
+	if (called.length === 0) return null;
+	if (called.length === 1) {
+		const only = called[0];
+		const purpose = only === void 0 ? null : descriptionOf(toolSchemas[only.title] ?? null);
+		const name = only?.title ?? "";
+		return purpose === null ? `${tLabel}${name}` : `${tLabel}${name}（${purpose}）`;
+	}
+	return `${tLabel}${called.map((row) => row.title).join("、")}`;
+}
+/**
 * `YYYY-MM-DD HH:MM:SS.mmm`, local time — the precision the trajectory view's
 * timing panel shows; second resolution hides the very differences timing exists
 * to reveal.
@@ -752,7 +820,7 @@ function secondsBetween(from, to) {
 * @param props - the rows to plot, the turns to mark, and the interaction state.
 * @returns the chart.
 */
-function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSelect, onRange }) {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, t, onSelect, onRange }) {
 	const [drag, setDrag] = (0, react.useState)(null);
 	const plotted = spans;
 	const starts = plotted.map((segment) => segment.startedAt);
@@ -873,10 +941,12 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSe
 							"data-kind": segment.kind,
 							"data-error": segment.status === "failed",
 							"data-selected": selected === null || selected === segment.turn,
+							"data-current": segment.id === currentId ? "true" : void 0,
 							style: {
 								top: `${laneOf(segment.kind) * 14}px`,
 								left: `${pctOfSegment(segment)}%`,
-								width: `max(2px, ${widthOfSegment(segment)}%)`
+								width: actualDuration ? `max(2px, ${widthOfSegment(segment)}%)` : "8px",
+								minWidth: actualDuration ? void 0 : "8px"
 							},
 							title: `${segment.kind} · ${clockOf(segment.startedAt)}`,
 							"aria-label": `${segment.kind} · ${clockOf(segment.startedAt)}`,
@@ -897,7 +967,7 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, t, onSe
 	});
 }
 /** One tool row inside a turn, expandable to its arguments and result. */
-function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }) {
+function ToolRow({ entry, now, expanded, selected, dim, secondLine, onToggle, t }) {
 	const running = entry.status === "running";
 	const failed = entry.status === "failed";
 	const took = secondsBetween(entry.startedAt, entry.endedAt ?? now);
@@ -909,6 +979,7 @@ function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }) {
 		"data-error": failed || void 0,
 		"data-selected": selected || void 0,
 		"data-dim": dim || void 0,
+		"data-lines": secondLine !== null ? "2" : void 0,
 		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 			className: styles.eventCell,
 			"aria-label": kind,
@@ -921,9 +992,9 @@ function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }) {
 					children: kind
 				})
 			})
-		}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+		}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
 			className: styles.contentCell,
-			children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 				type: "button",
 				className: styles.rowButton,
 				onClick: onToggle,
@@ -965,7 +1036,11 @@ function ToolRow({ entry, now, expanded, selected, dim, onToggle, t }) {
 						children: entry.kind !== "tool" ? "" : `${running ? t("status.running") : failed ? t("status.failed") : t("status.ok")} ${t("time.seconds", { s: took })}`
 					})
 				]
-			})
+			}), secondLine !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: styles.tlSecond,
+				title: secondLine,
+				children: secondLine
+			})]
 		})]
 	}) });
 }
@@ -996,7 +1071,7 @@ function groupByStep(entries) {
 * boundaries — and the rail that marks them — inside the table, the way the
 * trajectory view draws them.
 */
-function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onToggle, t }) {
+function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, toolSchemas, onToggle, t }) {
 	const started = clockOf(turn.startedAt);
 	const took = secondsBetween(turn.startedAt, turn.endedAt ?? now);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", {
@@ -1063,9 +1138,10 @@ function TurnSection({ turn, entries, picked, now, open, expandedId, dimmed, onT
 			})]
 		}), group.rows.map((entry) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(ToolRow, {
 			entry,
+			secondLine: secondLineOf(entry, group.rows, toolSchemas, t("row.called")),
 			now,
 			expanded: expandedId === entry.id,
-			selected: picked,
+			selected: expandedId === entry.id,
 			dim: dimmed,
 			onToggle: () => onToggle(entry.id),
 			t
@@ -1097,6 +1173,7 @@ function DetailDrawer({ entry, now, schema, onClose, t }) {
 						className: styles.detailMono,
 						children: entry.entryId
 					})] }),
+					descriptionOf(schema) !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("detail.purpose") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: descriptionOf(schema) })] }),
 					entry.kind === "tool" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.status") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: running ? t("status.running") : failed ? t("status.failed") : t("status.ok") })] }),
 					entry.turn !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("dt", { children: t("overview.at") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("dd", { children: entry.step === null ? `#${entry.turn}` : t("overview.atValue", {
 						turn: entry.turn,
@@ -1403,39 +1480,44 @@ function LiveTasksView({ useProjection, t }) {
 								total: state.turnsTotal,
 								shown: state.turns.length
 							}) : t("axis.title")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LaneChart, {
-							spans: state.spans,
-							actualDuration,
-							turns: state.turns,
-							now,
-							selected: shownTurn,
-							range,
-							t,
-							onSelect: setSelected,
-							onRange: setRange
-						})]
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
-						className: styles.section,
-						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
-							className: styles.sectionTitle,
-							children: t("timeline.title")
-						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 							className: styles.tablePane,
-							children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
-								className: styles.table,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
-									turn,
-									entries: entriesOfTurn(turn.turn),
-									picked: pickedTurn !== null && turn.turn === pickedTurn,
-									now,
-									open: turnsOpen,
-									expandedId: expanded,
-									dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
-									onToggle: (id) => setExpanded(expanded === id ? null : id),
-									t
-								}, turn.turn))]
-							})
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+									className: styles.chartSticky,
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LaneChart, {
+										spans: state.spans,
+										actualDuration,
+										turns: state.turns,
+										now,
+										selected: shownTurn,
+										range,
+										t,
+										onSelect: setSelected,
+										onRange: setRange,
+										currentId: detailEntry?.id ?? null
+									})
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("h4", {
+									className: styles.sectionTitle,
+									children: t("timeline.title")
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
+									className: styles.table,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("colgroup", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.eventColumn }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("col", { className: styles.contentColumn })] }), [...state.turns].reverse().map((turn) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
+										turn,
+										entries: entriesOfTurn(turn.turn),
+										picked: pickedTurn !== null && turn.turn === pickedTurn,
+										now,
+										open: turnsOpen,
+										expandedId: expanded,
+										dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
+										toolSchemas: state.toolSchemas,
+										onToggle: (id) => setExpanded(expanded === id ? null : id),
+										t
+									}, turn.turn))]
+								})
+							]
 						})]
 					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
@@ -1520,6 +1602,8 @@ const zh = {
 	"timing.source": "计时来源",
 	"timing.sourceSession": "会话时间戳",
 	"timeline.toolCallsOnly": "（仅工具调用）",
+	"detail.purpose": "说明",
+	"row.called": "调用: ",
 	"detail.name": "名称",
 	"detail.entryId": "插件 ID",
 	"usage.line": "本会话 {total} tok · 输入 {input} · 输出 {output} · 缓存读取 {cache}（{pct}%）",
@@ -1639,6 +1723,8 @@ const en = {
 	"timing.source": "Timing source",
 	"timing.sourceSession": "session timestamp",
 	"timeline.toolCallsOnly": "(tool calls only)",
+	"detail.purpose": "Purpose",
+	"row.called": "Called: ",
 	"detail.name": "Name",
 	"detail.entryId": "Plugin id",
 	"detail.timing": "Timing",

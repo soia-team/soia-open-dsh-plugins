@@ -63,15 +63,24 @@ const CSS = `
 .lt-chartTrack { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
 .lt-chartLanes { position: absolute; top: 7px; bottom: 7px; left: 0; right: 0; z-index: 2; }
 .lt-chartBoundaries { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }
-.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 4; pointer-events: none;
+.lt-chartSelection { position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none;
   background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 14%, transparent);
-  border-left: 2px solid var(--dsw-alias-state-business-primary, #4078ff);
-  border-right: 2px solid var(--dsw-alias-state-business-primary, #4078ff); }
+  border-left: 3px solid var(--dsw-alias-state-business-primary, #4078ff);
+  border-right: 3px solid var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-chartBoundary { position: absolute; top: 0; bottom: 0; width: .5px; background: var(--dsw-alias-border-l2, rgb(0 0 0 / 12%)); }
 .lt-span { position: absolute; height: 8px; min-width: 2px; padding: 0; border: 0; border-radius: 1px;
   cursor: pointer; opacity: .78; background: var(--dsw-alias-label-secondary); }
 .lt-span[data-kind='user'] { background: var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-span[data-kind='context'] { background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 68%, var(--dsw-alias-label-secondary)); }
+/* The reference colors every lane; ours only had user/context, so the model and
+   tool lanes rendered as grey bars. Both values come from its own tokens:
+   assistant = its decoding colour mix, tool = the bright warn it draws calls in. */
+.lt-span[data-kind='assistant'] { background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color, #7c5cff) 60%, var(--dsw-alias-state-error-secondary, #f97066)); }
+.lt-span[data-kind='tool'] { background: var(--dsw-alias-state-warn-primary, #f59e0b); opacity: 1; }
+/* The reference rings the span whose row is open; the ring is what makes the
+   selection readable when forty bars share a lane. */
+.lt-span[data-current='true'] { z-index: 1; opacity: 1;
+  box-shadow: 0 0 0 1px var(--dsw-alias-bg-layer-2), 0 0 0 2px var(--dsw-alias-state-business-primary, #4078ff); }
 .lt-span[data-error='true'] { background: var(--dsw-alias-state-error-primary, #b42318); opacity: 1; }
 .lt-span[data-selected='false'] { opacity: .2; }
 
@@ -158,6 +167,18 @@ const CSS = `
 .lt-detailRow > td { height: auto; white-space: normal; padding: 0 !important; border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); }
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
+
+/* The strip is pinned inside the scrolling pane: one horizontal scroll box moves
+   the chart and the rows together (they used to be two contexts and slid apart
+   in narrow windows), and the strip stays visible while rows scroll vertically. */
+.lt-chartSticky { position: sticky; top: 0; z-index: 3; }
+.lt-chartSticky .lt-chartScroll { overflow: visible; padding-bottom: 0; }
+.lt-chartSticky .lt-chart { min-width: 640px; }
+/* Two-line rows: a tool's purpose sits under its payload, so the cell grows past
+   the single-line 30px rhythm instead of clipping it. */
+.lt-table tr[data-lines='2'] td { height: auto; min-height: 30px; padding-top: 3px; padding-bottom: 3px; }
+.lt-tlSecond { display: block; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Toolbar, copied from the trajectory view's toolbar module ──────────────
    The duration switch is 88px with the clock glyph, the two actions are 20px
@@ -432,6 +453,8 @@ export const styles = {
   detailBlock: 'lt-detailBlock',
   detailLabel: 'lt-detailLabel',
   detailPre: 'lt-detailPre',
+    chartSticky: 'lt-chartSticky',
+    tlSecond: 'lt-tlSecond',
   chartScroll: 'lt-chartScroll',
   chart: 'lt-chart',
   chartLabels: 'lt-chartLabels',
