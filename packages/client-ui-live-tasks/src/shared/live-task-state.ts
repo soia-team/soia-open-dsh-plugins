@@ -166,6 +166,7 @@ function pushSpan(
       status: entry.status,
       startedAt: entry.startedAt,
       endedAt: entry.endedAt,
+      title: entry.kind === 'tool' ? entry.title : null,
     },
   ].slice(-SPAN_LIMIT)
 }

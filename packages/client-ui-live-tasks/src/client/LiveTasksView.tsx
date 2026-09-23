@@ -100,23 +100,65 @@ function argsInline(entry: LiveTimelineEntry): string | null {
 }
 
 /**
+ * Hover text for one bar: which tool and what it is for, official or ours —
+ * the strip used to say only `tool · 17:59:31`, which names nothing.
+ * @param segment - the bar.
+ * @param toolSchemas - header schemas keyed by tool name.
+ * @param t - translator.
+ * @param now - fallback clock for an open bar.
+ * @returns the tooltip.
+ */
+function spanTitleOf(
+  segment: LiveSpan,
+  toolSchemas: Readonly<Record<string, string>>,
+  t: T,
+  now: number,
+): string {
+  const time = `${clockOf(segment.startedAt)} · ${t('time.seconds', { s: secondsBetween(segment.startedAt, segment.endedAt ?? now) })}`
+  if (segment.title === null) {
+    const kindLabel = segment.kind === 'tool'
+      ? t('timeline.tool')
+      : segment.kind === 'user'
+        ? t('timeline.user')
+        : segment.kind === 'context'
+          ? t('lane.context')
+          : t('timeline.assistant')
+    return `${kindLabel} · ${time}`
+  }
+  const purpose = descriptionOf(toolSchemas[segment.title] ?? null)
+  return purpose === null ? `${segment.title} · ${time}` : `${segment.title}（${purpose}） · ${time}`
+}
+
+/**
  * Read a tool's one-line purpose out of the schema the header carried.
  * @param schema - JSON text of `{name, description, parameters}`, or null.
  * @returns the trimmed description, or null when there is none.
  */
 function descriptionOf(schema: string | null): string | null {
   if (schema === null) return null
+  // Read the description by pattern first: the fold trims long definitions
+  // (SCHEMA_TRIM), so a full JSON.parse of a real `bash` schema always fails and
+  // every purpose line came out empty — measured live as `调用: bash` with no
+  // purpose. The description sits before the parameters blob, so a pattern sees
+  // it even in a truncated definition.
+  // Terminating quote OR end of string: the fold's SCHEMA_TRIM cut the real bash
+  // definition in the middle of its description (measured: indexOf finds no `"`
+  // after the value starts), so requiring the closing quote returned null and
+  // every long-schema tool lost its purpose line.
+  const match = /"description"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/.exec(schema)
+  const raw = match?.[1]
+  if (raw !== undefined) {
+    const text = raw.replace(/\\n/g, ' ').replace(/\\s+/g, ' ').replace(/\\"/g, '"').trim()
+    if (text !== '') return text.length > 140 ? `${text.slice(0, 140)}…` : text
+  }
   try {
     const parsed: unknown = JSON.parse(schema)
     if (parsed !== null && typeof parsed === 'object') {
-      const raw = (parsed as Record<string, unknown>)['description']
-      if (typeof raw === 'string' && raw.trim() !== '') {
-        const text = raw.trim().replace(/\s+/g, ' ')
-        return text.length > 140 ? `${text.slice(0, 140)}…` : text
-      }
+      const value = (parsed as Record<string, unknown>)['description']
+      if (typeof value === 'string' && value.trim() !== '') return value.trim()
     }
   } catch {
-    // Header entries are not always JSON-shaped; no description beats a crash.
+    // Not JSON at all: no description beats a crash.
   }
   return null
 }
@@ -153,7 +195,12 @@ function secondLineOf(
     const name = only?.title ?? ''
     return purpose === null ? `${tLabel}${name}` : `${tLabel}${name}（${purpose}）`
   }
-  return `${tLabel}${called.map((row) => row.title).join('、')}`
+  return `${tLabel}${called
+    .map((row) => {
+      const purpose = descriptionOf(toolSchemas[row.title] ?? null)
+      return purpose === null ? row.title : `${row.title}（${purpose}）`
+    })
+    .join('、')}`
 }
 
 /**
@@ -199,11 +246,13 @@ function secondsBetween(from: number, to: number): number {
  * @param props - the rows to plot, the turns to mark, and the interaction state.
  * @returns the chart.
  */
-function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, t, onSelect, onRange }: {
+function LaneChart({ spans, actualDuration, turns, now, selected, range, currentId, toolSchemas, t, onSelect, onRange }: {
   spans: readonly LiveSpan[]
   actualDuration: boolean
   /** The span whose row is open in the drawer — the reference marks it as current. */
   currentId: string | null
+  /** Header schemas, so a bar's tooltip can name the tool AND its purpose. */
+  toolSchemas: Readonly<Record<string, string>>
   turns: LiveTaskView['turns']
   now: number
   selected: number | null
@@ -336,8 +385,8 @@ function LaneChart({ spans, actualDuration, turns, now, selected, range, current
                 width: actualDuration ? `max(2px, ${widthOfSegment(segment)}%)` : '8px',
                 minWidth: actualDuration ? undefined : '8px',
               }}
-              title={`${segment.kind} · ${clockOf(segment.startedAt)}`}
-              aria-label={`${segment.kind} · ${clockOf(segment.startedAt)}`}
+              title={spanTitleOf(segment, toolSchemas, t, now)}
+              aria-label={spanTitleOf(segment, toolSchemas, t, now)}
               onClick={() => onSelect(segment.turn)}
             />
           ))}
@@ -910,6 +959,7 @@ export function LiveTasksView({ useProjection, t }: LiveTasksViewProps): JSX.Ele
           onSelect={setSelected}
           onRange={setRange}
               currentId={detailEntry?.id ?? null}
+              toolSchemas={state.toolSchemas}
             />
           </div>
 

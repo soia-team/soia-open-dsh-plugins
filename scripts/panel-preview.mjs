@@ -149,12 +149,28 @@ const DICTIONARY = {
 // The lane chart plots the dense segment list, not the row window — generate a
 // plausible sixty so the preview shows the strip's real density (the trajectory
 // view plots every record, and a strip of twenty rows reads as empty beside it).
+// Schemas the header would carry — `bash` is stored TRUNCATED the way the fold
+// trims long definitions, so the preview proves the description is read even
+// when the JSON will not parse (the live bug this fixed).
+fixture.toolSchemas = {
+  bash: JSON.stringify({
+    name: 'bash',
+    description: 'Execute a bash command (`bash -c`) and return its stdout/stderr.',
+    parameters: { type: 'object', properties: { command: { type: 'string' } } },
+  }).slice(0, 90),
+  read: JSON.stringify({ name: 'read', description: 'Read a file as numbered text.', parameters: {} }),
+  check_ui_size: JSON.stringify({ name: 'check_ui_size', description: 'Measure one DOM element against a URL.', parameters: {} }),
+  grep: JSON.stringify({ name: 'grep', description: 'Search files for a pattern.', parameters: {} }),
+}
+
 fixture.spans = Array.from({ length: 60 }, (_, index) => {
   const kinds = ['user', 'assistant', 'tool', 'context']
   const kind = kinds[index % kinds.length] ?? 'tool'
   const startedAt = Date.now() - 70_000 + index * 1_100
+  const toolNames = ['bash', 'read', 'check_ui_size', 'grep']
   return {
     id: `span-${index}`,
+    title: kind === 'tool' ? (toolNames[index % toolNames.length] ?? 'bash') : null,
     turn: index < 30 ? 1 : 2,
     kind,
     status: index === 47 ? 'failed' : 'ok',
@@ -284,6 +300,7 @@ const visuals = await view.evaluate(() => ({
   stamp: (globalThis.document.querySelector('[class*="lt-detailBody"]')?.textContent ?? '').match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}/)?.[0] ?? null,
   argsInline: globalThis.document.querySelectorAll('[class*="lt-tlArgs"]').length,
   secondLines: globalThis.document.querySelectorAll('[class*="lt-tlSecond"]').length,
+  spanToolTitle: globalThis.document.querySelector('[data-kind="tool"]')?.getAttribute('title') ?? null,
   spanColors: Object.fromEntries(['assistant', 'tool', 'user', 'context'].map((kind) => {
     const node = globalThis.document.querySelector(`[data-kind="${kind}"]`)
     return [kind, node ? globalThis.getComputedStyle(node).backgroundColor : null]
@@ -316,7 +333,14 @@ if (!keep) rmSync(scratch, { recursive: true, force: true })
 else console.log(`panel-preview: kept ${pagePath}`)
 
 console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → ${out}`)
-console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} colors=${JSON.stringify(visuals.spanColors)}`)
+// Fixture expectation: four tool rows (read/check_ui_size/grep + the truncated
+// bash) plus one model call line. The truncated row is the case that regressed
+// silently before — a missing purpose dropped the count from five to four.
+if (visuals.secondLines < 5) {
+  console.error(`panel-preview: expected ≥5 second lines, got ${visuals.secondLines}`)
+  process.exit(1)
+}
+console.log(`panel-preview visuals: spans=${visuals.spans} tabs=[${visuals.tabs.join('/')}] drawer=${visuals.drawer} stamp=${visuals.stamp} argsInline=${visuals.argsInline} toolbar=[${visuals.toolbar.join('/')}] second=${visuals.secondLines} toolTip=${visuals.spanToolTitle} colors=${JSON.stringify(visuals.spanColors)}`)
 if (errors.length > 0 || !mounted || rows === 0) {
   console.error(`panel-preview: the panel did not render${errors.length === 0 ? '' : ` — ${errors[0]}`}`)
   process.exit(1)
