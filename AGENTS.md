@@ -26,10 +26,12 @@
 
 ```bash
 pnpm run typecheck
+pnpm run typecheck:client               # 浏览器半（JSX + DOM）单独检查
 pnpm run lint
 pnpm run build
 pnpm run test
 pnpm run verify:lib                        # 提交的 lib/ 与源码一致
+pnpm run check-token-budget                # 常驻 token 不超各包声明的预算
 bash scripts/smoke-dump-config.sh
 ```
 
@@ -40,8 +42,10 @@ bash scripts/smoke-dump-config.sh
 ## Git 与发布
 
 - 远端：`soia-team/soia-open-dsh-plugins`（public），本地 `origin` 走 SSH（HTTPS 推送在本机不稳）。首次上线已获当次授权并完成；此后推送到 `main`/`dev` 仍守下面的分支与发布规则。
-- 新分支默认从正式 `main` 开，PR 显式指向 `dev`；合并需审查通过与本次许可。
+- **分支保护是 GitHub 侧强制，不是流程约定**：`main` 与 `dev` 都要求经 PR 合并，直接 push 被拒（`GH006 ... Changes must be made through a pull request`）。两分支同为：强制状态检查 `Typecheck, lint, build, test, DSH smoke`（strict：合并前分支须与目标分支同步）、线性历史、禁止强推与删分支、会话未解决不得合并；`enforce_admins` 开启，管理员不能绕过；允许推送/合并的 actor 只有 `mianba`（restrictions）。配置与实测证据见 [docs/verification.md](docs/verification.md)。
+- 合并路径因此只有一条：特性分支从 `main` 开 → PR 指向 `dev`（CI 必须绿）→ 在 PR 里合并 → 发布时 `dev` → PR → `main`。**没有直接快进 `main` 的路径**。
+- 建 PR、拿到绿灯、写成"可合并"都不等于合并授权；合并动作仍要本次许可。`main` 与 `dev` 的合并权只给 `restrictions` 名单内的人。
+- **当前缺口（须知情）**：`required_approving_review_count = 0`，且仓内只有 `mianba` 一个协作者，所以 PR 发起人技术上能自合并——闸门是"必须走 PR + 只有名单内的人能合"，不是"第二个人复核过"。要真正的第二人复核，需再加入一个有写权限的账号（同时加进两个分支的 `restrictions`），再把 count 提到 1。组织默认仓库权限是 `write`（新加入的 org member 自动获得本仓写权限），所以名单限制才是实际闸门。
 - 普通开发不直接 push `main`/`dev`。`dev` 带 `-SNAPSHOT`，`main` 保持正式版。
-- 正式发布须当次明确授权：定稿 PR → `dev`/CI，核对 `main` 是 `dev` 祖先及实际合并冲突，再仅快进 `main`、tag/Release、重开 SNAPSHOT。
+- 正式发布须当次明确授权：定稿 PR → `dev`/CI，再开 `dev` → `main` 的 PR 合并，tag/Release、重开 SNAPSHOT。
 - 发布到 npm 前确认 registry 与包名归属；本仓包名无 scope，不需要 `--access public`。不把 SNAPSHOT 版本交给客户端。
-- `main` 不接收 PR；只有上述已授权、CI 与祖先检查通过的正式发布快进可推进 `main`。

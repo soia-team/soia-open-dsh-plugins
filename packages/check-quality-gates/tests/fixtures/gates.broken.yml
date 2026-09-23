@@ -1,0 +1,10 @@
+# Broken on purpose: `when` sits at the sequence indent instead of inside the
+# gate mapping, so the parser must report a readable error with a line number
+# rather than guess which gate it belongs to.
+gates:
+  - id: typecheck
+    command: pnpm run typecheck
+    reason: TypeScript sources changed.
+    rawEvidenceRequired: Raw exit code.
+  when:
+    paths: ["src/**"]

@@ -10,16 +10,20 @@
   },
   "packageManager": "pnpm@12.3.4",
   "scripts": {
-    "build": "tsdown && pnpm -r --if-present run build:types",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
+    "build": "tsdown && pnpm -r --if-present run build:types && pnpm -r --if-present run build:client",
+    "check-token-budget": "node scripts/token-budget.mjs",
     "lint": "oxlint .",
-    "test": "vitest run",
     "smoke": "bash scripts/smoke-dump-config.sh",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.tests.json",
+    "typecheck:client": "node scripts/typecheck-client.mjs",
     "verify:lib": "pnpm run build && git diff --exit-code -- 'packages/*/lib'"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "oxlint": "^1.81.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.2"

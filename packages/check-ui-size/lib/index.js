@@ -1,6 +1,7 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { accessSync, constants } from "node:fs";
 import { chromium } from "playwright-core";
+import { Service } from "@deepseek-ai/cordis";
 //#region packages/check-ui-size/src/host/measure.ts
 /**
 * Measurement core: open a page in a real browser, read one element's rendered
@@ -72,6 +73,7 @@ function diffAgainstExpected(rect, expected) {
 function failure(code, message, options) {
 	return {
 		status: "error",
+		plugin: "soia-dsh-tool-check-ui-size",
 		code,
 		message,
 		url: options.url,
@@ -176,6 +178,70 @@ async function measureElement(options) {
 	}
 }
 //#endregion
+//#region packages/check-ui-size/src/host/health.ts
+/**
+* Runtime self-check for this package.
+*
+* A tool that only reports per-call results cannot say whether it has been
+* working: the host sees successes and failures one call at a time, and nothing
+* carries the package's own view of its behaviour. These counters do, and they
+* are exposed as a host service so a diagnostic surface (or a test) can read
+* them without the model paying for a tool schema.
+*
+* The snapshot is frozen: a caller cannot mutate the package's counters by
+* holding on to what it read.
+*/
+/**
+* Counter store behind the service.
+*
+* A `Service` rather than a plain object because that is how this host attaches
+* a lifetime: the counters disappear with the plugin instead of leaking into a
+* later composition.
+*/
+var UiSizeHealth = class extends Service {
+	calls = 0;
+	failures = 0;
+	lastCallAt = null;
+	lastFailureAt = null;
+	measured = 0;
+	/**
+	* @param ctx - host context owning this service's lifetime.
+	*/
+	constructor(ctx) {
+		super(ctx, "checkUiSizeHealth");
+	}
+	/**
+	* Record one completed call.
+	* @param failed - whether the call ended in a failure report.
+	* @param at - epoch milliseconds of completion.
+	*/
+	record(failed, at = Date.now()) {
+		this.calls += 1;
+		this.lastCallAt = at;
+		if (failed) {
+			this.failures += 1;
+			this.lastFailureAt = at;
+		}
+	}
+	/** Record one successful measurement. */
+	recordMeasured() {
+		this.measured += 1;
+	}
+	/**
+	* Read the counters.
+	* @returns a frozen snapshot.
+	*/
+	snapshot() {
+		return Object.freeze({
+			calls: this.calls,
+			failures: this.failures,
+			lastCallAt: this.lastCallAt,
+			lastFailureAt: this.lastFailureAt,
+			measured: this.measured
+		});
+	}
+};
+//#endregion
 //#region packages/check-ui-size/src/index.ts
 const name = "tool-check-ui-size";
 /**
@@ -205,14 +271,17 @@ const CHECK_UI_SIZE_SECTION_ORDER = 3200;
 * detailed acceptance procedure still belongs to the skill that is loaded on
 * demand, not to a section that is always resident.
 */
-const GUIDANCE = ["UI acceptance needs a check_ui_size measurement, not declared CSS alone.", "On disagreement the measurement wins; name the layer (layout, font, box model, scroll)."].join("\n");
+const GUIDANCE = ["UI acceptance needs a check_ui_size measurement, not CSS alone.", "Measurement wins on disagreement; name the layer (layout, font, box model)."].join("\n");
 /**
 * Model-facing tool description. States what it does and when to reach for it,
 * and deliberately stops there — usage instructions would be paid for on every
-* request, while the model can read the parameter schema for the rest.
+* request, while the model can read the parameter schema for the rest. Failure
+* modes are not described either: a failed call returns `status: "error"` with
+* a `code`, which the model reads from the result itself.
 */
-const TOOL_DESCRIPTION = "Read one UI element's actual rendered size and box styles from a live page URL, to check whether declared CSS values match real geometry. Pass expectedHeight or expectedWidth to get signed differences. Returns status \"error\" with a code when the browser, the page, or the selector is unavailable.";
+const TOOL_DESCRIPTION = "Read one UI element's rendered size and box styles from a page URL, to check declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences. Prefer it over hand-written browser scripts: fixed viewport, waits for idle, and reports rect vs computed with the expected diff.";
 function apply(ctx) {
+	const health = new UiSizeHealth(ctx);
 	ctx.tools.register(defineTool({
 		name: "check_ui_size",
 		description: TOOL_DESCRIPTION,
@@ -220,20 +289,20 @@ function apply(ctx) {
 			url: {
 				type: "string",
 				required: true,
-				description: "Page URL to open, e.g. http://127.0.0.1:5173/"
+				description: "Page URL, e.g. http://127.0.0.1:5173/"
 			},
 			selector: {
 				type: "string",
 				required: true,
-				description: "CSS selector of the element to measure"
+				description: "CSS selector"
 			},
 			expectedHeight: {
 				type: "number",
-				description: "Expected height in CSS pixels, from a board or spec"
+				description: "Expected height, CSS px"
 			},
 			expectedWidth: {
 				type: "number",
-				description: "Expected width in CSS pixels, from a board or spec"
+				description: "Expected width, CSS px"
 			}
 		},
 		output: {
@@ -316,11 +385,14 @@ function apply(ctx) {
 				...args.expectedWidth === void 0 ? {} : { width: args.expectedWidth },
 				...args.expectedHeight === void 0 ? {} : { height: args.expectedHeight }
 			};
-			return await measureElement({
+			const result = await measureElement({
 				url: args.url,
 				selector: args.selector,
 				...expected === void 0 ? {} : { expected }
 			});
+			health.record(result.status !== "ok");
+			if (result.status === "ok") health.recordMeasured();
+			return result;
 		}
 	}));
 	ctx.systemPrompt.section({

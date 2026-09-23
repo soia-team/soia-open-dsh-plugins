@@ -61,16 +61,22 @@ committing:
 
 ```bash
 pnpm run typecheck
+pnpm run typecheck:client               # 浏览器半（JSX + DOM）单独检查
 pnpm run lint
 pnpm run build
 pnpm run test
+pnpm run check-token-budget
 bash scripts/smoke-dump-config.sh
 ```
 
-- `scripts/smoke-dump-config.sh` performs a read-only `--dump-config` check: it
-  starts no service and writes no profile. It proves **the composed config tree
-  contains the row**; it does not prove the plugin loaded, and it does not prove
-  the tool works.
+- `scripts/smoke-dump-config.sh` runs a `--dump-config` composition check only:
+  it starts no service and installs no dependency. **It has a known write
+  behavior** — DSH rewrites the profile-root `cordis.yml` from its template
+  (byte-identical content; the observed sha256 is stable and the file does not
+  contain the row under test); `cordis.patch.yml`, `package.json`, and
+  `pnpm-lock.yaml` are untouched. It proves **the composed config tree contains
+  the row**; it does not prove the plugin loaded, and it does not prove the tool
+  works.
 - "Installed != loaded != usable" are three distinct states: `--dump-config`
   proves the first, while loading and a real call each need their own evidence.
   A skeleton package reports placeholder status until the latter two exist.
@@ -81,21 +87,37 @@ bash scripts/smoke-dump-config.sh
 
 ## Git and release
 
-- This repository is currently a **local skeleton with no remote**. Going online
-  requires explicit authorization for that occasion: confirm the repository
-  name, visibility, and hosting location before creating the remote. These rules
-  do not decide that for you.
-- New branches start from the released `main` by default, and pull requests
-  target `dev` explicitly; merging requires review and authorization for that
-  occasion.
+- Remote: `soia-team/soia-open-dsh-plugins` (public); `origin` uses SSH because
+  HTTPS pushes are unreliable on this machine. The initial publish was
+  authorized for that occasion and is done.
+- **Branch protection is enforced by GitHub, not by convention**: both `main`
+  and `dev` require a pull request, and a direct push is rejected
+  (`GH006 ... Changes must be made through a pull request`). Both branches
+  require the status check `Typecheck, lint, build, test, DSH smoke` (strict:
+  the branch must be up to date with the base branch), linear history, no force
+  pushes, no branch deletion, and resolved
+  conversations before merging; `enforce_admins` is on, so admins cannot bypass
+  it, and `mianba` is the only actor allowed to push or merge (restrictions).
+  Config and measured evidence: [docs/verification.md](docs/verification.md).
+- There is therefore exactly one merge path: a feature branch from `main` → PR
+  targeting `dev` (CI must be green) → merge in the PR → for a release, `dev` →
+  PR → `main`. **No direct fast-forward into `main` exists.**
+- Opening a PR, getting a green run, or having a mergeable PR is not merge
+  authorization; merging still needs permission for that occasion. Merge rights
+  on `main` and `dev` belong only to the actors in `restrictions`.
+- **Known gap (must be known)**: `required_approving_review_count = 0` and
+  `mianba` is the only collaborator, so a PR author can technically self-merge.
+  The gate is "PR required + only allow-listed actors may merge", not "a second
+  person reviewed it". A real second-party review needs another account with
+  write access (also added to both branches' `restrictions`) and the count
+  raised to 1. The organization's default repository permission is `write`, so
+  any new org member automatically gets write access here — the allow-list is
+  the actual gate.
 - Ordinary development never pushes `main`/`dev` directly. `dev` carries a
   `-SNAPSHOT` suffix; `main` stays on the released version.
 - A formal release requires explicit authorization for that occasion: finalize
-  the PR to `dev`/CI, confirm `main` is an ancestor of `dev` and check the actual
-  merge conflicts, then fast-forward `main` only, tag/Release, reopen the
-  SNAPSHOT, and finish the pin work.
+  the PR to `dev`/CI, then open and merge a `dev` → `main` PR, tag/Release, and
+  reopen the SNAPSHOT.
 - Before publishing to npm, confirm the registry and package-name ownership.
   Package names here have no scope, so `--access public` is unnecessary. Never
   hand a SNAPSHOT version to users.
-- `main` accepts no pull requests; only an authorized release fast-forward that
-  passed CI and the ancestor check may advance `main`.

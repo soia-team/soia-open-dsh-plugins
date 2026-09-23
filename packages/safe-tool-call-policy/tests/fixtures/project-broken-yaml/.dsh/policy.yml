@@ -1,0 +1,8 @@
+# Fixture: tab indentation is outside the supported subset, so this document
+# must be refused and the policy must fail open.
+rules:
+	- id: never-applied
+	  pattern: "rm -rf /"
+	  action: deny
+	  reason: unreachable
+	  remedy: unreachable

@@ -1,0 +1,48 @@
+{
+  "name": "soia-dsh-safe-tool-call-policy",
+  "version": "0.1.0",
+  "private": false,
+  "description": "DSH host policy plugin that matches bash, write, and edit calls against a shipped danger-pattern list before they execute, asking for confirmation or denying with a one-line compliant alternative. Registers no tool and no prompt section.",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "danger-patterns.json"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "build:types": "tsc -p tsconfig.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dsh": ">=0.1.0-rc.8 <0.2.0"
+    },
+    "tokenBudget": {
+      "resident": 0,
+      "note": "hook-only: registers no tool and no prompt section, so resident model-visible text is zero. A blocked call adds only that call's one-line reason to its own result."
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2"
+  }
+}

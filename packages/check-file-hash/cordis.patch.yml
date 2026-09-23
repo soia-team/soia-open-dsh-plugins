@@ -1,0 +1,19 @@
+# dsh bundle patch: inserts the check_file_hash tool into a profile's layer stack.
+#
+# `name` is the npm package name — not a source path — so Node module resolution
+# finds the installed code. A profile's own cordis.patch.yml can override this row.
+#
+# `id` is the profile-local handle, derived the official way: the package name
+# minus the vendor prefix `soia-dsh-`. The other names derive from that id, and
+# tests/host/index.test.ts pins every step so a rename cannot desynchronize them:
+#
+#   package   soia-dsh-tool-check-file-hash  vendor prefix + official dsh- marker
+#   id        tool-check-file-hash           package name minus the prefix
+#   tool      check_file_hash                id minus the `tool-` kind prefix
+#
+# This package registers no prompt section, so it contributes no `tool:` section
+# name to the derivation. The kind prefix stays with the package: the official
+# `dsh-tool-bash` registers the tool `bash`.
+- insert:
+    - id: tool-check-file-hash
+      name: soia-dsh-tool-check-file-hash

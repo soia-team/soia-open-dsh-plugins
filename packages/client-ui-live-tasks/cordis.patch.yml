@@ -1,0 +1,23 @@
+# dsh bundle patch: inserts the live-task panel into a profile's layer stack.
+#
+# `name` is the npm package name — not a source path — so Node module resolution
+# finds the installed code. A profile's own cordis.patch.yml can override this row.
+#
+# This is a client-bundle package: the row is what the client module system scans
+# to find `dsh.client` and serve `lib/client.js` to the browser, and the host half
+# it loads registers the `liveTask` session projection the panel reads. Remove the
+# row and both halves disappear together.
+#
+# `id` derives the official way for a client face: the package name minus the
+# vendor prefix and the `dsh-client-` marker. The official
+# `@deepseek-ai/dsh-client-ui-jobs` loads under `ui-jobs`; this package loads
+# under `ui-live-tasks`. tests/host/index.test.ts pins every step:
+#
+#   package     soia-dsh-client-ui-live-tasks   vendor prefix + client face + name
+#   entry id    ui-live-tasks                   package name minus `soia-dsh-client-`
+#   plugin name ui-live-tasks                   what the loader row declares
+#   projection  liveTask                        the key the host registers and the
+#                                               browser reads
+- insert:
+    - id: ui-live-tasks
+      name: soia-dsh-client-ui-live-tasks

@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import { measureElement } from './host/measure.ts'
+import { UiSizeHealth } from './host/health.ts'
 
 export const name = 'tool-check-ui-size'
 
@@ -46,20 +47,23 @@ export const CHECK_UI_SIZE_SECTION_ORDER = 3200
  * demand, not to a section that is always resident.
  */
 const GUIDANCE = [
-  'UI acceptance needs a check_ui_size measurement, not declared CSS alone.',
-  'On disagreement the measurement wins; name the layer (layout, font, box model, scroll).',
+  'UI acceptance needs a check_ui_size measurement, not CSS alone.',
+  'Measurement wins on disagreement; name the layer (layout, font, box model).',
 ].join('\n')
 
 /**
  * Model-facing tool description. States what it does and when to reach for it,
  * and deliberately stops there — usage instructions would be paid for on every
- * request, while the model can read the parameter schema for the rest.
+ * request, while the model can read the parameter schema for the rest. Failure
+ * modes are not described either: a failed call returns `status: "error"` with
+ * a `code`, which the model reads from the result itself.
  */
-const TOOL_DESCRIPTION = 'Read one UI element\'s actual rendered size and box styles from a live page URL, '
-  + 'to check whether declared CSS values match real geometry. Pass expectedHeight or expectedWidth to get '
-  + 'signed differences. Returns status "error" with a code when the browser, the page, or the selector is unavailable.'
+const TOOL_DESCRIPTION = 'Read one UI element\'s rendered size and box styles from a page URL, to check '
+  + 'declared CSS against real geometry. Pass expectedHeight or expectedWidth for signed differences.'
+  + ' Prefer it over hand-written browser scripts: fixed viewport, waits for idle, and reports rect vs computed with the expected diff.'
 
 export function apply(ctx: Context): void {
+  const health = new UiSizeHealth(ctx)
   ctx.tools.register(
     defineTool({
       name: 'check_ui_size',
@@ -68,20 +72,20 @@ export function apply(ctx: Context): void {
         url: {
           type: 'string',
           required: true,
-          description: 'Page URL to open, e.g. http://127.0.0.1:5173/',
+          description: 'Page URL, e.g. http://127.0.0.1:5173/',
         },
         selector: {
           type: 'string',
           required: true,
-          description: 'CSS selector of the element to measure',
+          description: 'CSS selector',
         },
         expectedHeight: {
           type: 'number',
-          description: 'Expected height in CSS pixels, from a board or spec',
+          description: 'Expected height, CSS px',
         },
         expectedWidth: {
           type: 'number',
-          description: 'Expected width in CSS pixels, from a board or spec',
+          description: 'Expected width, CSS px',
         },
       },
       output: {
@@ -163,11 +167,14 @@ export function apply(ctx: Context): void {
               ...(args.expectedWidth === undefined ? {} : { width: args.expectedWidth }),
               ...(args.expectedHeight === undefined ? {} : { height: args.expectedHeight }),
             }
-        return await measureElement({
+        const result = await measureElement({
           url: args.url,
           selector: args.selector,
           ...(expected === undefined ? {} : { expected }),
         })
+        health.record(result.status !== 'ok')
+        if (result.status === 'ok') health.recordMeasured()
+        return result
       },
     }),
   )

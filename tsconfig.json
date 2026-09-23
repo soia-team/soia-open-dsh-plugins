@@ -26,5 +26,6 @@
     "sourceMap": false,
     "noEmit": true
   },
-  "include": ["packages/*/src/**/*.ts"]
+  "include": ["packages/*/src/**/*.ts"],
+  "exclude": ["packages/*/src/client/**"]
 }

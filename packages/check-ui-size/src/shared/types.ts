@@ -61,6 +61,8 @@ export type MeasureFailureCode =
 /** Failed measurement: a typed reason instead of a partial or guessed result. */
 export interface MeasureFailure {
   status: 'error'
+  /** The plugin that produced this failure, so a reader knows where to look. */
+  plugin: 'soia-dsh-tool-check-ui-size'
   code: MeasureFailureCode
   message: string
   url: string

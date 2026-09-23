@@ -1,0 +1,8 @@
+# Fixture: when both policy files exist, the YAML one is authoritative.
+rules:
+  - id: from-yaml
+    tool: bash
+    pattern: "\\bmake\\s+deploy\\b"
+    action: ask
+    reason: Deployment is gated.
+    remedy: Use the release workflow.

@@ -1,0 +1,88 @@
+# 本仓自己的门清单。
+#
+# 插件 `soia-dsh-tool-check-quality-gates` 读这个文件：把「这次改了哪些文件」映射成
+# 必跑的门 + 每门要贴回的原始证据。它只输出清单，不阻止未跑门（enforcement: none）。
+#
+# 改这个文件不需要动插件代码；插件不内置任何项目的脚本名。
+gates:
+  - id: typecheck
+    command: pnpm run typecheck
+    reason: TypeScript 源码或测试被改，Node 侧程序必须重跑
+    rawEvidenceRequired: 原始 exit code + 首个错误行
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/tests/**"
+        - "tsconfig.json"
+        - "tsconfig.tests.json"
+
+  - id: typecheck-client
+    command: pnpm run typecheck:client
+    reason: 浏览器半有独立的类型程序（JSX + DOM）
+    rawEvidenceRequired: 原始 exit code（每个 program 一行）
+    when:
+      paths:
+        - "packages/*/src/client/**"
+        - "packages/*/tsconfig.client.json"
+
+  - id: lint
+    command: pnpm run lint
+    reason: 源码、脚本或配置改动都要过 lint（含前端与宿主边界规则）
+    rawEvidenceRequired: 原始 exit code + "Found N warnings and M errors" 那一行
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/tests/**"
+        - "scripts/**"
+        - "*.ts"
+        - ".oxlintrc.json"
+
+  - id: build
+    command: pnpm run build
+    reason: 入口、依赖或构建配置变化会影响产物
+    rawEvidenceRequired: 原始 exit code + 每个包的产物大小行
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/package.json"
+        - "tsdown.config.ts"
+
+  - id: test
+    command: pnpm run test
+    reason: 任何行为改动都必须有测试证据
+    rawEvidenceRequired: 原始 exit code + "Tests  N passed" 那一行
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/tests/**"
+        - "vitest.config.ts"
+
+  - id: verify-lib
+    command: pnpm run verify:lib
+    reason: lib/ 随仓提交，提交的产物必须与源码一致（git 源安装靠它）
+    rawEvidenceRequired: 原始 exit code + git diff 是否为空
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/package.json"
+        - "tsdown.config.ts"
+
+  - id: check-token-budget
+    command: pnpm run check-token-budget
+    reason: 改了工具描述、参数 schema 或提示词段就会改常驻 token，必须复算
+    rawEvidenceRequired: 原始 exit code + 每个包的 resident 数字
+    when:
+      paths:
+        - "packages/*/src/**"
+        - "packages/*/package.json"
+        - "scripts/token-budget.mjs"
+
+  - id: smoke
+    command: pnpm run smoke
+    reason: patch 行或包清单变化要验证配置层组合
+    rawEvidenceRequired: 原始 exit code + 每个 entry 的命中行
+    when:
+      paths:
+        - "packages/*/cordis.patch.yml"
+        - "packages/*/package.json"
+        - "pnpm-workspace.yaml"
