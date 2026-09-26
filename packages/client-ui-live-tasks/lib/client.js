@@ -615,9 +615,11 @@ function observed(state, event, detail) {
 * @returns the call id when one was readable, and whether the call failed.
 */
 function readToolResult(data) {
-	const content = recordOf(data?.["message"])?.["content"];
+	const message = recordOf(data?.["message"]);
+	const content = message?.["content"];
 	const block = Array.isArray(content) ? recordOf(content[0]) : void 0;
-	const callId = stringOf(block?.["toolCallId"]);
+	const source = recordOf(message?.["source"]);
+	const callId = stringOf(block?.["toolCallId"]) ?? stringOf(source?.["callId"]);
 	const failed = block?.["isError"] === true || data?.["error"] !== void 0;
 	return {
 		...callId === void 0 ? {} : { callId },

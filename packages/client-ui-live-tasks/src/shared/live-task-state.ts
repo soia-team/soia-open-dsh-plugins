@@ -716,7 +716,12 @@ function readToolResult(data: Record<string, unknown> | undefined): {
   const message = recordOf(data?.['message'])
   const content = message?.['content']
   const block = Array.isArray(content) ? recordOf(content[0]) : undefined
-  const callId = stringOf(block?.['toolCallId'])
+  // Pair by content first, then by the message envelope: plain-text receipts
+  // (skill returns text blocks) carry no toolCallId — they identify the call
+  // only through message.source.callId. Missing that left the row 进行中 forever
+  // (真会话实况：已结束的会话里两条 skill 行卡在 进行中 4746 秒).
+  const source = recordOf(message?.['source'])
+  const callId = stringOf(block?.['toolCallId']) ?? stringOf(source?.['callId'])
   const failed = block?.['isError'] === true || data?.['error'] !== undefined
   return {
     ...(callId === undefined ? {} : { callId }),

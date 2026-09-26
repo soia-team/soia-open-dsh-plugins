@@ -5997,9 +5997,11 @@ function observed(state, event, detail) {
 * @returns the call id when one was readable, and whether the call failed.
 */
 function readToolResult(data) {
-	const content = recordOf(data?.["message"])?.["content"];
+	const message = recordOf(data?.["message"]);
+	const content = message?.["content"];
 	const block = Array.isArray(content) ? recordOf(content[0]) : void 0;
-	const callId = stringOf(block?.["toolCallId"]);
+	const source = recordOf(message?.["source"]);
+	const callId = stringOf(block?.["toolCallId"]) ?? stringOf(source?.["callId"]);
 	const failed = block?.["isError"] === true || data?.["error"] !== void 0;
 	return {
 		...callId === void 0 ? {} : { callId },
@@ -6597,7 +6599,7 @@ function viewOf(state) {
 */
 const liveTaskProjectionDefinition = {
 	key: LIVE_TASK_PROJECTION_KEY,
-	stateVersion: 6,
+	stateVersion: 7,
 	stateSchema: liveTaskStateSchema,
 	init: (_header, _inheritedEventCount) => INITIAL_LIVE_TASK_STATE,
 	apply: (state, event) => reduceLiveTask(state, {

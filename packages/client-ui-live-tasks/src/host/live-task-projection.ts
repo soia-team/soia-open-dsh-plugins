@@ -250,7 +250,7 @@ function viewOf(state: LiveTaskState): LiveTaskView {
  */
 export const liveTaskProjectionDefinition = {
   key: LIVE_TASK_PROJECTION_KEY,
-  stateVersion: 6,
+  stateVersion: 7,
   stateSchema: liveTaskStateSchema,
   // The initial state is built from constants alone, so both arguments the
   // registry passes — the session header and the fork-inherited prefix length —

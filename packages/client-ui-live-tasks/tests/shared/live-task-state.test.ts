@@ -190,6 +190,28 @@ describe('live-task derivation', () => {
       expect(state.lastEvent?.detail).toBe('bash')
     })
 
+    it('settles a plain-text receipt via message.source.callId', () => {
+      // skill 这类工具的回执是纯文本块（content[0] 没有 toolCallId），callId 只在
+      // message.source 里——真会话里缺这个回退，行会永远停在"进行中"
+      // （已结束会话里两条 skill 行卡在 进行中 4746 秒 的实况）。
+      const state = foldLiveTasks([
+        ...openStepWithTool(),
+        event('tool/result', 4, {
+          turn: 1,
+          step: 1,
+          message: {
+            role: 'tool',
+            source: { kind: 'tool', callId: 'call-1' },
+            content: [{ type: 'text', text: 'loaded' }],
+          },
+        }),
+      ])
+
+      expect(state.openTools).toHaveLength(0)
+      expect(state.lastTool?.open).toBe(false)
+      expect(state.lastTool?.failed).toBeUndefined()
+    })
+
     it('marks a failing result and names the tool from the open call', () => {
       const state = foldLiveTasks([
         ...openStepWithTool(),
