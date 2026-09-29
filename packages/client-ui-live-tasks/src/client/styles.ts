@@ -170,6 +170,15 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 只看我们的：子页签行右侧的开关，压在两个子页签旁边，两个面板共用一个状态。 */
+.lt-oursOnlyButton { margin-left: auto; height: 22px; padding: 0 10px;
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 11px;
+  background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px; cursor: pointer; }
+.lt-oursOnlyButton[aria-pressed='true'] {
+  border-color: var(--dsw-alias-state-business-primary, #4078ff);
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 8%, transparent); }
+
 /* 虚拟占位：被渲染上限挡在后面的更早行，占位一行、点开即展。 */
 .lt-virtualSpacer td { height: 34px; padding: 0 8px; text-align: center;
   border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
@@ -598,6 +607,7 @@ export const styles = {
     detailTab: 'lt-detailTab',
     detailTabActive: 'lt-detailTabActive',
     detailBody: 'lt-detailBody',
+  oursOnlyButton: 'lt-oursOnlyButton',
     virtualSpacer: 'lt-virtualSpacer',
     toolStatRowOurs: 'lt-toolStatRowOurs',
     toolStatCountFail: 'lt-toolStatCountFail',

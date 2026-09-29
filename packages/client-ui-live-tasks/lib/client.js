@@ -1145,6 +1145,15 @@ const CSS = `
 .lt-detailCell { background: var(--dsw-alias-bg-base-secondary, rgb(0 0 0 / 3%)); }
 .lt-turnMeta { margin-right: 12px; }
 
+/* 只看我们的：子页签行右侧的开关，压在两个子页签旁边，两个面板共用一个状态。 */
+.lt-oursOnlyButton { margin-left: auto; height: 22px; padding: 0 10px;
+  border: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%)); border-radius: 11px;
+  background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px; cursor: pointer; }
+.lt-oursOnlyButton[aria-pressed='true'] {
+  border-color: var(--dsw-alias-state-business-primary, #4078ff);
+  color: var(--dsw-alias-state-business-primary, #4078ff); font-weight: 600;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4078ff) 8%, transparent); }
+
 /* 虚拟占位：被渲染上限挡在后面的更早行，占位一行、点开即展。 */
 .lt-virtualSpacer td { height: 34px; padding: 0 8px; text-align: center;
   border-bottom: .5px solid var(--dsw-alias-border-l1, rgb(0 0 0 / 8%));
@@ -1572,6 +1581,7 @@ const styles = {
 	detailTab: "lt-detailTab",
 	detailTabActive: "lt-detailTabActive",
 	detailBody: "lt-detailBody",
+	oursOnlyButton: "lt-oursOnlyButton",
 	virtualSpacer: "lt-virtualSpacer",
 	toolStatRowOurs: "lt-toolStatRowOurs",
 	toolStatCountFail: "lt-toolStatCountFail",
@@ -2805,7 +2815,7 @@ function useLiveTaskDisplay({ useProjection, useSession, eventSource, listToolBu
 * @param props - the same standard kit and injected sources as the activity view.
 * @returns the telemetry panel, or the shared empty state.
 */
-function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }) {
+function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles, oursOnly = false }) {
 	const { state, usedToolNames, distinctTools, ourToolNames, toolMeta } = useLiveTaskDisplay({
 		useProjection,
 		useSession,
@@ -2834,7 +2844,7 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 		}
 		return "基础插件";
 	};
-	const statEntries = Object.entries(state.toolStats);
+	const statEntries = Object.entries(state.toolStats).filter(([name]) => !oursOnly || ourToolNames.has(name));
 	const sortedStats = statEntries.sort(([leftName, leftStat], [rightName, rightStat]) => {
 		const leftOurs = ourToolNames.has(leftName) ? 1 : 0;
 		const rightOurs = ourToolNames.has(rightName) ? 1 : 0;
@@ -2987,7 +2997,7 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 								})
 							})
 						]
-					}, name)) : [...usedToolNames].sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0)).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					}, name)) : [...usedToolNames].filter((name) => !oursOnly || ourToolNames.has(name)).sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0)).map((name) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: oursSet.has(name) ? styles.toolChipOurs : styles.toolChip,
 						children: name
 					}, name))
@@ -3025,7 +3035,7 @@ function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBun
 	});
 }
 function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }) {
-	const { state, hasOlder, loadingOlder, liveStream } = useLiveTaskDisplay({
+	const { state, hasOlder, loadingOlder, liveStream, ourToolNames } = useLiveTaskDisplay({
 		useProjection,
 		useSession,
 		eventSource,
@@ -3036,6 +3046,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const [messagesHidden, setMessagesHidden] = (0, react.useState)(false);
 	const [actualDuration, setActualDuration] = (0, react.useState)(true);
 	const [failedOnly, setFailedOnly] = (0, react.useState)(false);
+	const [oursOnly, setOursOnly] = (0, react.useState)(false);
 	const [query, setQuery] = (0, react.useState)("");
 	const [subTab, setSubTab] = (0, react.useState)("activity");
 	const [renderLimit, setRenderLimit] = (0, react.useState)(400);
@@ -3053,7 +3064,7 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 	const shownTurn = selected ?? selectedTurn;
 	const pickedTurn = selected;
 	const needle = query.trim().toLowerCase();
-	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.entryId ?? "").toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
+	const entriesOfTurn = (turn) => state.timeline.filter((entry) => entry.turn === turn && entry.kind !== "turn").filter((entry) => !messagesHidden || entry.kind === "tool").filter((entry) => !failedOnly || entry.status === "failed").filter((entry) => !oursOnly || entry.kind === "tool" && ourToolNames.has(entry.title)).filter((entry) => needle === "" || entry.title.toLowerCase().includes(needle) || (entry.entryId ?? "").toLowerCase().includes(needle) || (entry.detail ?? "").toLowerCase().includes(needle) || (entry.result ?? "").toLowerCase().includes(needle)).filter((entry) => range === null || (entry.endedAt ?? entry.startedAt) >= range.from && entry.startedAt <= range.to);
 	const detailEntry = state.timeline.find((entry) => entry.id === expanded) ?? null;
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 		className: styles.view,
@@ -3061,27 +3072,38 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 			className: styles.subTabs,
 			role: "tablist",
 			"aria-label": t("view.subTabs"),
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				role: "tab",
-				"aria-selected": subTab === "activity",
-				className: styles.subTab,
-				onClick: () => setSubTab("activity"),
-				children: t("view.subTabActivity")
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				role: "tab",
-				"aria-selected": subTab === "status",
-				className: styles.subTab,
-				onClick: () => setSubTab("status"),
-				children: t("view.subTabStatus")
-			})]
+			children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					role: "tab",
+					"aria-selected": subTab === "activity",
+					className: styles.subTab,
+					onClick: () => setSubTab("activity"),
+					children: t("view.subTabActivity")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					role: "tab",
+					"aria-selected": subTab === "status",
+					className: styles.subTab,
+					onClick: () => setSubTab("status"),
+					children: t("view.subTabStatus")
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: styles.oursOnlyButton,
+					"aria-pressed": oursOnly,
+					onClick: () => setOursOnly((value) => !value),
+					children: t("bar.oursOnly")
+				})
+			]
 		}), subTab === "status" ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LiveStatusView, {
 			useProjection,
 			t,
 			useSession,
 			eventSource,
-			listToolBundles
+			listToolBundles,
+			oursOnly
 		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 			className: styles.panes,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
@@ -3227,33 +3249,44 @@ function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, l
 										const windowed = windowGroups([...state.turns].reverse().map((turn) => ({
 											turn,
 											entries: entriesOfTurn(turn.turn)
-										})), renderLimit);
-										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [windowed.shown.map(({ turn, entries }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
-											turn,
-											entries,
-											picked: pickedTurn !== null && turn.turn === pickedTurn,
-											now,
-											open: turnsOpen,
-											expandedId: expanded,
-											dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
-											toolSchemas: state.toolSchemas,
-											liveText: liveStream !== null && liveStream.turn === turn.turn ? liveStream.text !== "" ? liveStream.text : liveStream.reasoning !== "" ? t("gen.reasoning") : null : null,
-											generating: state.running && state.openTools.length === 0 && turn.turn === state.turn && state.step !== null && !state.timeline.some((row) => row.kind === "assistant" && row.turn === turn.turn && row.step === state.step),
-											onToggle: (id) => setExpanded(expanded === id ? null : id),
-											t
-										}, turn.turn)), windowed.hasMore && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", {
-											className: styles.virtualSpacer,
-											"data-virtual-spacer": "true",
-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-												colSpan: 2,
-												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-													type: "button",
-													className: styles.historyButton,
-													onClick: () => setRenderLimit((limit) => limit + 400),
-													children: t("render.expandOlder", { n: windowed.hiddenRows })
+										})).filter((group) => !oursOnly || group.entries.length > 0), renderLimit);
+										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+											windowed.shown.map(({ turn, entries }) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TurnSection, {
+												turn,
+												entries,
+												picked: pickedTurn !== null && turn.turn === pickedTurn,
+												now,
+												open: turnsOpen,
+												expandedId: expanded,
+												dimmed: pickedTurn !== null && turn.turn !== pickedTurn,
+												toolSchemas: state.toolSchemas,
+												liveText: liveStream !== null && liveStream.turn === turn.turn ? liveStream.text !== "" ? liveStream.text : liveStream.reasoning !== "" ? t("gen.reasoning") : null : null,
+												generating: state.running && state.openTools.length === 0 && turn.turn === state.turn && state.step !== null && !state.timeline.some((row) => row.kind === "assistant" && row.turn === turn.turn && row.step === state.step),
+												onToggle: (id) => setExpanded(expanded === id ? null : id),
+												t
+											}, turn.turn)),
+											oursOnly && windowed.shown.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", {
+												className: styles.virtualSpacer,
+												"data-empty-ours": "true",
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+													colSpan: 2,
+													children: t("render.emptyOurs")
+												})
+											}),
+											windowed.hasMore && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", {
+												className: styles.virtualSpacer,
+												"data-virtual-spacer": "true",
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+													colSpan: 2,
+													children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														className: styles.historyButton,
+														onClick: () => setRenderLimit((limit) => limit + 400),
+														children: t("render.expandOlder", { n: windowed.hiddenRows })
+													})
 												})
 											})
-										})] });
+										] });
 									})()]
 								})
 							]
@@ -3315,6 +3348,7 @@ const zh = {
 	"head.toolLast": "最近用的工具",
 	"head.toolNone": "还没有用过工具",
 	"bar.search": "搜索轨迹",
+	"bar.oursOnly": "只看我们的",
 	"bar.expandAll": "展开全部",
 	"bar.collapseAll": "收起全部",
 	"bar.failedOnly": "只看失败",
@@ -3341,6 +3375,7 @@ const zh = {
 	"gen.running": "生成中…",
 	"gen.reasoning": "思考中…",
 	"render.expandOlder": "展开更早 {n} 行",
+	"render.emptyOurs": "当前窗口没有咱们的调用——点上方「加载更早的历史」往回翻",
 	"history.loadEarlier": "加载更早的历史",
 	"history.loadingEarlier": "正在加载更早的历史…",
 	"overview.caller": "调用方",
@@ -3500,6 +3535,7 @@ const en = {
 	"gen.running": "Generating…",
 	"gen.reasoning": "Thinking…",
 	"render.expandOlder": "Show {n} earlier rows",
+	"render.emptyOurs": "No calls from our tools in this window — load earlier history above",
 	"history.loadEarlier": "Load earlier history",
 	"history.loadingEarlier": "Loading earlier history…",
 	"overview.caller": "Caller",
@@ -3556,6 +3592,7 @@ const en = {
 	"bar.clearRange": "Clear selection",
 	"bar.rangeHint": "drag on the chart to select",
 	"bar.expandTurns": "Expand turns",
+	"bar.oursOnly": "Only ours",
 	"timeline.title": "Timeline",
 	"timeline.user": "User",
 	"timeline.assistant": "model",
