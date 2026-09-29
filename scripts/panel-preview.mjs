@@ -120,7 +120,7 @@ const DICTIONARY = {
   'detail.overview': '概述', 'detail.none': '（没有可显示的内容）',
   'detail.name': '名称', 'health.tools': '工具：{list}', 'view.subTabs': '活动分页', 'view.subTabActivity': '插件活动', 'view.subTabStatus': '插件运行状况', 'card.turns': '轮次', 'card.calls': '调用', 'card.failures': '失败', 'card.tools': '可用工具',
  'card.used': '用到种数', 'sec.usage': 'Token 用量', 'sec.tools': '触发过的工具', 'sec.diagnostics': '诊断', 'toolStat.counts': '调用{calls}次 成功{ok}次 失败{failed}次',
- 'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'render.expandOlder': '展开更早 {n} 行', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
+ 'leg.cache': '缓存', 'leg.input': '输入', 'leg.reason': '思考', 'leg.output': '输出', 'render.expandOlder': '展开更早 {n} 行', 'render.emptyOurs': '当前窗口没有咱们的调用——点上方「加载更早的历史」往回翻', 'history.loadEarlier': '加载更早的历史', 'history.loadingEarlier': '正在加载更早的历史…', 'detail.entryId': '插件 ID', 'detail.content': '内容', 'overview.caller': '调用方', 'overview.callee': '被调用方', 'overview.tokens': 'Token',
   'detail.timing': '计时', 'detail.close': '关闭详情', 'timing.ended': '结束时间',
   'turn.windowOnly': '更早的明细未保留（仅保留最近 {n} 行）',
   'bar.aria': '活动工具栏', 'bar.durationMode': '时长', 'bar.useActual': '使用实际时长',
@@ -451,6 +451,35 @@ const visuals = await view.evaluate(() => ({
 }))
 visuals.fonts = fonts
 visuals.facts = facts
+// 只看我们的：打开开关 → 时间线只剩咱们的工具行（非工具行一并滤掉）；状态页签的工具统计只剩咱们的。
+const beforeOursFilter = await view.evaluate(() => [...globalThis.document.querySelectorAll('tr[data-kind="tool"]')]
+  .filter((tr) => (tr.querySelector('[class*="lt-tlTitle"]')?.textContent ?? '').startsWith('check_')).length)
+await view.locator('[class*="lt-oursOnlyButton"]').first().click()
+await view.waitForTimeout(300)
+const oursOnlyActivity = await view.evaluate(() => {
+  const rows = [...globalThis.document.querySelectorAll('tr[data-kind]')]
+  return {
+    total: rows.length,
+    toolRows: rows.filter((tr) => tr.getAttribute('data-kind') === 'tool').length,
+    allOurs: rows.every((tr) => tr.getAttribute('data-kind') !== 'tool'
+      || (tr.querySelector('[class*="lt-tlTitle"]')?.textContent ?? '').startsWith('check_')),
+  }
+})
+await view.getByRole('tab', { name: '插件运行状况', exact: true }).click()
+await view.waitForTimeout(250)
+const oursOnlyStatNames = await view.evaluate(() =>
+  [...globalThis.document.querySelectorAll('[class*="lt-toolStatRow"], [class*="lt-toolStatRowOurs"]')]
+    .map((node) => node.querySelector('[class*="lt-toolStatName"]')?.textContent ?? ''))
+await view.getByRole('tab', { name: '插件活动', exact: true }).click()
+await view.waitForTimeout(250)
+await view.locator('[class*="lt-oursOnlyButton"]').first().click()
+await view.waitForTimeout(250)
+facts.oursFilter = oursOnlyActivity.toolRows > 0
+  && oursOnlyActivity.allOurs
+  && oursOnlyActivity.total === oursOnlyActivity.toolRows
+  && beforeOursFilter === oursOnlyActivity.toolRows
+  && oursOnlyStatNames.length === 3
+  && oursOnlyStatNames.every((name) => name.startsWith('check'))
 
 const leakedKeys = await view.evaluate(() => [...globalThis.document.querySelectorAll('#root *')]
   .map((node) => node.children.length === 0 ? (node.textContent ?? '').trim() : '')
@@ -486,7 +515,7 @@ console.log(`panel-preview: rows=${rows} chips=${chips} mounted=${mounted} → $
 if (!(visuals.facts?.hierarchy && visuals.facts?.sections === 4 && visuals.facts?.pretty && (visuals.facts?.colored ?? 0) > 0
   && visuals.facts?.caller && visuals.facts?.callee
   && visuals.facts?.ours && visuals.facts?.internalsVisible && visuals.facts?.staleVisible
-  && visuals.facts?.statRows)) {
+  && visuals.facts?.statRows && visuals.facts?.oursFilter)) {
   console.error(`panel-preview: drawer contract failed → ${JSON.stringify(visuals.facts)} pageErrors=${JSON.stringify(errors.slice(0, 3))} health=${JSON.stringify(visuals.facts?.textHead ?? null)} chips=${visuals.facts?.chipCount}`)
   process.exit(1)
 }

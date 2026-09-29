@@ -73,6 +73,8 @@ interface SessionSnapshotLike {
  * @param props - the same standard kit and injected sources as the activity view.
  * @returns the telemetry panel, or the shared empty state.
  */
-export declare function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }: LiveTasksViewProps): JSX.Element;
+export declare function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles, oursOnly }: LiveTasksViewProps & {
+    oursOnly?: boolean;
+}): JSX.Element;
 export declare function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element;
 export {};

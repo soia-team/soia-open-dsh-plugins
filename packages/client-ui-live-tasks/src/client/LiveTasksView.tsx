@@ -1254,7 +1254,7 @@ function useLiveTaskDisplay({
  * @param props - the same standard kit and injected sources as the activity view.
  * @returns the telemetry panel, or the shared empty state.
  */
-export function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles }: LiveTasksViewProps): JSX.Element {
+export function LiveStatusView({ useProjection, t, useSession, eventSource, listToolBundles, oursOnly = false }: LiveTasksViewProps & { oursOnly?: boolean }): JSX.Element {
   const { state, usedToolNames, distinctTools, ourToolNames, toolMeta } = useLiveTaskDisplay(
     { useProjection, useSession, eventSource, listToolBundles },
   )
@@ -1287,6 +1287,7 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
     return '基础插件'
   }
   const statEntries = Object.entries(state.toolStats)
+    .filter(([name]) => !oursOnly || ourToolNames.has(name))
   const sortedStats = statEntries
     .sort(([leftName, leftStat], [rightName, rightStat]) => {
       // 咱们的排前（与名单页一致），其余按调用次数降序。
@@ -1385,6 +1386,7 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
             ))
             // 旧宿主没有逐工具计数：退回名字胶囊，至少名单还看得到。
             : [...usedToolNames]
+              .filter((name) => !oursOnly || ourToolNames.has(name))
               .sort((left, right) => (oursSet.has(right) ? 1 : 0) - (oursSet.has(left) ? 1 : 0))
               .map((name) => (
                 <span
@@ -1420,7 +1422,7 @@ export function LiveStatusView({ useProjection, t, useSession, eventSource, list
   )
 }
 export function LiveTasksView({ useProjection, t, useSession, eventSource, loadOlder, loadPluginInfo, listToolBundles }: LiveTasksViewProps): JSX.Element {
-  const { state, hasOlder, loadingOlder, liveStream } = useLiveTaskDisplay(
+  const { state, hasOlder, loadingOlder, liveStream, ourToolNames } = useLiveTaskDisplay(
     { useProjection, useSession, eventSource, listToolBundles },
   )
   const [selected, setSelected] = useState<number | null>(null)
@@ -1430,6 +1432,8 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
   // 轨迹的 时长 开关：等宽槽位 vs 实际时长（其隐藏的 实际时间 开关这里保持可见语义：行始终挂钟）。
   const [actualDuration, setActualDuration] = useState(true)
   const [failedOnly, setFailedOnly] = useState(false)
+  // 只看咱们的：时间线行 + 状态页签的工具名单一起收（会话级卡片与用量是整场的，不跟着缩）。
+  const [oursOnly, setOursOnly] = useState(false)
   const [query, setQuery] = useState('')
   // 活动页内的两个子页签：插件活动（时间线）/ 插件运行状况（遥测）。
   const [subTab, setSubTab] = useState<'activity' | 'status'>('activity')
@@ -1473,6 +1477,7 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
       // 调用 按钮收起消息行，只留轮次/步骤/调用（对应轨迹折叠助手块的效果）。
       .filter((entry) => !messagesHidden || entry.kind === 'tool')
       .filter((entry) => !failedOnly || entry.status === 'failed')
+      .filter((entry) => !oursOnly || (entry.kind === 'tool' && ourToolNames.has(entry.title)))
       .filter((entry) => needle === ''
         || entry.title.toLowerCase().includes(needle)
         // 插件 ID 也能搜：`tool-check` 直接命中我们的行。
@@ -1506,6 +1511,14 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
         >
           {t('view.subTabStatus')}
         </button>
+        <button
+          type="button"
+          className={styles.oursOnlyButton}
+          aria-pressed={oursOnly}
+          onClick={() => setOursOnly((value) => !value)}
+        >
+          {t('bar.oursOnly')}
+        </button>
       </div>
       {subTab === 'status' ? (
         <LiveStatusView
@@ -1514,6 +1527,7 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
           useSession={useSession}
           eventSource={eventSource}
           listToolBundles={listToolBundles}
+          oursOnly={oursOnly}
         />
       ) : (
         <>
@@ -1638,7 +1652,9 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
               <col className={styles.contentColumn} />
             </colgroup>
             {(() => {
-            const turnGroups = [...state.turns].reverse().map((turn) => ({ turn, entries: entriesOfTurn(turn.turn) }))
+            const turnGroups = [...state.turns].reverse()
+              .map((turn) => ({ turn, entries: entriesOfTurn(turn.turn) }))
+              .filter((group) => !oursOnly || group.entries.length > 0)
             const windowed = windowGroups(turnGroups, renderLimit)
             return (
               <>
@@ -1670,6 +1686,11 @@ export function LiveTasksView({ useProjection, t, useSession, eventSource, loadO
                 t={t}
               />
                 ))}
+                {oursOnly && windowed.shown.length === 0 && (
+                  <tr className={styles.virtualSpacer} data-empty-ours="true">
+                    <td colSpan={2}>{t('render.emptyOurs')}</td>
+                  </tr>
+                )}
                 {windowed.hasMore && (
                   <tr className={styles.virtualSpacer} data-virtual-spacer="true">
                     <td colSpan={2}>

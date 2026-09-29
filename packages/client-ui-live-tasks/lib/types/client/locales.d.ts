@@ -38,6 +38,7 @@ export declare const zh: {
     readonly 'head.toolLast': '最近用的工具';
     readonly 'head.toolNone': '还没有用过工具';
     readonly 'bar.search': '搜索轨迹';
+    readonly 'bar.oursOnly': '只看我们的';
     readonly 'bar.expandAll': '展开全部';
     readonly 'bar.collapseAll': '收起全部';
     readonly 'bar.failedOnly': '只看失败';
@@ -64,6 +65,7 @@ export declare const zh: {
     readonly 'gen.running': '生成中…';
     readonly 'gen.reasoning': '思考中…';
     readonly 'render.expandOlder': '展开更早 {n} 行';
+    readonly 'render.emptyOurs': '当前窗口没有咱们的调用——点上方「加载更早的历史」往回翻';
     readonly 'history.loadEarlier': '加载更早的历史';
     readonly 'history.loadingEarlier': '正在加载更早的历史…';
     readonly 'overview.caller': '调用方';
