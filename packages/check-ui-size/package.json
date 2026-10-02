@@ -29,7 +29,7 @@
       "patch": "./cordis.patch.yml"
     },
     "compatibility": {
-      "dsh": ">=0.1.0-rc.8 <0.2.0"
+      "dsh": ">=0.1.0-rc.8 <0.3.0"
     },
     "tokenBudget": {
       "resident": 211,
@@ -38,13 +38,13 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2"
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.6-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.6-alpha.2 <0.3.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1 || 0.1.5-rc.2 || 0.1.6-alpha.1 || 0.1.6-alpha.2"
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.6-alpha.2 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.6-alpha.2 <0.3.0"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"
