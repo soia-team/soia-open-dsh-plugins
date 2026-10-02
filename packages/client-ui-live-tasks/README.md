@@ -148,4 +148,4 @@ None; the package neither assembles nor sends a provider request.
 - **结束原因是协议词，不是本地化文案。** 面板原样显示 `completed` / `aborted` / `error` 等 `TurnEndReason.kind`；理由是未知的。转成人类措辞需要一份随协议增长的映射表，当前没有做。
 - **瞬时文本增量的重复帧会重复计数。** 文本增量没有序号，只按 `time` 与当前步骤筛；同一毫秒内的真实增量都会计入，而重放的瞬时帧也会。这是显示层的计数偏差，且会被该步骤的 durable `assistant/message` 归零，不影响任何其他字段。
 - **`streamedTextLength` 只在宿主可用。** 它衡量「模型正在写」，但客户端半读不到；宿主消费者要自己判断这个字段的用途。
-- **兼容性只在本机验证过。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围不匹配预发布版，peer 依赖因此逐个列举了已发布的预发布版本。加载与渲染是在维护者本机的一次性 profile + 演示 profile 上验证的（`--dump-config` 组合行、内置插件清单页显示「已启用」、真实会话渲染），**不是**在客户环境里验证的。
+- **兼容性已实测两版。** peer 依赖改为区间写法（见 `package.json`，如 `>=0.1.6-alpha.2 <0.3.0`）：宿主 0.2 的官方检查器（`evaluatePluginCompatibility`，`includePrerelease` 语义）按 peerDependencies 判定，区间同时覆盖已发布的预发布版。已在 DSH `0.1.6-alpha.2` 与 `0.2.0-rc.2` 上验证加载，区间内其它版本未逐一实测；`dsh.compatibility.dsh` 同步为 `>=0.1.0-rc.8 <0.3.0`（该字段是仓内约定，0.2 检查器不读它）。

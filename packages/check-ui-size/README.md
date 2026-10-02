@@ -158,5 +158,5 @@ Measurement wins on disagreement; name the layer (layout, font, box model).
 - **还没有溢出检查与命中测试。** 子元素是否越出容器、元素是否真的点得到，都还没有注册成能力；仓内既有的 `scripts/design_board_fit.cjs`、`scripts/design_controls_visible.cjs` 各自独立，本包不调用也不复制它们。
 - **不写证据文件。** 返回值是可引用的结构化 JSON，但本包不落盘到证据目录；需要留档时由调用方保存输出。
 - **没有截图与视觉比对。** 本包只读数值，不做像素比对，也不把图交给视觉模型——那是视觉类插件的能力范围。
-- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围**不匹配预发布版**（如 `0.1.5-rc.2`、`0.1.6-alpha.2`），预发布版本需要同 tuple 的比较器才能满足。peer 依赖因此逐个列举了已发布的预发布版本。本包已在 **DSH `0.1.6-alpha.2`** 上验过加载（见下条）；`dshReleases` 映射等其他版本有证据后再补。
+- **兼容性已实测两版。** peer 依赖改为区间写法（见 `package.json`，如 `>=0.1.6-alpha.2 <0.3.0`）：宿主 0.2 的官方检查器（`evaluatePluginCompatibility`，`includePrerelease` 语义）按 peerDependencies 判定，区间同时覆盖已发布的预发布版。已在 DSH `0.1.6-alpha.2` 与 `0.2.0-rc.2` 上验证加载，区间内其它版本未逐一实测；`dsh.compatibility.dsh` 同步为 `>=0.1.0-rc.8 <0.3.0`（该字段是仓内约定，0.2 检查器不读它）。
 - **复核深度。** 仓库测试覆盖测量核心（含真实浏览器用例）。**加载已实测**：独立 `DSH_HOME` 的一次性 profile 里用 git 源安装，`pluginInventory/list` 报 `fiberPhase: active`。**真实模型调用已实测（2026-09-21）**：模型自己选中 `check_ui_size`、传对三个参数，拿到实测 34px 与 `diff.height = 7`（当时用的是瘦身前的描述文本；瘦身后尚未复跑）。逐条证据见 [docs/verification.md](../../docs/verification.md)。

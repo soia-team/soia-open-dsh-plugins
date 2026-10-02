@@ -159,4 +159,4 @@ This git command mutates shared checkout state — stash, checkout, add -A, or a
 - **插件行内配置未实现。** 项目只能通过 `.dsh/policy.yml` 覆盖，不能在 profile 的插件行里传规则；多项目共享一份 profile 时，规则按会话工作目录分别解析。
 - **`deny` 不短路其它插件的 `ask`。** guard 在所有 `tools/pre-execute` 监听器之后运行，所以另一条插件先提出的确认仍可能弹给用户，随后才被本包拒绝；结果正确（拒绝优先），但用户可能白确认一次。
 - **加载与真实调用尚未实测。** 本版有单测（83 例）与三份聚焦检查（vitest / oxlint / build:types）背书，但**没有**在真实 DSH 会话里装进 profile 跑过：`--dump-config` 层的证据、`fiberPhase: active` 的加载证据、一次真实的 `ask` / `deny` 调用证据都还没有，也没有登记到 [docs/verification.md](../../docs/verification.md)。
-- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围不匹配预发布版，所以 peer 依赖逐个列举了已发布的预发布版本。本包的类型与扩展点按 DSH `0.1.6-alpha.2` 的声明编写。
+- **兼容性已实测两版。** peer 依赖改为区间写法（见 `package.json`，如 `>=0.1.6-alpha.2 <0.3.0`）：宿主 0.2 的官方检查器（`evaluatePluginCompatibility`，`includePrerelease` 语义）按 peerDependencies 判定，区间同时覆盖已发布的预发布版。已在 DSH `0.1.6-alpha.2` 与 `0.2.0-rc.2` 上验证加载，区间内其它版本未逐一实测；`dsh.compatibility.dsh` 同步为 `>=0.1.0-rc.8 <0.3.0`（该字段是仓内约定，0.2 检查器不读它）。

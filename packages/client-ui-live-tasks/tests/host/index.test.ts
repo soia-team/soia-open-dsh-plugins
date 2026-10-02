@@ -566,7 +566,7 @@ describe('name derivation', () => {
     const { manifest } = readManifestFacts()
 
     expect(manifest.dsh.tokenBudget?.resident).toBe(0)
-    expect(manifest.dsh.compatibility?.dsh).toBe('>=0.1.0-rc.8 <0.2.0')
+    expect(manifest.dsh.compatibility?.dsh).toBe('>=0.1.0-rc.8 <0.3.0')
   })
 
   it('mirrors every peer dependency in devDependencies at the same range', () => {

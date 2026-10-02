@@ -216,6 +216,6 @@ Audit a session log for whether the expected skills were loaded before the work 
 - **判定不了「加载对了但理解错了」。** 本包只证明技能正文进了上下文，不证明模型按它做了事。判据里的「后续工具调用」是**存在性**证据，不是相关性证据。
 - **`$DSH_HOME/sessions` 的扫描深度有限。** 默认递归 4 层、只认 `session` 开头的 `*.jsonl.zstd` / `*.jsonl`。更深或非默认命名的会话需要显式传 `sessionPath`。
 - **损坏的会话只能尽力而为。** 解析失败的记录**计数丢弃但不报错**（当前返回值里还没有暴露这个计数——`malformedLineCount` 在内部结构里，未上浮到结果）。最后一个不完整的 zstd 帧被丢弃，`truncatedTail` 同样没上浮。要区分「会话确实没加载技能」和「日志被截断所以看不到」，需要把这两个计数加进返回值。
-- **兼容性未经实测。** `dsh.compatibility.dsh` 的范围 `>=0.1.0-rc.8 <0.2.0` 是生态惯例写法；按 node-semver 的严格语义，该范围**不匹配预发布版**，peer 依赖因此逐个列举了已发布的预发布版本。本包**尚未在活 profile 里验证过加载**（`pluginInventory/list` 报 `fiberPhase: active` 这一步没做），也没做过模型发起的真实调用。
+- **兼容性已实测两版。** peer 依赖改为区间写法（见 `package.json`，如 `>=0.1.6-alpha.2 <0.3.0`）：宿主 0.2 的官方检查器（`evaluatePluginCompatibility`，`includePrerelease` 语义）按 peerDependencies 判定，区间同时覆盖已发布的预发布版。已在 DSH `0.1.6-alpha.2` 与 `0.2.0-rc.2` 上验证加载，区间内其它版本未逐一实测；`dsh.compatibility.dsh` 同步为 `>=0.1.0-rc.8 <0.3.0`（该字段是仓内约定，0.2 检查器不读它）。
 - **zstd 用例在旧 Node 上是跳过而不是通过。** zstd 相关的测试用 `it.skipIf` 在缺少 `zstdCompressSync` 的 Node 上跳过（本仓 CI 跑 Node 22，需要 22.15+ 才会执行）。所以「测试全绿」在 22.15 以下并不等于 zstd 路径被验证过；本地是在 Node 26.9.0 上实测全部执行的。
 - **取数结论的样本偏差。** 上面的事件形状来自本机 `~/.dsh/sessions` 的 342 个会话，全部由同一版本的 DSH 写出。DSH 换 generation（例如出现 `session.v4.jsonl.zstd`）时形状可能变，届时应重跑取数核对而不是沿用本页结论。
